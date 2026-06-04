@@ -54,3 +54,9 @@ jobs:
 
       - name: Run tests
         run: cargo test --workspace
+
+      - name: Install cargo-audit
+        run: cargo install --locked cargo-audit --version "^0.21"
+
+      - name: Audit dependencies for known vulnerabilities
+        run: cargo audit

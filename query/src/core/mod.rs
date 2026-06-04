@@ -681,6 +681,9 @@ async fn postgres_single_primary_key_column(
 }
 
 #[cfg(test)]
+mod round_trip;
+
+#[cfg(test)]
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{

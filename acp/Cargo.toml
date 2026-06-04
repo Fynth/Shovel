@@ -32,3 +32,6 @@ tokio-util = { version = "0.7", features = ["compat"] }
 tokenizers = { version = "0.21", optional = true }
 ort = { version = "2.0.0-rc.9", features = ["half", "ndarray"], optional = true }
 tracing = "0.1"
+
+[build-dependencies]
+reqwest = { version = "0.12.15", default-features = false, features = ["blocking", "rustls-tls"] }

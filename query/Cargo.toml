@@ -19,4 +19,5 @@ tokio.workspace = true
 uuid = "1.17.0"
 
 [dev-dependencies]
+driver-sqlite.workspace = true
 tokio.workspace = true

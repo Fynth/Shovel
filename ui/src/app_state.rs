@@ -292,9 +292,10 @@ pub fn show_toast(message: impl Into<String>, kind: ToastKind) {
 pub fn dismiss_toast(id: u64) {
     // Cancel any in-flight auto-dismiss timer for this toast.
     if let Ok(mut tokens) = TOAST_CANCEL_TOKENS.lock()
-        && let Some(token) = tokens.remove(&id) {
-            token.cancel();
-        }
+        && let Some(token) = tokens.remove(&id)
+    {
+        token.cancel();
+    }
     APP_TOAST.with_mut(|toasts| {
         toasts.retain(|t| t.id != id);
     });
@@ -507,10 +508,11 @@ fn persist_session_state() {
                 let err = join_err.to_string();
                 eprintln!("Failed to persist session state: {}", err);
                 if let Ok(mut last_error) = LAST_SESSION_PERSIST_ERROR.lock()
-                    && last_error.as_ref() != Some(&err) {
-                        *last_error = Some(err.clone());
-                        toast_error(format!("Failed to save session state: {err}"));
-                    }
+                    && last_error.as_ref() != Some(&err)
+                {
+                    *last_error = Some(err.clone());
+                    toast_error(format!("Failed to save session state: {err}"));
+                }
             }
         }
     });

@@ -58,9 +58,11 @@ fn main() {
         return;
     }
 
-    if panic::catch_unwind(launch_app).is_err() {
-        std::process::exit(1);
-    }
+    // Do not wrap `launch_app` in `panic::catch_unwind`: the crash-reporter hook
+    // installed above already logs panics to disk and shows a native error
+    // dialog. Catching here would swallow the unwind and prevent the default
+    // panic handler from running normally.
+    launch_app();
 }
 
 fn launch_app() {
