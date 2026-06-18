@@ -331,9 +331,7 @@ fn try_dollar_quote(bytes: &[u8], pos: usize) -> Option<(String, usize)> {
         while j < bytes.len() {
             let cj = bytes[j];
             if cj == b'$' {
-                let tag = std::str::from_utf8(&bytes[pos + 1..j])
-                    .ok()?
-                    .to_string();
+                let tag = std::str::from_utf8(&bytes[pos + 1..j]).ok()?.to_string();
                 return Some((tag, j + 1));
             }
             if !(cj.is_ascii_alphanumeric() || cj == b'_') {
@@ -365,9 +363,8 @@ fn classify_kind(sql: &str) -> StatementKind {
     // leading comments and parentheses.
     let keyword = super::leading_keyword(s);
     match keyword.as_deref() {
-        Some("select" | "with" | "show" | "describe" | "desc" | "explain" | "pragma") => {
-            StatementKind::Read
-        }
+        Some("select" | "with" | "show" | "describe" | "desc" | "explain" | "pragma") =>
+            StatementKind::Read,
         Some(_) => StatementKind::Write,
         None => StatementKind::Write,
     }
@@ -400,9 +397,7 @@ mod tests {
 
     #[test]
     fn strips_line_comments_between_statements() {
-        let stmts = split_sql(
-            "-- header comment\nSELECT 1;\n-- between\nSELECT 2;",
-        );
+        let stmts = split_sql("-- header comment\nSELECT 1;\n-- between\nSELECT 2;");
         assert_eq!(stmts.len(), 2);
         assert_eq!(stmts[0].sql, "-- header comment\nSELECT 1");
         assert_eq!(stmts[1].sql, "-- between\nSELECT 2");
@@ -448,9 +443,7 @@ mod tests {
 
     #[test]
     fn handles_named_dollar_quote() {
-        let stmts = split_sql(
-            "DO $tag$ BEGIN SELECT 1; PERFORM 2; END $tag$; SELECT 3;",
-        );
+        let stmts = split_sql("DO $tag$ BEGIN SELECT 1; PERFORM 2; END $tag$; SELECT 3;");
         assert_eq!(stmts.len(), 2);
         assert!(stmts[0].sql.contains("BEGIN SELECT 1; PERFORM 2; END"));
         assert_eq!(stmts[1].sql, "SELECT 3");
@@ -458,9 +451,7 @@ mod tests {
 
     #[test]
     fn handles_block_comment_with_nesting() {
-        let stmts = split_sql(
-            "/* outer /* inner */ still comment */ SELECT 1; SELECT 2;",
-        );
+        let stmts = split_sql("/* outer /* inner */ still comment */ SELECT 1; SELECT 2;");
         assert_eq!(stmts.len(), 2);
     }
 
@@ -505,9 +496,7 @@ mod tests {
 
     #[test]
     fn multiple_statements_with_blank_lines_and_comments() {
-        let stmts = split_sql(
-            "-- one\n\nSELECT 1;\n\n-- two\nSELECT 2;\n",
-        );
+        let stmts = split_sql("-- one\n\nSELECT 1;\n\n-- two\nSELECT 2;\n");
         assert_eq!(stmts.len(), 2);
     }
 
@@ -516,7 +505,11 @@ mod tests {
         let stmts = split_sql("select 1; SeLeCt 2; insert into t values (1);");
         assert_eq!(
             kinds(&stmts),
-            vec![StatementKind::Read, StatementKind::Read, StatementKind::Write]
+            vec![
+                StatementKind::Read,
+                StatementKind::Read,
+                StatementKind::Write
+            ]
         );
     }
 

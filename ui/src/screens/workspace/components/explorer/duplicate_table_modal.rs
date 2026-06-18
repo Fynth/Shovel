@@ -1,6 +1,8 @@
 use super::{quote_sql_identifier, quoted_table_name_preview};
-use crate::app_state::session_connection;
-use crate::screens::workspace::actions::{read_only_mode_block_status, read_only_mode_enabled};
+use crate::{
+    app_state::session_connection,
+    screens::workspace::actions::{read_only_mode_block_status, read_only_mode_enabled},
+};
 use dioxus::prelude::*;
 use models::{DatabaseKind, TablePreviewSource};
 
@@ -297,9 +299,8 @@ fn duplicated_qualified_name(
 ) -> String {
     match kind {
         DatabaseKind::Sqlite => quote_sql_identifier(table_name.trim()),
-        DatabaseKind::Postgres | DatabaseKind::MySql | DatabaseKind::ClickHouse => {
-            quoted_table_name_preview(kind, source.schema.as_deref(), table_name.trim())
-        }
+        DatabaseKind::Postgres | DatabaseKind::MySql | DatabaseKind::ClickHouse =>
+            quoted_table_name_preview(kind, source.schema.as_deref(), table_name.trim()),
     }
 }
 

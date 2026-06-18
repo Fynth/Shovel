@@ -1,5 +1,8 @@
-use crate::app_state::{APP_STATE, activate_session};
-use crate::app_state::context_menu::{open_context_menu, ContextMenuItem};
+use crate::app_state::{
+    APP_STATE,
+    activate_session,
+    context_menu::{ContextMenuItem, open_context_menu},
+};
 use dioxus::prelude::*;
 use models::{QueryHistoryItem, QueryTabState};
 
@@ -599,8 +602,7 @@ fn build_history_context_menu(
     active_tab_id: Signal<u64>,
     mut history_signal: Signal<Vec<QueryHistoryItem>>,
 ) -> Vec<ContextMenuItem> {
-    use crate::app_state::context_menu::copy_to_clipboard;
-    use crate::screens::workspace::ActionIcon;
+    use crate::{app_state::context_menu::copy_to_clipboard, screens::workspace::ActionIcon};
 
     let mut items: Vec<ContextMenuItem> = Vec::new();
 
@@ -670,9 +672,7 @@ fn build_history_context_menu(
             history_signal.with_mut(|list| list.retain(|i| i.id != id));
             spawn(async move {
                 if let Err(err) = services::QueryHistoryStore::delete(id).await {
-                    crate::app_state::toast_error(format!(
-                        "Failed to delete history entry: {err}"
-                    ));
+                    crate::app_state::toast_error(format!("Failed to delete history entry: {err}"));
                 }
             });
         })
@@ -691,9 +691,8 @@ fn build_history_context_menu(
                         format!("Cleared {n} history entries"),
                         crate::app_state::ToastKind::Info,
                     ),
-                    Err(err) => crate::app_state::toast_error(format!(
-                        "Failed to clear history: {err}"
-                    )),
+                    Err(err) =>
+                        crate::app_state::toast_error(format!("Failed to clear history: {err}")),
                 }
             });
         })

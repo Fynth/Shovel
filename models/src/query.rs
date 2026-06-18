@@ -181,7 +181,10 @@ impl BatchOutcome {
         matches!(self, BatchOutcome::Ok)
     }
     pub fn is_terminal(self) -> bool {
-        matches!(self, BatchOutcome::Ok | BatchOutcome::Error | BatchOutcome::Skipped)
+        matches!(
+            self,
+            BatchOutcome::Ok | BatchOutcome::Error | BatchOutcome::Skipped
+        )
     }
 }
 

@@ -13,8 +13,15 @@
 //! the module are filtered out.
 
 use models::{
-    ClickHouseFormData, ConnectionRequest, DatabaseError, DatabaseKind, MySqlFormData,
-    PostgresFormData, SavedConnection, SqliteFormData, SshTunnelConfig,
+    ClickHouseFormData,
+    ConnectionRequest,
+    DatabaseError,
+    DatabaseKind,
+    MySqlFormData,
+    PostgresFormData,
+    SavedConnection,
+    SqliteFormData,
+    SshTunnelConfig,
 };
 
 fn sqlite_request() -> ConnectionRequest {

@@ -1,11 +1,22 @@
 use crate::app_state::{
-    APP_READ_ONLY_MODE, APP_STATE, APP_UI_SETTINGS, activate_session, session_connection,
+    APP_READ_ONLY_MODE,
+    APP_STATE,
+    APP_UI_SETTINGS,
+    activate_session,
+    session_connection,
 };
 use dioxus::prelude::*;
 use models::{
-    BatchOutcome, BatchResult, BatchRunState, BatchTransactionState, DatabaseConnection,
-    PendingTableChanges, QueryFilter, QueryFilterMode, QueryHistoryItem, QueryOutput, QuerySort,
-    QueryTabState, TablePreviewSource, WorkspaceTabKind,
+    DatabaseConnection,
+    PendingTableChanges,
+    QueryFilter,
+    QueryFilterMode,
+    QueryHistoryItem,
+    QueryOutput,
+    QuerySort,
+    QueryTabState,
+    TablePreviewSource,
+    WorkspaceTabKind,
 };
 use std::time::Instant;
 
@@ -1108,11 +1119,7 @@ pub fn run_active_tab(
 ) {
     let (history, next_history_id) = history;
     let current_id = active_tab_id;
-    let current_tab = tabs
-        .read()
-        .iter()
-        .find(|tab| tab.id == current_id)
-        .cloned();
+    let current_tab = tabs.read().iter().find(|tab| tab.id == current_id).cloned();
 
     let Some(current_tab) = current_tab else {
         return;
@@ -1149,17 +1156,9 @@ pub fn run_active_tab(
 
 /// Run EXPLAIN for the active tab's SQL. Mirrors the toolbar's
 /// Explain button.
-pub fn run_active_tab_explain(
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: u64,
-) {
+pub fn run_active_tab_explain(tabs: Signal<Vec<QueryTabState>>, active_tab_id: u64) {
     let current_id = active_tab_id;
-    let Some(current_tab) = tabs
-        .read()
-        .iter()
-        .find(|tab| tab.id == current_id)
-        .cloned()
-    else {
+    let Some(current_tab) = tabs.read().iter().find(|tab| tab.id == current_id).cloned() else {
         return;
     };
     let sql = current_tab.sql.trim().to_string();
@@ -1178,8 +1177,7 @@ pub fn run_active_tab_explain(
         );
         return;
     }
-    let Some(connection) = tab_connection_or_error(tabs, current_id, current_tab.session_id)
-    else {
+    let Some(connection) = tab_connection_or_error(tabs, current_id, current_tab.session_id) else {
         return;
     };
     run_explain_for_tab(tabs, current_id, connection, sql);
@@ -1193,12 +1191,7 @@ pub fn format_active_tab(
     format_settings: models::SqlFormatSettings,
 ) {
     let current_id = active_tab_id;
-    let Some(current_tab) = tabs
-        .read()
-        .iter()
-        .find(|tab| tab.id == current_id)
-        .cloned()
-    else {
+    let Some(current_tab) = tabs.read().iter().find(|tab| tab.id == current_id).cloned() else {
         return;
     };
     let sql = current_tab.sql.trim();
@@ -1243,7 +1236,11 @@ pub fn toggle_line_comments_in_active_tab(
     let len = sql.len();
     let start = selection.start.min(len);
     let end = selection.end.min(len);
-    let (start, end) = if start <= end { (start, end) } else { (end, start) };
+    let (start, end) = if start <= end {
+        (start, end)
+    } else {
+        (end, start)
+    };
 
     // Snap to the nearest char boundaries (cursor offsets come from
     // JS in UTF-16 units, but we run byte math here — walking
@@ -1259,10 +1256,7 @@ pub fn toggle_line_comments_in_active_tab(
 
     // Expand to the start of `line_start`'s line and the end of
     // `line_end`'s line.
-    let expanded_start = sql[..line_start]
-        .rfind('\n')
-        .map(|p| p + 1)
-        .unwrap_or(0);
+    let expanded_start = sql[..line_start].rfind('\n').map(|p| p + 1).unwrap_or(0);
     let expanded_end = sql[line_end..]
         .find('\n')
         .map(|p| line_end + p)
@@ -1286,23 +1280,9 @@ pub fn toggle_line_comments_in_active_tab(
             .all(|line| line.trim_start().starts_with("--"));
 
     let new_segment = if all_commented {
-        lines
-            .iter()
-            .map(|line| strip_line_comment(line))
-            .collect::<Vec<_>>()
-            .join("\n")
+        uncomment_segment(segment)
     } else {
-        lines
-            .iter()
-            .map(|line| {
-                if line.trim().is_empty() {
-                    (*line).to_string()
-                } else {
-                    format!("-- {}", line.trim_start())
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
+        comment_segment(segment, 0..0)
     };
 
     let mut new_sql = String::with_capacity(sql.len() + 8);
@@ -1374,11 +1354,7 @@ pub fn save_active_tab_as_saved_query(
     let title = item.title.clone();
     saved_queries_signal.with_mut(|items| {
         items.push(item.clone());
-        items.sort_by(|a, b| {
-            a.title
-                .cmp(&b.title)
-                .then_with(|| a.id.cmp(&b.id))
-        });
+        items.sort_by(|a, b| a.title.cmp(&b.title).then_with(|| a.id.cmp(&b.id)));
     });
     let id = item.id;
     let item_for_storage = item;
@@ -1413,20 +1389,15 @@ pub fn indent_lines_in_active_tab(
     let len = sql.len();
     let start = selection.start.min(len);
     let end = selection.end.min(len);
-    let (start, end) = if start <= end { (start, end) } else { (end, start) };
+    let (start, end) = if start <= end {
+        (start, end)
+    } else {
+        (end, start)
+    };
     let expanded_start = sql[..start].rfind('\n').map(|p| p + 1).unwrap_or(0);
-    let expanded_end = sql[end..]
-        .find('\n')
-        .map(|p| end + p)
-        .unwrap_or(len);
+    let expanded_end = sql[end..].find('\n').map(|p| end + p).unwrap_or(len);
     let segment = &sql[expanded_start..expanded_end];
-    let mut new_segment = String::with_capacity(segment.len() + 32);
-    for (idx, line) in segment.split('\n').enumerate() {
-        if idx > 0 {
-            new_segment.push('\n');
-        }
-        new_segment.push_str(&apply_indent(line, direction));
-    }
+    let new_segment = indent_segment(segment, direction);
     let new_sql = format!(
         "{}{}{}",
         &sql[..expanded_start],
@@ -1489,21 +1460,67 @@ fn apply_indent(line: &str, direction: IndentDirection) -> String {
     }
 }
 
+// ─────────────────── Pure segment transforms ───────────────────
+//
+// These functions operate on a `&str` segment of SQL without any
+// Dioxus state. They power both the runtime-bound Signal helpers
+// (see the public `toggle_line_comments_in_active_tab` and
+// `indent_lines_in_active_tab`) and the unit tests above. Keeping
+// the transform pure makes the algorithms testable without a
+// runtime and reusable from outside the workspace context.
+
+pub(crate) fn comment_segment(sql: &str, _selection: std::ops::Range<usize>) -> String {
+    sql.split('\n')
+        .map(|line| {
+            if line.trim().is_empty() {
+                line.to_string()
+            } else {
+                format!("-- {}", line.trim_start())
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub(crate) fn uncomment_segment(sql: &str) -> String {
+    sql.split('\n')
+        .map(strip_line_comment)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub(crate) fn indent_segment(sql: &str, direction: IndentDirection) -> String {
+    sql.split('\n')
+        .map(|line| apply_indent(line, direction))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        append_query_page, apply_indent, clear_active_tab_sql, comment_segment,
-        format_loaded_rows_from_source_status, format_loaded_rows_status, indent_segment,
-        redact_sql, rows_toolbar_summary, strip_line_comment, sync_tab_sql_draft,
-        toggle_cached_execution_plan, toggle_line_comments_in_active_tab, uncomment_segment,
         IndentDirection,
+        append_query_page,
+        apply_indent,
+        comment_segment,
+        format_loaded_rows_from_source_status,
+        format_loaded_rows_status,
+        indent_segment,
+        redact_sql,
+        rows_toolbar_summary,
+        strip_line_comment,
+        sync_tab_sql_draft,
+        toggle_cached_execution_plan,
+        uncomment_segment,
     };
-    use crate::app_state::APP_STATE;
-    use dioxus::core::Runtime;
-    use dioxus::prelude::{Signal, ReadableExt};
+
     use models::{
-        EditableTableContext, ExecutionPlan, PendingTableChanges, QueryPage, QueryTabState,
-        TablePreviewSource, WorkspaceTabKind,
+        EditableTableContext,
+        ExecutionPlan,
+        QueryPage,
+        QueryTabState,
+        TablePreviewSource,
+        WorkspaceTabKind,
     };
 
     fn query_tab(sql: &str) -> QueryTabState {
@@ -1678,12 +1695,18 @@ mod tests {
     #[test]
     fn apply_indent_in_prepends_two_spaces() {
         assert_eq!(apply_indent("select 1", IndentDirection::In), "  select 1");
-        assert_eq!(apply_indent("  select 1", IndentDirection::In), "    select 1");
+        assert_eq!(
+            apply_indent("  select 1", IndentDirection::In),
+            "    select 1"
+        );
     }
 
     #[test]
     fn apply_indent_out_strips_up_to_two_spaces() {
-        assert_eq!(apply_indent("    select 1", IndentDirection::Out), "  select 1");
+        assert_eq!(
+            apply_indent("    select 1", IndentDirection::Out),
+            "  select 1"
+        );
         assert_eq!(apply_indent("  select 1", IndentDirection::Out), "select 1");
         assert_eq!(apply_indent("select 1", IndentDirection::Out), "select 1");
         // Tabs count as whitespace too; we strip up to 2 byte-units.
@@ -1721,37 +1744,3 @@ mod tests {
         assert_eq!(new_sql, "select 1\nfrom users");
     }
 }
-
-// ─────────────────── Pure segment transforms ───────────────────
-//
-// These functions operate on a `&str` segment of SQL without any
-// Dioxus state. They power both the runtime-bound Signal helpers
-// (see the public `toggle_line_comments_in_active_tab` and
-// `indent_lines_in_active_tab`) and the unit tests above. Keeping
-// the transform pure makes the algorithms testable without a
-// runtime and reusable from outside the workspace context.
-
-pub(crate) fn comment_segment(sql: &str, _selection: std::ops::Range<usize>) -> String {
-    sql.split('\n')
-        .map(|line| {
-            if line.trim().is_empty() {
-                line.to_string()
-            } else {
-                format!("-- {}", line.trim_start())
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-pub(crate) fn uncomment_segment(sql: &str) -> String {
-    sql.split('\n').map(strip_line_comment).collect::<Vec<_>>().join("\n")
-}
-
-pub(crate) fn indent_segment(sql: &str, direction: IndentDirection) -> String {
-    sql.split('\n')
-        .map(|line| apply_indent(line, direction))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-

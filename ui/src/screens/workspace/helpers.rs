@@ -2,7 +2,11 @@ use super::components::{ExplorerConnectionSection, replace_messages};
 use crate::app_state::APP_UI_SETTINGS;
 use dioxus::prelude::*;
 use models::{
-    AcpPanelState, AcpUiMessage, ChatThreadSummary, WorkspaceToolDock, WorkspaceToolLayout,
+    AcpPanelState,
+    AcpUiMessage,
+    ChatThreadSummary,
+    WorkspaceToolDock,
+    WorkspaceToolLayout,
     WorkspaceToolPanel,
 };
 
@@ -361,8 +365,11 @@ pub fn tool_panel_class(panel: WorkspaceToolPanel) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        derive_chat_thread_title, format_explorer_error, is_low_signal_explorer_status,
-        reset_panel_for_thread, should_render_explorer_status,
+        derive_chat_thread_title,
+        format_explorer_error,
+        is_low_signal_explorer_status,
+        reset_panel_for_thread,
+        should_render_explorer_status,
     };
     use models::{AcpLaunchRequest, AcpOllamaConfig, AcpPanelState, AcpUiMessage};
 

@@ -16,19 +16,23 @@
 //! Clear menu. The webview's own context menu is disabled at
 //! launch time in `app::main`, so this listener is the only way the
 //! user can access those actions via the mouse.
-//!
 
 /// JavaScript installed once at first mount to handle right-clicks
 /// inside text fields. The full source lives in
 /// `app/assets/text-input-menu.js` and is included as a `&'static
 /// str` so it survives the asset bundler.
-const TEXT_INPUT_MENU_SCRIPT: &str =
-    include_str!("../../../app/assets/text-input-menu.js");
+const TEXT_INPUT_MENU_SCRIPT: &str = include_str!("../../../app/assets/text-input-menu.js");
 
-use crate::app_state::context_menu::{
-    clamp_to_viewport, close_context_menu, invoke_callback, ContextMenuState, CONTEXT_MENU,
+use crate::{
+    app_state::context_menu::{
+        CONTEXT_MENU,
+        ContextMenuState,
+        clamp_to_viewport,
+        close_context_menu,
+        invoke_callback,
+    },
+    screens::workspace::ActionIcon,
 };
-use crate::screens::workspace::ActionIcon;
 use dioxus::prelude::*;
 
 /// Rough size used to clamp the menu inside the viewport. We do not
@@ -312,7 +316,8 @@ pub fn ContextMenu() -> Element {
 #[component]
 fn IconGlyph(icon: ActionIcon) -> Element {
     match icon {
-        ActionIcon::Run => rsx! { path { d: "M8 6v12l10-6z", fill: "currentColor", stroke: "none" } },
+        ActionIcon::Run =>
+            rsx! { path { d: "M8 6v12l10-6z", fill: "currentColor", stroke: "none" } },
         ActionIcon::Duplicate => rsx! {
             rect { x: "8", y: "8", width: "10", height: "10", rx: "2" }
             path { d: "M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" }

@@ -1,7 +1,13 @@
 use dioxus::prelude::*;
 use models::{
-    AcpMessageKind, AcpPanelState, AcpUiMessage, QueryOutput, QueryPage, QueryTabState,
-    TablePreviewSource, WorkspaceTabKind,
+    AcpMessageKind,
+    AcpPanelState,
+    AcpUiMessage,
+    QueryOutput,
+    QueryPage,
+    QueryTabState,
+    TablePreviewSource,
+    WorkspaceTabKind,
 };
 
 use crate::{
@@ -515,11 +521,17 @@ fn build_page_result_context(label: &str, page: &QueryPage) -> String {
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{
-        MAX_ACTIVE_RESULT_ROWS, build_active_tab_context, build_chat_prompt,
-        build_sql_explanation_prompt, build_sql_generation_prompt, build_sql_plan_prompt,
-        describe_query_output, extract_status_error, preferred_sql_target_tab_id_from_tabs,
+        MAX_ACTIVE_RESULT_ROWS,
+        build_active_tab_context,
+        build_chat_prompt,
+        build_sql_explanation_prompt,
+        build_sql_generation_prompt,
+        build_sql_plan_prompt,
+        describe_query_output,
+        extract_status_error,
+        preferred_sql_target_tab_id_from_tabs,
     };
-    use models::{PendingTableChanges, QueryOutput, QueryPage, QueryTabState, WorkspaceTabKind};
+    use models::{QueryOutput, QueryPage, QueryTabState, WorkspaceTabKind};
 
     #[test]
     fn chat_prompt_requires_english_and_preview_safety() {

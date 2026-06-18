@@ -1,18 +1,34 @@
 use database::DatabaseDriver;
 use driver_clickhouse::ClickHouseDriver;
 use models::{
-    DatabaseConnection, DatabaseError, QueryFilter, QueryOutput, QuerySort, TablePreviewSource,
+    DatabaseConnection,
+    DatabaseError,
+    QueryFilter,
+    QueryOutput,
+    QuerySort,
+    TablePreviewSource,
 };
 
-use super::rows::{
-    mysql_preview_rows_to_paginated_page, mysql_rows_to_paginated_page,
-    postgres_preview_rows_to_paginated_page, sqlite_preview_rows_to_paginated_page,
-};
 use super::{
-    CLICKHOUSE_DIALECT, LOCATOR_COLUMN, MYSQL_DIALECT, POSTGRES_DIALECT, SQLITE_DIALECT,
-    build_clickhouse_locator, build_outer_paginated_query, clickhouse_get_primary_key_columns,
-    clickhouse_json_value_to_string, mysql_effective_schema_name, mysql_locator_expression,
-    mysql_primary_key_columns, quote_identifier_clickhouse,
+    CLICKHOUSE_DIALECT,
+    LOCATOR_COLUMN,
+    MYSQL_DIALECT,
+    POSTGRES_DIALECT,
+    SQLITE_DIALECT,
+    build_clickhouse_locator,
+    build_outer_paginated_query,
+    clickhouse_get_primary_key_columns,
+    clickhouse_json_value_to_string,
+    mysql_effective_schema_name,
+    mysql_locator_expression,
+    mysql_primary_key_columns,
+    quote_identifier_clickhouse,
+    rows::{
+        mysql_preview_rows_to_paginated_page,
+        mysql_rows_to_paginated_page,
+        postgres_preview_rows_to_paginated_page,
+        sqlite_preview_rows_to_paginated_page,
+    },
 };
 
 pub async fn load_table_preview_page(

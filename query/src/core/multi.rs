@@ -30,7 +30,7 @@
 //! 2. Executing each statement via `execute_query_page`.
 //! 3. Updating the `StatementOutcome` for each statement.
 
-use crate::core::splitter::{split_sql, Statement, StatementKind};
+use crate::core::splitter::{Statement, StatementKind, split_sql};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DatabaseFamily {
@@ -125,7 +125,10 @@ pub fn plan_batch(sql: &str, family: DatabaseFamily) -> BatchPlan {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StatementOutcome {
     /// Statement executed successfully, returned some rows or affected rows.
-    Ok { duration_ms: u64, rows: Option<usize> },
+    Ok {
+        duration_ms: u64,
+        rows: Option<usize>,
+    },
     /// Statement execution failed with this error message.
     Error { message: String },
     /// Statement was not executed because a previous statement in the

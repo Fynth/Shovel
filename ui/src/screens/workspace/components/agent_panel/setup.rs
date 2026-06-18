@@ -1,8 +1,10 @@
 use dioxus::prelude::*;
 use models::{AcpMessageKind, AcpPanelState, DeepSeekSettings};
 
-use super::messages::acp_registry_preparing_text;
-use super::state::{apply_connected, push_message};
+use super::{
+    messages::acp_registry_preparing_text,
+    state::{apply_connected, push_message},
+};
 
 const OPENCODE_REGISTRY_AGENT_ID: &str = "opencode";
 const CODEX_REGISTRY_AGENT_ID: &str = "codex-acp";

@@ -1,6 +1,8 @@
 use crate::{
-    app_state::APP_STATE,
-    app_state::context_menu::{open_context_menu, ContextMenuItem},
+    app_state::{
+        APP_STATE,
+        context_menu::{ContextMenuItem, open_context_menu},
+    },
     screens::workspace::actions::{append_to_tab_sql, ensure_tab_for_session, set_active_tab_sql},
 };
 use dioxus::prelude::*;
@@ -301,8 +303,7 @@ fn build_saved_query_context_menu(
     active_tab_id: Signal<u64>,
     next_tab_id: Signal<u64>,
 ) -> Vec<ContextMenuItem> {
-    use crate::app_state::context_menu::copy_to_clipboard;
-    use crate::screens::workspace::ActionIcon;
+    use crate::{app_state::context_menu::copy_to_clipboard, screens::workspace::ActionIcon};
 
     let mut items: Vec<ContextMenuItem> = Vec::new();
 

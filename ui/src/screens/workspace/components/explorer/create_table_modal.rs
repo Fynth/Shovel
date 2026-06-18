@@ -1,9 +1,13 @@
 use super::{
-    default_schema_name, quote_clickhouse_identifier, quote_sql_identifier,
+    default_schema_name,
+    quote_clickhouse_identifier,
+    quote_sql_identifier,
     quoted_table_name_preview,
 };
-use crate::app_state::session_connection;
-use crate::screens::workspace::actions::{read_only_mode_block_status, read_only_mode_enabled};
+use crate::{
+    app_state::session_connection,
+    screens::workspace::actions::{read_only_mode_block_status, read_only_mode_enabled},
+};
 use dioxus::prelude::*;
 use models::DatabaseKind;
 use std::collections::HashSet;
@@ -647,34 +651,30 @@ fn new_create_table_column(kind: DatabaseKind) -> CreateTableColumnDraft {
 
 fn create_table_default_type(kind: DatabaseKind, is_identity: bool) -> &'static str {
     match kind {
-        DatabaseKind::Sqlite => {
+        DatabaseKind::Sqlite =>
             if is_identity {
                 "INTEGER"
             } else {
                 "TEXT"
-            }
-        }
-        DatabaseKind::Postgres => {
+            },
+        DatabaseKind::Postgres =>
             if is_identity {
                 "BIGINT"
             } else {
                 "TEXT"
-            }
-        }
-        DatabaseKind::MySql => {
+            },
+        DatabaseKind::MySql =>
             if is_identity {
                 "BIGINT"
             } else {
                 "VARCHAR(255)"
-            }
-        }
-        DatabaseKind::ClickHouse => {
+            },
+        DatabaseKind::ClickHouse =>
             if is_identity {
                 "UInt64"
             } else {
                 "String"
-            }
-        }
+            },
     }
 }
 
@@ -879,9 +879,8 @@ fn preview_create_table_columns_sql(
             .filter(|column| column.key)
             .map(|column| match kind {
                 DatabaseKind::MySql => quote_clickhouse_identifier(preview_column_name(column)),
-                DatabaseKind::Sqlite | DatabaseKind::Postgres | DatabaseKind::ClickHouse => {
-                    quote_sql_identifier(preview_column_name(column))
-                }
+                DatabaseKind::Sqlite | DatabaseKind::Postgres | DatabaseKind::ClickHouse =>
+                    quote_sql_identifier(preview_column_name(column)),
             })
             .collect::<Vec<_>>()
             .join(", ");
@@ -897,12 +896,10 @@ fn preview_create_table_column_sql(
     key_count: usize,
 ) -> String {
     let name = match kind {
-        DatabaseKind::ClickHouse | DatabaseKind::MySql => {
-            quote_clickhouse_identifier(preview_column_name(column))
-        }
-        DatabaseKind::Sqlite | DatabaseKind::Postgres => {
-            quote_sql_identifier(preview_column_name(column))
-        }
+        DatabaseKind::ClickHouse | DatabaseKind::MySql =>
+            quote_clickhouse_identifier(preview_column_name(column)),
+        DatabaseKind::Sqlite | DatabaseKind::Postgres =>
+            quote_sql_identifier(preview_column_name(column)),
     };
     let data_type = column
         .data_type
@@ -920,7 +917,7 @@ fn preview_create_table_column_sql(
 
     let default_value = column.default_value.trim();
     match kind {
-        DatabaseKind::Sqlite => {
+        DatabaseKind::Sqlite =>
             if column.auto_increment {
                 format!("{name} INTEGER PRIMARY KEY AUTOINCREMENT")
             } else {
@@ -938,8 +935,7 @@ fn preview_create_table_column_sql(
                     parts.push("PRIMARY KEY".to_string());
                 }
                 parts.join(" ")
-            }
-        }
+            },
         DatabaseKind::Postgres => {
             let mut parts = vec![format!("{name} {data_type}")];
             if column.auto_increment {
@@ -1070,18 +1066,14 @@ fn resolve_create_table_columns(
             }
 
             match kind {
-                DatabaseKind::Sqlite => {
-                    resolve_sqlite_create_table_column(column, data_type, key_count)
-                }
-                DatabaseKind::Postgres => {
-                    resolve_postgres_create_table_column(column, data_type, key_count)
-                }
-                DatabaseKind::MySql => {
-                    resolve_mysql_create_table_column(column, data_type, key_count)
-                }
-                DatabaseKind::ClickHouse => {
-                    resolve_clickhouse_create_table_column(column, data_type)
-                }
+                DatabaseKind::Sqlite =>
+                    resolve_sqlite_create_table_column(column, data_type, key_count),
+                DatabaseKind::Postgres =>
+                    resolve_postgres_create_table_column(column, data_type, key_count),
+                DatabaseKind::MySql =>
+                    resolve_mysql_create_table_column(column, data_type, key_count),
+                DatabaseKind::ClickHouse =>
+                    resolve_clickhouse_create_table_column(column, data_type),
             }
         })
         .collect()
@@ -1405,8 +1397,11 @@ impl ClickHouseEnginePreset {
 #[cfg(test)]
 mod tests {
     use super::{
-        ClickHouseEnginePreset, CreateTableColumnDraft, CreateTableDraft,
-        build_create_table_request, preview_clickhouse_engine_clause,
+        ClickHouseEnginePreset,
+        CreateTableColumnDraft,
+        CreateTableDraft,
+        build_create_table_request,
+        preview_clickhouse_engine_clause,
         selected_create_table_type_value,
     };
     use models::DatabaseKind;

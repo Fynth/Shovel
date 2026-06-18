@@ -4,12 +4,24 @@ use models::{DatabaseConnection, DatabaseError, TablePreviewSource};
 use sqlx::Row;
 
 use super::{
-    build_insert_row_sql, clickhouse_get_primary_key_columns, clickhouse_type_supports_auto_id,
-    invalid_sqlite_locator, mysql_effective_schema_name, mysql_primary_key_columns,
-    mysql_single_primary_key_column, mysql_type_supports_auto_id, parse_clickhouse_locator,
-    parse_mysql_locator, parse_next_numeric_id, postgres_single_primary_key_column,
-    postgres_type_supports_auto_id, quote_identifier, quote_identifier_clickhouse, sql_literal,
-    sqlite_single_primary_key_column, sqlite_type_supports_auto_id,
+    build_insert_row_sql,
+    clickhouse_get_primary_key_columns,
+    clickhouse_type_supports_auto_id,
+    invalid_sqlite_locator,
+    mysql_effective_schema_name,
+    mysql_primary_key_columns,
+    mysql_single_primary_key_column,
+    mysql_type_supports_auto_id,
+    parse_clickhouse_locator,
+    parse_mysql_locator,
+    parse_next_numeric_id,
+    postgres_single_primary_key_column,
+    postgres_type_supports_auto_id,
+    quote_identifier,
+    quote_identifier_clickhouse,
+    sql_literal,
+    sqlite_single_primary_key_column,
+    sqlite_type_supports_auto_id,
 };
 
 pub async fn update_table_cell(

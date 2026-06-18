@@ -16,9 +16,16 @@ mod table_editor;
 mod tabs;
 
 pub(crate) use agent_panel::{
-    AcpAgentPanel, AgentSqlExecutionMode, apply_acp_events, default_acp_panel_state,
-    ensure_default_sql_agent_connected, execute_agent_sql_request, extract_sql_candidate,
-    preferred_sql_target_tab_id, replace_messages, send_sql_generation_request,
+    AcpAgentPanel,
+    AgentSqlExecutionMode,
+    apply_acp_events,
+    default_acp_panel_state,
+    ensure_default_sql_agent_connected,
+    execute_agent_sql_request,
+    extract_sql_candidate,
+    preferred_sql_target_tab_id,
+    replace_messages,
+    send_sql_generation_request,
 };
 pub use chart::ResultChart;
 pub use execution_plan::ExecutionPlanView;

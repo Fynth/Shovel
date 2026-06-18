@@ -1,5 +1,7 @@
-use crate::app_state::{APP_STATE, activate_session, open_connection_screen, remove_session};
-use crate::screens::workspace::components::{ActionIcon, IconButton};
+use crate::{
+    app_state::{APP_STATE, activate_session, open_connection_screen, remove_session},
+    screens::workspace::components::{ActionIcon, IconButton},
+};
 use dioxus::prelude::*;
 use models::{ConnectionRequest, QueryTabState};
 

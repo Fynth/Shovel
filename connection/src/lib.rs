@@ -17,7 +17,11 @@ use driver_postgres::{PgConfig, PgDriver};
 #[cfg(feature = "sqlite")]
 use driver_sqlite::SqliteDriver;
 use models::{
-    ClickHouseFormData, ConnectionRequest, DatabaseConnection, DatabaseError, SshTunnelConfig,
+    ClickHouseFormData,
+    ConnectionRequest,
+    DatabaseConnection,
+    DatabaseError,
+    SshTunnelConfig,
 };
 #[cfg(feature = "clickhouse")]
 use reqwest::Url;

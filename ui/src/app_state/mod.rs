@@ -29,13 +29,19 @@
 
 use dioxus::prelude::*;
 use models::{
-    AppState, AppThemePreference, AppUiSettings, ConnectionRequest, ConnectionSession,
-    DatabaseConnection, SqlFormatSettings,
+    AppState,
+    AppThemePreference,
+    AppUiSettings,
+    ConnectionRequest,
+    ConnectionSession,
+    DatabaseConnection,
+    SqlFormatSettings,
 };
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::time::Duration;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
@@ -513,11 +519,10 @@ fn persist_session_state() {
         .await;
 
         match result {
-            Ok(Ok(())) => {
+            Ok(Ok(())) =>
                 if let Ok(mut last_error) = LAST_SESSION_PERSIST_ERROR.lock() {
                     *last_error = None;
-                }
-            }
+                },
             Ok(Err(err)) => {
                 eprintln!("Failed to persist session state: {}", err);
                 let should_toast = if let Ok(mut last_error) = LAST_SESSION_PERSIST_ERROR.lock() {

@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-use std::fs;
-use std::io::ErrorKind;
+use std::{collections::BTreeMap, fs, io::ErrorKind};
 
 use crate::fs_store::secret_store_path;
 
@@ -44,14 +42,13 @@ pub(crate) fn delete_fallback_secret(service: &str, account: &str) -> Result<(),
 fn read_secret_store() -> Result<PersistedSecretStore, String> {
     let path = secret_store_path();
     match fs::read_to_string(&path) {
-        Ok(content) => {
+        Ok(content) =>
             if content.trim().is_empty() {
                 Ok(PersistedSecretStore::default())
             } else {
                 serde_json::from_str(&content)
                     .map_err(|err| format!("failed to parse {}: {err}", path.display()))
-            }
-        }
+            },
         Err(err) if err.kind() == ErrorKind::NotFound => Ok(PersistedSecretStore::default()),
         Err(err) => Err(format!("failed to read {}: {err}", path.display())),
     }

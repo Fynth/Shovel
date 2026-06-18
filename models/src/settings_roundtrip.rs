@@ -12,7 +12,11 @@
 //! breaks, every Shovel user who upgrades will see reset settings.
 
 use crate::{
-    AppThemePreference, AppUiSettings, SqlFormatSettings, WorkspaceToolDock, WorkspaceToolLayout,
+    AppThemePreference,
+    AppUiSettings,
+    SqlFormatSettings,
+    WorkspaceToolDock,
+    WorkspaceToolLayout,
     WorkspaceToolPanel,
 };
 use serde_json::{Value, json};
@@ -120,10 +124,12 @@ fn workspace_tool_layout_dock_for_follows_inspector_membership() {
 
 #[test]
 fn app_ui_settings_with_modified_values_round_trip() {
-    let mut original = AppUiSettings::default();
-    original.theme = AppThemePreference::Light;
-    original.read_only_mode = true;
-    original.default_page_size = 250;
+    let mut original = AppUiSettings {
+        theme: AppThemePreference::Light,
+        read_only_mode: true,
+        default_page_size: 250,
+        ..AppUiSettings::default()
+    };
     original
         .tool_panel_layout
         .sidebar

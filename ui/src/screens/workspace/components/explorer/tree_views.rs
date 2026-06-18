@@ -1,13 +1,29 @@
-use super::duplicate_table_modal::{DuplicateTableModal, DuplicateTableTarget};
-use super::{count_objects, disconnect_session, split_children};
-use crate::app_state::context_menu::{open_context_menu, ContextMenuItem};
-use crate::app_state::{APP_STATE, activate_session, session_connection};
-use crate::screens::workspace::actions::{
-    ensure_tab_for_session, mark_table_deleted, mark_table_truncated, read_only_mode_enabled,
-    run_table_preview_for_tab, tab_connection_or_error,
+use super::{
+    count_objects,
+    disconnect_session,
+    duplicate_table_modal::{DuplicateTableModal, DuplicateTableTarget},
+    split_children,
 };
-use crate::screens::workspace::ActionIcon;
-use crate::screens::workspace::components::IconButton;
+use crate::{
+    app_state::{
+        APP_STATE,
+        activate_session,
+        context_menu::{ContextMenuItem, open_context_menu},
+        session_connection,
+    },
+    screens::workspace::{
+        ActionIcon,
+        actions::{
+            ensure_tab_for_session,
+            mark_table_deleted,
+            mark_table_truncated,
+            read_only_mode_enabled,
+            run_table_preview_for_tab,
+            tab_connection_or_error,
+        },
+        components::IconButton,
+    },
+};
 use dioxus::prelude::*;
 use models::{DatabaseKind, ExplorerNode, ExplorerNodeKind, QueryTabState, TablePreviewSource};
 use rfd::{AsyncMessageDialog, MessageButtons, MessageDialogResult, MessageLevel};
@@ -480,9 +496,8 @@ fn table_mutation_error_title(action: TableMutationKind) -> &'static str {
 
 fn table_mutation_connection_closed_description(action: TableMutationKind) -> &'static str {
     match action {
-        TableMutationKind::Truncate => {
-            "The connection was closed before the table could be truncated."
-        }
+        TableMutationKind::Truncate =>
+            "The connection was closed before the table could be truncated.",
         TableMutationKind::Drop => "The connection was closed before the table could be dropped.",
     }
 }
@@ -540,41 +555,29 @@ fn build_explorer_context_menu(
     if matches!(kind, ExplorerNodeKind::Table | ExplorerNodeKind::View) {
         let source = preview_source.clone();
         items.push(
-            ContextMenuItem::new(
-                "Open in editor",
-                move || {
-                    let source = source.clone();
-                    let current_id = ensure_tab_for_session(
-                        tabs,
-                        active_tab_id,
-                        next_tab_id,
-                        session_id,
-                    );
-                    let Some(current_tab) = tabs
-                        .read()
-                        .iter()
-                        .find(|tab| tab.id == current_id)
-                        .cloned()
-                    else {
-                        return;
-                    };
-                    let Some(connection) = tab_connection_or_error(
-                        tabs,
-                        current_id,
-                        current_tab.session_id,
-                    ) else {
-                        return;
-                    };
-                    run_table_preview_for_tab(
-                        tabs,
-                        current_id,
-                        connection,
-                        source,
-                        0,
-                        current_tab.page_size,
-                    );
-                },
-            )
+            ContextMenuItem::new("Open in editor", move || {
+                let source = source.clone();
+                let current_id =
+                    ensure_tab_for_session(tabs, active_tab_id, next_tab_id, session_id);
+                let Some(current_tab) =
+                    tabs.read().iter().find(|tab| tab.id == current_id).cloned()
+                else {
+                    return;
+                };
+                let Some(connection) =
+                    tab_connection_or_error(tabs, current_id, current_tab.session_id)
+                else {
+                    return;
+                };
+                run_table_preview_for_tab(
+                    tabs,
+                    current_id,
+                    connection,
+                    source,
+                    0,
+                    current_tab.page_size,
+                );
+            })
             .with_icon(ActionIcon::Run),
         );
     }

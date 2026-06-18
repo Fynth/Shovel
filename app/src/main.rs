@@ -4,13 +4,17 @@
 )]
 
 use acp_core::{
-    EmbeddedDeepSeekAgentConfig, EmbeddedOllamaAgentConfig, run_embedded_deepseek_agent,
+    EmbeddedDeepSeekAgentConfig,
+    EmbeddedOllamaAgentConfig,
+    run_embedded_deepseek_agent,
     run_embedded_ollama_agent,
 };
 use dioxus::{
     LaunchBuilder,
     desktop::{
-        Config, LogicalSize, WindowBuilder,
+        Config,
+        LogicalSize,
+        WindowBuilder,
         tao::{event_loop::EventLoopBuilder, window::Icon as TaoIcon},
     },
     prelude::*,
@@ -264,9 +268,8 @@ fn try_run_embedded_acp_agent() -> Option<Result<(), String>> {
     }
 
     Some(match args.get(1).map(String::as_str) {
-        Some("deepseek") => {
-            parse_deepseek_agent_args(&args[2..]).and_then(run_embedded_deepseek_agent)
-        }
+        Some("deepseek") =>
+            parse_deepseek_agent_args(&args[2..]).and_then(run_embedded_deepseek_agent),
         Some("ollama") => parse_ollama_agent_args(&args[2..]).and_then(run_embedded_ollama_agent),
         Some(other) => Err(format!("Unsupported embedded ACP agent `{other}`")),
         None => Err("Missing embedded ACP agent name".to_string()),
@@ -291,15 +294,14 @@ fn parse_deepseek_agent_args(args: &[String]) -> Result<EmbeddedDeepSeekAgentCon
             "--base-url" => base_url = Some(value.clone()),
             "--model" => model = Some(value.clone()),
             "--api-key" => api_key = Some(value.clone()),
-            "--thinking" => {
+            "--thinking" =>
                 thinking_enabled = match value.trim().to_ascii_lowercase().as_str() {
                     "enabled" | "true" | "1" | "yes" => true,
                     "disabled" | "false" | "0" | "no" => false,
                     _ => {
                         return Err("DeepSeek `--thinking` must be enabled or disabled".to_string());
                     }
-                }
-            }
+                },
             "--reasoning-effort" => reasoning_effort = value.clone(),
             other => return Err(format!("Unknown embedded ACP DeepSeek flag `{other}`")),
         }

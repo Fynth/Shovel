@@ -1,6 +1,5 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
-use std::time::Duration;
-use std::{path::PathBuf, str::FromStr};
+use std::{path::PathBuf, str::FromStr, time::Duration};
 
 pub struct SqliteDriver {}
 type SqliteError = sqlx::Error;

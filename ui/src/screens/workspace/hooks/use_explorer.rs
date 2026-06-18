@@ -1,7 +1,9 @@
 use dioxus::prelude::*;
 
-use super::super::components::ExplorerConnectionSection;
-use super::super::helpers::{load_explorer_section, unloaded_explorer_section};
+use super::super::{
+    components::ExplorerConnectionSection,
+    helpers::{load_explorer_section, unloaded_explorer_section},
+};
 use crate::app_state::{APP_SHOW_EXPLORER, APP_STATE};
 
 pub struct ExplorerState {

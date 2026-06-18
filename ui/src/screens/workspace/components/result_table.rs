@@ -1,18 +1,38 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::app_state::context_menu::{open_context_menu, ContextMenuItem};
-use crate::screens::workspace::actions::{
-    append_next_tab_page, apply_active_tab_filter, clear_active_tab_filter, load_tab_page,
-    read_only_mode_block_status, read_only_mode_enabled, refresh_tab_result, rows_toolbar_summary,
-    set_active_tab_status, tab_connection_or_error, toggle_active_tab_sort,
+use crate::{
+    app_state::context_menu::{ContextMenuItem, open_context_menu},
+    screens::workspace::{
+        actions::{
+            append_next_tab_page,
+            apply_active_tab_filter,
+            clear_active_tab_filter,
+            load_tab_page,
+            read_only_mode_block_status,
+            read_only_mode_enabled,
+            refresh_tab_result,
+            rows_toolbar_summary,
+            set_active_tab_status,
+            tab_connection_or_error,
+            toggle_active_tab_sort,
+        },
+        components::{ActionIcon, IconButton, ResultChart},
+    },
 };
-use crate::screens::workspace::components::{ActionIcon, IconButton, ResultChart};
-use dioxus::html::input_data::MouseButton;
-use dioxus::prelude::*;
+use dioxus::{html::input_data::MouseButton, prelude::*};
 use models::{
-    EditableTableContext, PendingCellChange, PendingDeleteRow, PendingInsertRow,
-    PendingTableChanges, QueryFilter, QueryFilterMode, QueryFilterOperator, QueryFilterRule,
-    QueryOutput, QuerySort, QueryTabState,
+    EditableTableContext,
+    PendingCellChange,
+    PendingDeleteRow,
+    PendingInsertRow,
+    PendingTableChanges,
+    QueryFilter,
+    QueryFilterMode,
+    QueryFilterOperator,
+    QueryFilterRule,
+    QueryOutput,
+    QuerySort,
+    QueryTabState,
 };
 use serde_json::{Map, Value};
 
@@ -970,19 +990,23 @@ fn build_header_context_menu(
     // 1. Sort ascending.
     {
         let column_name = column_name.clone();
-        items.push(ContextMenuItem::new("Sort ascending", move || {
-            sort_by_column(&column_name, false, tabs, active_tab_id);
-        })
-        .with_icon(ActionIcon::Previous));
+        items.push(
+            ContextMenuItem::new("Sort ascending", move || {
+                sort_by_column(&column_name, false, tabs, active_tab_id);
+            })
+            .with_icon(ActionIcon::Previous),
+        );
     }
 
     // 2. Sort descending.
     {
         let column_name = column_name.clone();
-        items.push(ContextMenuItem::new("Sort descending", move || {
-            sort_by_column(&column_name, true, tabs, active_tab_id);
-        })
-        .with_icon(ActionIcon::Next));
+        items.push(
+            ContextMenuItem::new("Sort descending", move || {
+                sort_by_column(&column_name, true, tabs, active_tab_id);
+            })
+            .with_icon(ActionIcon::Next),
+        );
     }
 
     // 3. Filter column (opens the existing filter panel with a
@@ -1071,7 +1095,11 @@ fn build_row_context_menu(
                     "INSERT INTO <table> VALUES ({});",
                     values
                         .iter()
-                        .map(|v| if v.is_empty() { "NULL".to_string() } else { v.clone() })
+                        .map(|v| if v.is_empty() {
+                            "NULL".to_string()
+                        } else {
+                            v.clone()
+                        })
                         .collect::<Vec<_>>()
                         .join(", ")
                 ));
@@ -1084,10 +1112,8 @@ fn build_row_context_menu(
     // 4. Filter by every column whose value is non-empty. The
     //    first match wins — a single "Filter row" entry opens the
     //    filter panel with a draft pointing at the first column.
-    let first_non_empty: Option<(usize, String)> = row_values
-        .iter()
-        .enumerate()
-        .find_map(|(idx, v)| {
+    let first_non_empty: Option<(usize, String)> =
+        row_values.iter().enumerate().find_map(|(idx, v)| {
             if v.is_empty() {
                 None
             } else {
@@ -1296,8 +1322,11 @@ fn apply_filter_for_value(
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{
-        filter_panel_should_auto_open, filter_panel_should_collapse_after_clear,
-        format_row_edit_error, result_error_message, result_status_text_for_display,
+        filter_panel_should_auto_open,
+        filter_panel_should_collapse_after_clear,
+        format_row_edit_error,
+        result_error_message,
+        result_status_text_for_display,
         should_render_result_status_chip,
     };
     use crate::screens::workspace::actions::rows_toolbar_summary;
@@ -1459,9 +1488,8 @@ fn is_sortable_sql(sql: &str) -> bool {
 
 fn sort_button_class(active_sort: Option<&QuerySort>, column: &str) -> &'static str {
     match active_sort {
-        Some(sort) if sort.column_name == column => {
-            "results__sort-button results__sort-button--active"
-        }
+        Some(sort) if sort.column_name == column =>
+            "results__sort-button results__sort-button--active",
         _ => "results__sort-button",
     }
 }
@@ -1599,9 +1627,8 @@ fn display_row_key(row: &DisplayRow) -> String {
 
 fn row_class(is_selected: bool, row: &DisplayRow) -> &'static str {
     match (&row.row_ref, is_selected) {
-        (EditableRowRef::PendingInsert(_), true) => {
-            "results__row results__row--draft results__row--selected"
-        }
+        (EditableRowRef::PendingInsert(_), true) =>
+            "results__row results__row--draft results__row--selected",
         (EditableRowRef::PendingInsert(_), false) => "results__row results__row--draft",
         (_, true) => "results__row results__row--selected",
         (_, false) => "results__row",

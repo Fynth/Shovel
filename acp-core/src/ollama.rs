@@ -7,7 +7,8 @@ use std::{
     cell::Cell,
     collections::HashMap,
     sync::{
-        Arc, Mutex,
+        Arc,
+        Mutex,
         atomic::{AtomicBool, Ordering},
     },
 };
@@ -608,9 +609,8 @@ fn content_block_to_text(block: &acp::ContentBlock) -> String {
     match block {
         acp::ContentBlock::Text(text) => text.text.clone(),
         acp::ContentBlock::ResourceLink(link) => format!("Resource: {}", link.uri),
-        acp::ContentBlock::Resource(resource) => {
-            serde_json::to_string_pretty(resource).unwrap_or_else(|_| "<resource>".to_string())
-        }
+        acp::ContentBlock::Resource(resource) =>
+            serde_json::to_string_pretty(resource).unwrap_or_else(|_| "<resource>".to_string()),
         acp::ContentBlock::Image(_) => "<image>".to_string(),
         acp::ContentBlock::Audio(_) => "<audio>".to_string(),
         _ => "<content>".to_string(),

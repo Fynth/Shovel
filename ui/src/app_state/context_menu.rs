@@ -18,8 +18,10 @@
 //! danger, disabled, separator, callback id).
 
 use dioxus::prelude::*;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{
+    collections::HashMap,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use crate::screens::workspace::ActionIcon;
 
@@ -185,12 +187,16 @@ pub fn copy_to_clipboard(text: String) -> ClipboardResult {
             }})()"#
         ),
         Err(err) => {
-            return Err(format!("native clipboard failed and JSON encode failed: {err}"));
+            return Err(format!(
+                "native clipboard failed and JSON encode failed: {err}"
+            ));
         }
     };
     let _ = document::eval(&script);
 
-    Err(result.err().unwrap_or_else(|| "clipboard unavailable".to_string()))
+    Err(result
+        .err()
+        .unwrap_or_else(|| "clipboard unavailable".to_string()))
 }
 
 /// Clamp the menu's top-left corner to the viewport so it does not

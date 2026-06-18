@@ -1,7 +1,13 @@
 use dioxus::prelude::*;
 use models::{
-    ClickHouseFormData, ConnectionRequest, DatabaseKind, MySqlFormData, PostgresFormData,
-    SavedConnection, SqliteFormData, SshTunnelConfig,
+    ClickHouseFormData,
+    ConnectionRequest,
+    DatabaseKind,
+    MySqlFormData,
+    PostgresFormData,
+    SavedConnection,
+    SqliteFormData,
+    SshTunnelConfig,
 };
 use rfd::AsyncFileDialog;
 

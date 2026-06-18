@@ -164,9 +164,8 @@ fn plain_segment(sql: &str) -> SqlHighlightSegment {
 
 fn token_class(highlight_index: Option<usize>) -> &'static str {
     match highlight_index.and_then(|index| SQL_HIGHLIGHT_NAMES.get(index).copied()) {
-        Some("keyword" | "conditional" | "storageclass" | "type.qualifier") => {
-            "sql-editor__token--keyword"
-        }
+        Some("keyword" | "conditional" | "storageclass" | "type.qualifier") =>
+            "sql-editor__token--keyword",
         Some("string") => "sql-editor__token--string",
         Some("number" | "float" | "boolean") => "sql-editor__token--number",
         Some("comment") => "sql-editor__token--comment",

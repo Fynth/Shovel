@@ -1,10 +1,10 @@
 use keyring::{Entry, Error as KeyringError};
 use models::{AppUiSettings, SqlFormatSettings};
 
-use crate::fs_store::{
-    app_ui_settings_path, read_json_file, sql_format_settings_path, write_json_file,
+use crate::{
+    fs_store::{app_ui_settings_path, read_json_file, sql_format_settings_path, write_json_file},
+    secrets::{delete_fallback_secret, load_fallback_secret, save_fallback_secret},
 };
-use crate::secrets::{delete_fallback_secret, load_fallback_secret, save_fallback_secret};
 
 const CODESTRAL_KEYRING_SERVICE: &str = "shovel.codestral";
 const CODESTRAL_KEYRING_ACCOUNT: &str = "default";
@@ -71,9 +71,8 @@ fn load_api_key_sync(service: &str, account: &str) -> Result<String, String> {
                 let _ = delete_fallback_secret(service, account);
                 Ok(api_key)
             }
-            Err(KeyringError::NoEntry) => {
-                Ok(load_fallback_secret(service, account)?.unwrap_or_default())
-            }
+            Err(KeyringError::NoEntry) =>
+                Ok(load_fallback_secret(service, account)?.unwrap_or_default()),
             Err(_) => Ok(load_fallback_secret(service, account)?.unwrap_or_default()),
         },
         Err(_) => Ok(load_fallback_secret(service, account)?.unwrap_or_default()),

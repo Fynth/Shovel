@@ -1,6 +1,8 @@
 use dioxus::prelude::*;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
+use std::{
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
+};
 
 static SELECTION_SYNC_REQUEST_ID: AtomicUsize = AtomicUsize::new(0);
 

@@ -1,10 +1,15 @@
 use dioxus::prelude::*;
 use models::{AcpPanelState, QueryTabState};
 
-use super::prompt::{active_editor_error, active_editor_sql};
-use super::requests::{
-    send_chat_prompt_request, send_sql_error_fix_request, send_sql_explanation_request,
-    send_sql_generation_request, send_sql_plan_request,
+use super::{
+    prompt::{active_editor_error, active_editor_sql},
+    requests::{
+        send_chat_prompt_request,
+        send_sql_error_fix_request,
+        send_sql_explanation_request,
+        send_sql_generation_request,
+        send_sql_plan_request,
+    },
 };
 
 #[component]

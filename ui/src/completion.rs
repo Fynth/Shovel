@@ -300,18 +300,17 @@ async fn stream_deepseek(
                 return Ok(());
             }
 
-            if let Ok(chunk) = serde_json::from_str::<DeepSeekStreamChunk>(data) {
-                if let Some(choice) = chunk.choices.first() {
-                    if let Some(delta) = &choice.delta {
-                        // Only collect actual `content`, not the model's reasoning/thinking.
-                        // Reasoning models (v4-flash) spend tokens on chain-of-thought first,
-                        // then produce the real answer in `content`.
-                        if let Some(content) = &delta.content {
-                            if !content.is_empty() {
-                                let _ = tx.send(CompletionToken::Text(content.clone()));
-                            }
-                        }
-                    }
+            if let Ok(chunk) = serde_json::from_str::<DeepSeekStreamChunk>(data)
+                && let Some(choice) = chunk.choices.first()
+                && let Some(delta) = &choice.delta
+            {
+                // Only collect actual `content`, not the model's reasoning/thinking.
+                // Reasoning models (v4-flash) spend tokens on chain-of-thought first,
+                // then produce the real answer in `content`.
+                if let Some(content) = &delta.content
+                    && !content.is_empty()
+                {
+                    let _ = tx.send(CompletionToken::Text(content.clone()));
                 }
             }
         }

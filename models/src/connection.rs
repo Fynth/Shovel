@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::Path;
-use std::{error::Error, fmt};
+use std::{error::Error, fmt, path::Path};
 use url::Url;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -655,8 +654,13 @@ fn ssh_identity_suffix(config: Option<&SshTunnelConfig>) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        ClickHouseFormData, ConnectionRequest, MySqlFormData, PostgresFormData, SavedConnection,
-        SqliteFormData, SshTunnelConfig,
+        ClickHouseFormData,
+        ConnectionRequest,
+        MySqlFormData,
+        PostgresFormData,
+        SavedConnection,
+        SqliteFormData,
+        SshTunnelConfig,
     };
 
     #[test]

@@ -1,6 +1,5 @@
 use models::ClickHouseFormData;
-use std::sync::OnceLock;
-use std::time::Duration;
+use std::{sync::OnceLock, time::Duration};
 
 // Re-export ClickHouse JSON types from models for backward compatibility.
 pub use models::{ClickHouseJsonMeta, ClickHouseJsonResponse};

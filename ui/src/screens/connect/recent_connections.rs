@@ -2,8 +2,7 @@ use crate::app_state::add_connection_session;
 use dioxus::prelude::*;
 use models::SavedConnection;
 
-use super::edit_connection_modal::EditConnectionModal;
-use super::forms::connection_status_class;
+use super::{edit_connection_modal::EditConnectionModal, forms::connection_status_class};
 
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn recent_connections_loading_text() -> &'static str {

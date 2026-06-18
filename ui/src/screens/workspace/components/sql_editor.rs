@@ -3,26 +3,44 @@ mod highlight;
 #[path = "sql_editor/selection.rs"]
 mod selection;
 
-use crate::app_state::{APP_UI_SETTINGS, APP_SQL_FORMAT_SETTINGS, toast_error};
-use crate::app_state::context_menu::{open_context_menu, ContextMenuItem, close_context_menu};
-use crate::completion::CompletionService;
-use crate::completion::CompletionToken;
-use crate::screens::workspace::actions::{
-    clear_active_tab_sql, format_active_tab, indent_lines_in_active_tab, IndentDirection,
-    replace_active_tab_sql, run_active_tab, run_active_tab_explain, save_active_tab_as_saved_query,
-    sync_active_tab_sql_draft, toggle_line_comments_in_active_tab,
+use crate::{
+    app_state::{
+        APP_SQL_FORMAT_SETTINGS,
+        APP_UI_SETTINGS,
+        context_menu::{ContextMenuItem, open_context_menu},
+        toast_error,
+    },
+    completion::{CompletionService, CompletionToken},
+    screens::workspace::{
+        actions::{
+            IndentDirection,
+            clear_active_tab_sql,
+            format_active_tab,
+            indent_lines_in_active_tab,
+            replace_active_tab_sql,
+            run_active_tab,
+            run_active_tab_explain,
+            save_active_tab_as_saved_query,
+            sync_active_tab_sql_draft,
+            toggle_line_comments_in_active_tab,
+        },
+        components::explorer::ExplorerConnectionSection,
+        context::WorkspaceQueryContext,
+    },
 };
-use crate::screens::workspace::components::explorer::ExplorerConnectionSection;
-use crate::screens::workspace::context::WorkspaceQueryContext;
 use dioxus::prelude::*;
-use models::{ExplorerNodeKind, QueryHistoryItem, QueryTabState, SavedQuery};
+use models::{ExplorerNodeKind, QueryHistoryItem, QueryTabState};
 use std::time::Duration;
 
 use self::{
     highlight::SqlHighlightContent,
     selection::{
-        EditorSelection, current_token_range, editor_value_and_selection_query_script,
-        set_editor_value_script, sync_editor_selection, sync_editor_selection_debounced,
+        EditorSelection,
+        current_token_range,
+        editor_value_and_selection_query_script,
+        set_editor_value_script,
+        sync_editor_selection,
+        sync_editor_selection_debounced,
     },
 };
 
@@ -199,6 +217,7 @@ fn event_selection_range(_event: &Event<KeyboardData>) -> EditorSelectionRange {
 /// `tab` is the tab whose SQL we're operating on; we read its
 /// `sql`/`title` lazily inside the closures so the menu reflects
 /// the latest in-memory state.
+#[allow(clippy::too_many_arguments)]
 fn open_sql_editor_context_menu(
     x: f64,
     y: f64,
@@ -214,10 +233,7 @@ fn open_sql_editor_context_menu(
     // clicking through the menu.
     let snapshot = {
         let tabs_read = tabs.read();
-        tabs_read
-            .iter()
-            .find(|t| t.id == active_tab_id)
-            .cloned()
+        tabs_read.iter().find(|t| t.id == active_tab_id).cloned()
     };
     let Some(tab_snapshot) = snapshot else {
         return;
@@ -283,12 +299,11 @@ fn open_sql_editor_context_menu(
     });
     items.push(paste_item);
 
-    let select_all_item =
-        ContextMenuItem::new(select_all_label, move || {
-            spawn(async move {
-                let _ = document::eval(SQL_EDITOR_SELECT_ALL_SCRIPT).await;
-            });
+    let select_all_item = ContextMenuItem::new(select_all_label, move || {
+        spawn(async move {
+            let _ = document::eval(SQL_EDITOR_SELECT_ALL_SCRIPT).await;
         });
+    });
     items.push(select_all_item);
 
     // ── Editor actions (separator before) ──────────────────────
@@ -313,11 +328,7 @@ fn open_sql_editor_context_menu(
                 .map(|t| t.sql.len())
                 .unwrap_or(0)
         };
-        let _ = toggle_line_comments_in_active_tab(
-            tabs,
-            active_tab_id,
-            0..current_sql,
-        );
+        let _ = toggle_line_comments_in_active_tab(tabs, active_tab_id, 0..current_sql);
     });
     if sql_len == 0 {
         comment_item = comment_item.disabled();
@@ -361,7 +372,7 @@ fn open_sql_editor_context_menu(
             .strip_prefix("Saved ")
             .and_then(|s| s.strip_suffix('.'))
         {
-            use crate::app_state::{show_toast, ToastKind};
+            use crate::app_state::{ToastKind, show_toast};
             show_toast(message.to_string(), ToastKind::Success);
         }
     })
@@ -430,8 +441,7 @@ const SQL_EDITOR_SELECT_ALL_SCRIPT: &str = r#"
 
 #[cfg(test)]
 mod tests {
-    use super::selection::EditorSelection;
-    use super::{completion_request_parts, trim_completion_for_cursor};
+    use super::{completion_request_parts, selection::EditorSelection, trim_completion_for_cursor};
 
     #[test]
     fn completion_request_parts_split_sql_at_cursor() {
@@ -1041,16 +1051,15 @@ pub fn SqlEditor(
                                 );
                                 return;
                             }
-                            Key::Character(ref c) if c == "l" || c == "L" => {
-                                if !mods.contains(Modifiers::SHIFT) {
+                            Key::Character(ref c) if (c == "l" || c == "L")
+                                && !mods.contains(Modifiers::SHIFT) => {
                                     // Ctrl+L — clear editor.
                                     event.prevent_default();
                                     clear_active_tab_sql(tabs, active_tab_id_value);
                                     return;
                                 }
-                            }
-                            Key::Character(ref c) if c == "s" || c == "S" => {
-                                if !mods.contains(Modifiers::SHIFT) {
+                            Key::Character(ref c) if (c == "s" || c == "S")
+                                && !mods.contains(Modifiers::SHIFT) => {
                                     // Ctrl+S — save as saved query.
                                     event.prevent_default();
                                     let status = save_active_tab_as_saved_query(
@@ -1065,7 +1074,6 @@ pub fn SqlEditor(
                                     }
                                     return;
                                 }
-                            }
                             _ => {}
                         }
                         if mods.contains(Modifiers::SHIFT) {
@@ -1151,7 +1159,7 @@ pub fn SqlEditor(
                         let next_is_new_clause = completion_text
                             .split_whitespace()
                             .next()
-                            .is_some_and(|w| is_sql_clause_start(w));
+                            .is_some_and(is_sql_clause_start);
                         if !prev.is_whitespace()
                             && !next.is_whitespace()
                             && next_is_new_clause
