@@ -11,6 +11,7 @@ database.workspace = true
 driver-clickhouse.workspace = true
 models.workspace = true
 rust_xlsxwriter = "0.94.0"
+serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 sqlformat = "0.5.0"
 sqlx = { workspace = true, features = ["sqlite", "postgres", "mysql", "uuid", "time", "json", "bigdecimal"] }

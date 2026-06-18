@@ -1,5 +1,6 @@
 use crate::{
     app_state::APP_STATE,
+    app_state::context_menu::{open_context_menu, ContextMenuItem},
     screens::workspace::actions::{append_to_tab_sql, ensure_tab_for_session, set_active_tab_sql},
 };
 use dioxus::prelude::*;
@@ -125,9 +126,24 @@ pub fn SavedQueriesPanel(
                             } else {
                                 "Load in tab"
                             };
+                            let context_items = build_saved_query_context_menu(
+                                item.clone(),
+                                source_session_id,
+                                saved_queries_signal,
+                                panel_status,
+                                tabs,
+                                active_tab_id,
+                                next_tab_id,
+                            );
 
                             rsx! {
-                                article { class: "saved-queries__item",
+                                article {
+                                    class: "saved-queries__item",
+                                    oncontextmenu: move |event| {
+                                        event.prevent_default();
+                                        let coords = event.client_coordinates();
+                                        open_context_menu(coords.x, coords.y, context_items.clone());
+                                    },
                                     div { class: "saved-queries__item-top",
                                         p { class: "saved-queries__title", "{item.title}" }
                                         span { class: "saved-queries__kind", "{item.kind_label()}" }
@@ -273,4 +289,87 @@ fn load_saved_query_into_workspace(
             "Inserted saved snippet".to_string(),
         ),
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_saved_query_context_menu(
+    item: SavedQuery,
+    source_session_id: Option<u64>,
+    mut saved_queries_signal: Signal<Vec<SavedQuery>>,
+    mut panel_status: Signal<String>,
+    tabs: Signal<Vec<QueryTabState>>,
+    active_tab_id: Signal<u64>,
+    next_tab_id: Signal<u64>,
+) -> Vec<ContextMenuItem> {
+    use crate::app_state::context_menu::copy_to_clipboard;
+    use crate::screens::workspace::ActionIcon;
+
+    let mut items: Vec<ContextMenuItem> = Vec::new();
+
+    let open_label = if item.kind == SavedQueryKind::Snippet {
+        "Insert in tab"
+    } else {
+        "Load in tab"
+    };
+
+    // 1. Open in tab (mirror of the inline button).
+    {
+        let item = item.clone();
+        items.push(
+            ContextMenuItem::new(open_label, move || {
+                load_saved_query_into_workspace(
+                    item.clone(),
+                    source_session_id,
+                    tabs,
+                    active_tab_id,
+                    next_tab_id,
+                );
+            })
+            .with_icon(ActionIcon::Run),
+        );
+    }
+
+    // 2. Copy SQL to clipboard.
+    {
+        let sql = item.sql.clone();
+        items.push(
+            ContextMenuItem::new("Copy SQL", move || {
+                let _ = copy_to_clipboard(sql.clone());
+            })
+            .with_icon(ActionIcon::Duplicate),
+        );
+    }
+
+    // 3. Copy title to clipboard.
+    {
+        let title = item.title.clone();
+        items.push(
+            ContextMenuItem::new("Copy title", move || {
+                let _ = copy_to_clipboard(title.clone());
+            })
+            .with_icon(ActionIcon::Duplicate)
+            .separator(),
+        );
+    }
+
+    // 4. Delete — destructive.
+    {
+        let item_id = item.id;
+        let item_title = item.title.clone();
+        items.push(
+            ContextMenuItem::new("Delete", move || {
+                saved_queries_signal.with_mut(|items| {
+                    items.retain(|existing| existing.id != item_id);
+                });
+                panel_status.set(format!("Deleted {item_title}."));
+                spawn(async move {
+                    let _ = services::delete_saved_query(item_id).await;
+                });
+            })
+            .with_icon(ActionIcon::Delete)
+            .danger(),
+        );
+    }
+
+    items
 }

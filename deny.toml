@@ -1,0 +1,60 @@
+# cargo-deny configuration
+# https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+# Multiple versions of the same crate are tolerated for now;
+# we are tracking this list and pruning it gradually.
+multiple-versions = "warn"
+
+[output]
+feature-depth = 1
+
+[advisories]
+version = 2
+# Unmaintained advisories are still useful — warn, don't fail.
+unmaintained = "warn"
+# Ignore yanked crates (we still pin specific versions in Cargo.lock).
+yanked = "warn"
+
+[licenses]
+version = 2
+confidence-threshold = 0.8
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "OpenSSL",
+    "MPL-2.0",
+    "0BSD",
+    "BSL-1.0",
+]
+# Clarify non-standard SPDX identifiers used in our dependency tree.
+exceptions = [
+    { name = "ring", allow = ["ISC", "OpenSSL", "MIT"], version = "*" },
+    { name = "webpki-roots", allow = ["MPL-2.0"], version = "*" },
+    { name = "encoding_rs", allow = ["Apache-2.0", "MIT"], version = "*" },
+    { name = "rustls-webpki", allow = ["ISC"], version = "*" },
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+deny = []
+# Skip checking workspace-internal duplicate versions.
+skip = []
+# Skip-tree: dependencies of these crates are exempt from bans.
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "warn"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

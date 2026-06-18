@@ -32,8 +32,9 @@ pub use query::{
     execute_query_page, export_query_page_csv, export_query_page_html, export_query_page_json,
     export_query_page_sql_dump, export_query_page_xlsx, export_query_page_xml, format_sql,
     import_csv_into_table, insert_table_row, insert_table_row_with_values, is_read_only_sql,
-    load_table_preview_page, next_table_primary_key_id, preview_source_for_sql, truncate_table,
-    update_table_cell,
+    load_table_preview_page, next_table_primary_key_id, plan_batch, preview_source_for_sql,
+    split_sql, truncate_table, update_table_cell, BatchPlan, CommitKind, DatabaseFamily,
+    Statement, StatementKind, StatementOutcome,
 };
 
 // --- Persistence ---

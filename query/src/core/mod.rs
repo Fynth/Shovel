@@ -2,9 +2,11 @@ mod build;
 mod ddl;
 mod editable;
 mod execution_plan;
+pub mod multi;
 mod mutations;
 mod preview;
 mod rows;
+pub mod splitter;
 
 use database::DatabaseDriver;
 use driver_clickhouse::ClickHouseDriver;
@@ -470,6 +472,13 @@ fn statement_leading_keywords(sql: &str) -> Vec<String> {
     }
 
     statements
+}
+
+/// Public-to-crate helper: return the leading SQL keyword of the first
+/// statement in `sql`, or None. Reused by the splitter for read/write
+/// classification.
+pub(crate) fn leading_keyword(sql: &str) -> Option<String> {
+    statement_leading_keywords(sql).into_iter().next()
 }
 
 fn build_insert_row_sql(

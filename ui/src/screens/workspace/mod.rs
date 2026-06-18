@@ -20,7 +20,7 @@ use models::{
 use self::{
     chat::{create_chat_thread, delete_chat_thread, select_chat_thread},
     components::{
-        AcpAgentPanel, ActionIcon, IconButton, QueryHistoryPanel, SavedQueriesPanel, SessionRail,
+        AcpAgentPanel, IconButton, QueryHistoryPanel, SavedQueriesPanel, SessionRail,
         SidebarConnectionTree, TabsManager,
     },
     helpers::{
@@ -36,6 +36,9 @@ use self::{
 
 // Re-export for app_state
 pub use crate::screens::workspace::components::ExplorerConnectionSection;
+// Re-export for context_menu (and any sibling that needs the icon enum
+// without going through the private `components::icon_button` path).
+pub(crate) use crate::screens::workspace::components::ActionIcon;
 
 #[component]
 fn WorkspaceDropSlot(
@@ -244,7 +247,7 @@ fn WorkspacePanelContent(
             div {
                 class: "workspace__panel workspace__panel--history",
                 QueryHistoryPanel {
-                    history: history(),
+                    history,
                     tabs,
                     active_tab_id,
                 }

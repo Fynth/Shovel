@@ -119,6 +119,63 @@ impl QueryHistoryStore {
 
         Ok(count)
     }
+
+    /// Delete a single history entry by its `id`.
+    ///
+    /// Returns `true` when a row was removed, `false` when the id
+    /// was not present (idempotent — safe to call from a UI without
+    /// pre-checking existence).
+    ///
+    /// The matching FTS5 row is removed in the same call so the
+    /// search index never references a stale `rowid`.
+    pub async fn delete(id: u64) -> Result<bool, String> {
+        let pool = crate::chat::chat_pool().await?;
+
+        // Drop the FTS5 row first. content_rowid points at the
+        // main table's rowid, so look it up explicitly.
+        sqlx::query(
+            r#"
+            DELETE FROM query_history_fts
+            WHERE rowid IN (SELECT rowid FROM query_history WHERE id = ?)
+            "#,
+        )
+        .bind(id.to_string())
+        .execute(pool)
+        .await
+        .map_err(|err| format!("failed to remove FTS5 row for history {id}: {err}"))?;
+
+        let result = sqlx::query("DELETE FROM query_history WHERE id = ?")
+            .bind(id.to_string())
+            .execute(pool)
+            .await
+            .map_err(|err| format!("failed to delete query history {id}: {err}"))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Delete every history entry.
+    ///
+    /// Used by the "Clear all history" menu item. Both the main
+    /// table and the FTS5 index are wiped so search results stay
+    /// consistent.
+    pub async fn clear() -> Result<u64, String> {
+        let pool = crate::chat::chat_pool().await?;
+
+        // FTS5 first — even though the main table references the
+        // FTS rowids by content_rowid, dropping the FTS table while
+        // main rows still exist would leave orphan search terms.
+        sqlx::query("DELETE FROM query_history_fts")
+            .execute(pool)
+            .await
+            .map_err(|err| format!("failed to clear query history FTS index: {err}"))?;
+
+        let result = sqlx::query("DELETE FROM query_history")
+            .execute(pool)
+            .await
+            .map_err(|err| format!("failed to clear query history: {err}"))?;
+
+        Ok(result.rows_affected())
+    }
 }
 
 async fn initialize_schema(pool: &SqlitePool) -> Result<(), String> {

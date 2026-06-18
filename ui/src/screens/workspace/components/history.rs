@@ -1,4 +1,5 @@
 use crate::app_state::{APP_STATE, activate_session};
+use crate::app_state::context_menu::{open_context_menu, ContextMenuItem};
 use dioxus::prelude::*;
 use models::{QueryHistoryItem, QueryTabState};
 
@@ -213,7 +214,7 @@ fn build_csv(items: &[QueryHistoryItem]) -> String {
 
 #[component]
 pub fn QueryHistoryPanel(
-    history: Vec<QueryHistoryItem>,
+    history: Signal<Vec<QueryHistoryItem>>,
     tabs: Signal<Vec<QueryTabState>>,
     active_tab_id: Signal<u64>,
 ) -> Element {
@@ -240,12 +241,12 @@ pub fn QueryHistoryPanel(
     let base_items: Vec<QueryHistoryItem> = if searching {
         search_results().unwrap_or_default()
     } else {
-        history.clone()
+        history()
     };
 
     let connection_names: Vec<String> = {
         let mut set = std::collections::HashSet::new();
-        for item in &history {
+        for item in history() {
             if !item.connection_name.is_empty() {
                 set.insert(item.connection_name.clone());
             }
@@ -441,9 +442,22 @@ pub fn QueryHistoryPanel(
                                 String::new()
                             };
 
+                            let context_items = build_history_context_menu(
+                                item.clone(),
+                                source_session_id,
+                                tabs,
+                                active_tab_id,
+                                history,
+                            );
+
                             rsx! {
                                 div {
                                     class: "history__item",
+                                    oncontextmenu: move |event| {
+                                        event.prevent_default();
+                                        let coords = event.client_coordinates();
+                                        open_context_menu(coords.x, coords.y, context_items.clone());
+                                    },
                                     div {
                                         class: "history__meta",
                                         div {
@@ -576,4 +590,115 @@ pub fn QueryHistoryPanel(
             }
         }
     }
+}
+
+fn build_history_context_menu(
+    item: QueryHistoryItem,
+    source_session_id: Option<u64>,
+    tabs: Signal<Vec<QueryTabState>>,
+    active_tab_id: Signal<u64>,
+    mut history_signal: Signal<Vec<QueryHistoryItem>>,
+) -> Vec<ContextMenuItem> {
+    use crate::app_state::context_menu::copy_to_clipboard;
+    use crate::screens::workspace::ActionIcon;
+
+    let mut items: Vec<ContextMenuItem> = Vec::new();
+
+    // 1. Load in tab — replaces the SQL in the active tab.
+    {
+        let sql = item.sql.clone();
+        items.push(
+            ContextMenuItem::new("Load in tab", move || {
+                set_active_tab_sql(
+                    tabs,
+                    active_tab_id(),
+                    sql.clone(),
+                    "Loaded query from history".to_string(),
+                );
+            })
+            .with_icon(ActionIcon::Run),
+        );
+    }
+
+    // 2. Copy SQL (verbatim, including any passwords / secrets).
+    {
+        let sql = item.sql.clone();
+        items.push(
+            ContextMenuItem::new("Copy SQL", move || {
+                let _ = copy_to_clipboard(sql.clone());
+            })
+            .with_icon(ActionIcon::Duplicate),
+        );
+    }
+
+    // 3. Copy redacted SQL — uses the same `redact_sql_display`
+    //    helper that the inline history view uses to mask lines
+    //    containing `password` / `secret` / `token`.
+    {
+        let sql = item.sql.clone();
+        items.push(
+            ContextMenuItem::new("Copy redacted SQL", move || {
+                let redacted = redact_sql_display(&sql);
+                let _ = copy_to_clipboard(redacted);
+            })
+            .with_icon(ActionIcon::Duplicate)
+            .separator(),
+        );
+    }
+
+    // 4. Activate the originating session — only when we can
+    //    resolve the saved connection name back to a live session.
+    if let Some(session_id) = source_session_id {
+        items.push(
+            ContextMenuItem::new("Activate connection", move || {
+                activate_session(session_id);
+            })
+            .with_icon(ActionIcon::Refresh),
+        );
+    }
+
+    // 5. Delete this single entry.
+    //
+    //    The row is removed from the in-memory signal first so the
+    //    list updates instantly. A background `QueryHistoryStore::delete`
+    //    call then removes the FTS5 row + the SQLite row. If the
+    //    background call fails the toast surfaces the error and the
+    //    row is restored on the next reload.
+    items.push(
+        ContextMenuItem::new("Delete entry", move || {
+            let id = item.id;
+            history_signal.with_mut(|list| list.retain(|i| i.id != id));
+            spawn(async move {
+                if let Err(err) = services::QueryHistoryStore::delete(id).await {
+                    crate::app_state::toast_error(format!(
+                        "Failed to delete history entry: {err}"
+                    ));
+                }
+            });
+        })
+        .with_icon(ActionIcon::Delete)
+        .separator(),
+    );
+
+    // 6. Clear every history entry — destructive, lives at the end
+    //    of the menu and behind its own danger visual.
+    items.push(
+        ContextMenuItem::new("Clear all history…", move || {
+            history_signal.with_mut(|list| list.clear());
+            spawn(async move {
+                match services::QueryHistoryStore::clear().await {
+                    Ok(n) => crate::app_state::show_toast(
+                        format!("Cleared {n} history entries"),
+                        crate::app_state::ToastKind::Info,
+                    ),
+                    Err(err) => crate::app_state::toast_error(format!(
+                        "Failed to clear history: {err}"
+                    )),
+                }
+            });
+        })
+        .with_icon(ActionIcon::Delete),
+    );
+
+    items
 }

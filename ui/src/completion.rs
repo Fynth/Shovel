@@ -202,8 +202,11 @@ struct DeepSeekStreamChoice {
 #[derive(Debug, Deserialize)]
 struct DeepSeekStreamDelta {
     content: Option<String>,
-    #[serde(default)]
-    reasoning_content: Option<String>,
+    // `reasoning_content` is part of the DeepSeek wire format but
+    // is currently consumed only as part of `content` for the
+    // completion feature. The struct omits the field so the
+    // deserializer silently drops it; if we ever want to surface
+    // chain-of-thought we can re-add it here.
 }
 
 async fn stream_deepseek(

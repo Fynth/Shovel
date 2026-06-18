@@ -3,6 +3,7 @@ use crate::{
         APP_SHOW_SETTINGS_MODAL, APP_SQL_FORMAT_SETTINGS, APP_STATE, APP_THEME, APP_TOOLTIP,
         APP_UI_SETTINGS, replace_ui_settings, restore_connection_sessions, toast_error,
     },
+    components::context_menu::{ContextMenu, TextInputMenuInit},
     layout::{SettingsModal, StatusBar, ToastContainer, Toolbar},
     screens::{DbConnect, Workspace},
 };
@@ -185,6 +186,8 @@ pub fn App() -> Element {
                 ToastContainer {}
             }
             StatusBar {}
+            TextInputMenuInit {}
+            ContextMenu {}
         }
     }
 }

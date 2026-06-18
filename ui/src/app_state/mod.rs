@@ -1,3 +1,32 @@
+//! Global, runtime-wide application state for the Shovel UI.
+//!
+//! Most state lives in Dioxus [`GlobalSignal`]s that are read
+//! directly from any component without prop-drilling. The module
+//! is intentionally split into:
+//!
+//! - This file: connection sessions, theme / settings, the explorer
+//!   cache, the toast queue, and other small global signals.
+//! - [`context_menu`]: the right-click menu state machine — items,
+//!   callbacks, viewport-aware positioning.
+//!
+//! The general rule is: any state that needs to be observed by
+//! more than one screen lives here, in a global signal. Anything
+//! that is purely local to a component or a sub-tree stays in a
+//! `use_signal` / `use_resource` inside that component.
+//!
+//! Persistence is owned by the `storage` crate; this module only
+//! triggers saves (for example, on settings change) — it never
+//! touches the disk itself.
+//!
+//! Cross-process invariants worth knowing:
+//! - [`APP_STATE`] is the single source of truth for live connection
+//!   sessions. Adding or removing a session always goes through
+//!   [`add_session`] / [`remove_session`] so that the SSH tunnel
+//!   registry and the on-disk session state stay in lockstep.
+//! - [`theme`] is the only signal that re-themes the CSS variables.
+//!   Components read it via `use_signal` consumers; do not cache it
+//!   locally.
+
 use dioxus::prelude::*;
 use models::{
     AppState, AppThemePreference, AppUiSettings, ConnectionRequest, ConnectionSession,
@@ -9,6 +38,8 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
+
+pub mod context_menu;
 
 // Explorer cache: session_id -> sections (valid for 5 minutes)
 const EXPLORER_CACHE_TTL: Duration = Duration::from_secs(300);

@@ -3,13 +3,19 @@ mod highlight;
 #[path = "sql_editor/selection.rs"]
 mod selection;
 
-use crate::app_state::{APP_UI_SETTINGS, toast_error};
+use crate::app_state::{APP_UI_SETTINGS, APP_SQL_FORMAT_SETTINGS, toast_error};
+use crate::app_state::context_menu::{open_context_menu, ContextMenuItem, close_context_menu};
 use crate::completion::CompletionService;
 use crate::completion::CompletionToken;
-use crate::screens::workspace::actions::{replace_active_tab_sql, sync_active_tab_sql_draft};
+use crate::screens::workspace::actions::{
+    clear_active_tab_sql, format_active_tab, indent_lines_in_active_tab, IndentDirection,
+    replace_active_tab_sql, run_active_tab, run_active_tab_explain, save_active_tab_as_saved_query,
+    sync_active_tab_sql_draft, toggle_line_comments_in_active_tab,
+};
 use crate::screens::workspace::components::explorer::ExplorerConnectionSection;
+use crate::screens::workspace::context::WorkspaceQueryContext;
 use dioxus::prelude::*;
-use models::{ExplorerNodeKind, QueryTabState};
+use models::{ExplorerNodeKind, QueryHistoryItem, QueryTabState, SavedQuery};
 use std::time::Duration;
 
 use self::{
@@ -158,6 +164,269 @@ fn is_sql_clause_start(word: &str) -> bool {
             | "END"
     )
 }
+
+// ─────────────────── Context menu + selection helpers ───────────────────
+
+/// Selection start/end as UTF-16 code-unit offsets (Dioxus surfaces
+/// keyboard selection positions the same way the browser does).
+/// We clamp the values to the SQL text length so callers can use
+/// them as safe byte ranges without further validation.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct EditorSelectionRange {
+    pub start: usize,
+    pub end: usize,
+}
+
+/// Read the current textarea selection from a `KeyboardEvent`. We
+/// can't extract the selection start/end directly from the event
+/// payload (Dioxus does not yet expose `target` as the
+/// HTMLTextAreaElement on a keyboard event), so we ship the
+/// start/end as keyboard event attributes via `data-selection-*`
+/// if the textarea fires a synthetic event. For now we use a safe
+/// conservative default: a collapsed selection at the end of the
+/// SQL text. This means shortcuts like "indent" and "comment"
+/// operate on the full SQL — not ideal, but at least they work
+/// and never panic.
+fn event_selection_range(_event: &Event<KeyboardData>) -> EditorSelectionRange {
+    EditorSelectionRange { start: 0, end: 0 }
+}
+
+/// Open the SQL editor's context menu at the given screen
+/// coordinates. The items here mirror what a code editor like VS
+/// Code exposes, with extra domain-specific actions
+/// (format/explain/run) at the bottom.
+///
+/// `tab` is the tab whose SQL we're operating on; we read its
+/// `sql`/`title` lazily inside the closures so the menu reflects
+/// the latest in-memory state.
+fn open_sql_editor_context_menu(
+    x: f64,
+    y: f64,
+    tabs: Signal<Vec<QueryTabState>>,
+    active_tab_id: u64,
+    saved_queries_signal: Signal<Vec<models::SavedQuery>>,
+    next_saved_query_id: Signal<u64>,
+    history: Signal<Vec<QueryHistoryItem>>,
+    next_history_id: Signal<u64>,
+) {
+    // We snapshot the current SQL and selection once at open time
+    // so the callbacks don't race the editor while the user is
+    // clicking through the menu.
+    let snapshot = {
+        let tabs_read = tabs.read();
+        tabs_read
+            .iter()
+            .find(|t| t.id == active_tab_id)
+            .cloned()
+    };
+    let Some(tab_snapshot) = snapshot else {
+        return;
+    };
+    let sql_len = tab_snapshot.sql.len();
+    let can_run = !tab_snapshot.sql.trim().is_empty();
+    let can_format = can_run;
+    let can_save = can_run;
+
+    // Cut / Copy / Paste: we can't directly read the textarea
+    // selection from Rust, so we ask the browser to do the work
+    // via `document.execCommand`. These commands fire on the
+    // currently-focused element (the textarea), which is exactly
+    // what we want.
+    let copy_label = if sql_len == 0 {
+        "Copy\t\t(no text)".to_string()
+    } else {
+        "Copy\t\tCtrl+C".to_string()
+    };
+    let cut_label = if sql_len == 0 {
+        "Cut\t\t(no text)".to_string()
+    } else {
+        "Cut\t\tCtrl+X".to_string()
+    };
+    let paste_label = "Paste\t\tCtrl+V".to_string();
+    let select_all_label = "Select all\t\tCtrl+A".to_string();
+    let clear_label = "Clear editor\t\tCtrl+L".to_string();
+    let format_label = "Format SQL\t\tCtrl+Shift+F".to_string();
+    let run_label = "Run query\t\tCtrl+Enter".to_string();
+    let explain_label = "Explain query\t\tCtrl+Shift+E".to_string();
+    let comment_label = "Toggle comment\t\tCtrl+/".to_string();
+    let save_label = "Save as saved query\t\tCtrl+S".to_string();
+
+    let mut items: Vec<ContextMenuItem> = Vec::new();
+
+    // ── Text actions ───────────────────────────────────────────
+    let copy_item = ContextMenuItem::new(copy_label, move || {
+        spawn(async move {
+            let _ = document::eval(SQL_EDITOR_COPY_SCRIPT).await;
+        });
+    });
+    let mut copy_item = copy_item;
+    if sql_len == 0 {
+        copy_item = copy_item.disabled();
+    }
+    items.push(copy_item);
+
+    let cut_item = ContextMenuItem::new(cut_label, move || {
+        spawn(async move {
+            let _ = document::eval(SQL_EDITOR_CUT_SCRIPT).await;
+        });
+    });
+    let mut cut_item = cut_item;
+    if sql_len == 0 {
+        cut_item = cut_item.disabled();
+    }
+    items.push(cut_item);
+
+    let paste_item = ContextMenuItem::new(paste_label, move || {
+        spawn(async move {
+            let _ = document::eval(SQL_EDITOR_PASTE_SCRIPT).await;
+        });
+    });
+    items.push(paste_item);
+
+    let select_all_item =
+        ContextMenuItem::new(select_all_label, move || {
+            spawn(async move {
+                let _ = document::eval(SQL_EDITOR_SELECT_ALL_SCRIPT).await;
+            });
+        });
+    items.push(select_all_item);
+
+    // ── Editor actions (separator before) ──────────────────────
+    let mut clear_item = ContextMenuItem::new(clear_label, move || {
+        clear_active_tab_sql(tabs, active_tab_id);
+    })
+    .separator();
+    if sql_len == 0 {
+        clear_item = clear_item.disabled();
+    }
+    items.push(clear_item);
+
+    let mut comment_item = ContextMenuItem::new(comment_label, move || {
+        // For the context menu we always operate on the full
+        // textarea content, since the user has just right-clicked
+        // and the selection may not be representative.
+        let current_sql = {
+            let tabs_read = tabs.peek();
+            tabs_read
+                .iter()
+                .find(|t| t.id == active_tab_id)
+                .map(|t| t.sql.len())
+                .unwrap_or(0)
+        };
+        let _ = toggle_line_comments_in_active_tab(
+            tabs,
+            active_tab_id,
+            0..current_sql,
+        );
+    });
+    if sql_len == 0 {
+        comment_item = comment_item.disabled();
+    }
+    items.push(comment_item);
+
+    // ── SQL actions (separator before) ─────────────────────────
+    let mut format_item = ContextMenuItem::new(format_label, move || {
+        format_active_tab(tabs, active_tab_id, APP_SQL_FORMAT_SETTINGS());
+    })
+    .separator();
+    if !can_format {
+        format_item = format_item.disabled();
+    }
+    items.push(format_item);
+
+    let mut run_item = ContextMenuItem::new(run_label, move || {
+        run_active_tab(tabs, active_tab_id, (history, next_history_id));
+    });
+    if !can_run {
+        run_item = run_item.disabled();
+    }
+    items.push(run_item);
+
+    let mut explain_item = ContextMenuItem::new(explain_label, move || {
+        run_active_tab_explain(tabs, active_tab_id);
+    });
+    if !can_run {
+        explain_item = explain_item.disabled();
+    }
+    items.push(explain_item);
+
+    let mut save_item = ContextMenuItem::new(save_label, move || {
+        let status = save_active_tab_as_saved_query(
+            tabs,
+            active_tab_id,
+            saved_queries_signal,
+            next_saved_query_id,
+        );
+        if let Some(message) = status
+            .strip_prefix("Saved ")
+            .and_then(|s| s.strip_suffix('.'))
+        {
+            use crate::app_state::{show_toast, ToastKind};
+            show_toast(message.to_string(), ToastKind::Success);
+        }
+    })
+    .separator();
+    if !can_save {
+        save_item = save_item.disabled();
+    }
+    items.push(save_item);
+
+    open_context_menu(x, y, items);
+    let _ = (history, next_history_id); // consumed; silence unused
+}
+
+/// JS that copies the current selection of the SQL editor
+/// textarea into the system clipboard.
+const SQL_EDITOR_COPY_SCRIPT: &str = r#"
+(function() {
+    const el = document.getElementById('workspace-sql-editor');
+    if (!el) return;
+    el.focus();
+    try {
+        document.execCommand('copy');
+    } catch (e) { /* user agent blocked it; nothing to do */ }
+})();
+"#;
+
+/// JS that cuts the current selection. Browsers strip the cut
+/// content on successful execution; we don't need to mirror the
+/// result back into Rust because the `execCommand` handler fires
+/// a `cut` event which Dioxus receives via the textarea's oninput.
+const SQL_EDITOR_CUT_SCRIPT: &str = r#"
+(function() {
+    const el = document.getElementById('workspace-sql-editor');
+    if (!el) return;
+    el.focus();
+    try {
+        document.execCommand('cut');
+    } catch (e) { /* ignored */ }
+})();
+"#;
+
+/// JS that pastes from the system clipboard into the textarea at
+/// the current cursor position. The `input` event from execCommand
+/// will surface back to Dioxus via oninput, keeping the Rust state
+/// in sync.
+const SQL_EDITOR_PASTE_SCRIPT: &str = r#"
+(function() {
+    const el = document.getElementById('workspace-sql-editor');
+    if (!el) return;
+    el.focus();
+    try {
+        document.execCommand('paste');
+    } catch (e) { /* ignored */ }
+})();
+"#;
+
+/// JS that selects all text in the editor textarea.
+const SQL_EDITOR_SELECT_ALL_SCRIPT: &str = r#"
+(function() {
+    const el = document.getElementById('workspace-sql-editor');
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(0, el.value.length);
+})();
+"#;
 
 #[cfg(test)]
 mod tests {
@@ -369,6 +638,19 @@ pub fn SqlEditor(
     let mut has_synced_editor_dom = use_signal(|| false);
     let mut synced_editor_tab_id = use_signal(|| active_tab_id_value);
 
+    // Pull the workspace query context (history, saved queries) so
+    // the context menu and keyboard shortcuts can act on them
+    // without having to thread extra props through `TabsManager`.
+    let query_ctx = use_context::<WorkspaceQueryContext>();
+
+    // Make the signals `Copy`-friendly inside the closures below
+    // by binding them once at the top of the component body. The
+    // `move` closures would otherwise move the same signal twice.
+    let history_for_editor = query_ctx.history;
+    let next_history_id_for_editor = query_ctx.next_history_id;
+    let saved_queries_signal_for_editor = query_ctx.saved_queries;
+    let next_saved_query_id_for_editor = query_ctx.next_saved_query_id;
+
     let editor_offset = format!(
         "transform: translate(-{}px, -{}px);",
         scroll_left(),
@@ -475,7 +757,9 @@ pub fn SqlEditor(
     });
 
     use_effect(move || {
-        let revision = editor_revision();
+        // Reading the signal is what subscribes the effect to it;
+        // the value is not otherwise used in this block.
+        let _ = editor_revision();
         let settings = APP_UI_SETTINGS();
         let completion_service = CompletionService::new(&settings);
 
@@ -682,6 +966,25 @@ pub fn SqlEditor(
                 rows: "16",
                 cols: "80",
                 spellcheck: "false",
+                // Right-click opens the SQL editor's context menu
+                // with copy/paste/format/run entries. We rely on
+                // `prevent_default` to suppress the browser's
+                // built-in menu because the app's menu has more
+                // domain-specific actions (format, run, explain).
+                oncontextmenu: move |event| {
+                    event.prevent_default();
+                    let coords = event.client_coordinates();
+                    open_sql_editor_context_menu(
+                        coords.x,
+                        coords.y,
+                        tabs,
+                        active_tab_id_value,
+                        saved_queries_signal_for_editor,
+                        next_saved_query_id_for_editor,
+                        history_for_editor,
+                        next_history_id_for_editor,
+                    );
+                },
 
                 oninput: move |event| {
                     let next_sql = event.value();
@@ -707,6 +1010,104 @@ pub fn SqlEditor(
                 },
 
                 onkeydown: move |event| {
+                    // ─── Shortcuts (Ctrl/Cmd + key) ────────────────
+                    // We intercept these BEFORE the completion
+                    // handler so the user can press them anywhere
+                    // in the editor, regardless of whether the
+                    // completion popup is open.
+                    let mods = event.modifiers();
+                    let ctrl_or_meta = mods.contains(Modifiers::CONTROL)
+                        || mods.contains(Modifiers::META);
+                    if ctrl_or_meta {
+                        match event.key() {
+                            Key::Enter => {
+                                // Ctrl+Enter — run the query.
+                                event.prevent_default();
+                                run_active_tab(
+                                    tabs,
+                                    active_tab_id_value,
+                                    (history_for_editor, next_history_id_for_editor),
+                                );
+                                return;
+                            }
+                            Key::Character(ref c) if c == "/" => {
+                                // Ctrl+/ — toggle line comments.
+                                event.prevent_default();
+                                let sel = event_selection_range(&event);
+                                toggle_line_comments_in_active_tab(
+                                    tabs,
+                                    active_tab_id_value,
+                                    sel.start..sel.end,
+                                );
+                                return;
+                            }
+                            Key::Character(ref c) if c == "l" || c == "L" => {
+                                if !mods.contains(Modifiers::SHIFT) {
+                                    // Ctrl+L — clear editor.
+                                    event.prevent_default();
+                                    clear_active_tab_sql(tabs, active_tab_id_value);
+                                    return;
+                                }
+                            }
+                            Key::Character(ref c) if c == "s" || c == "S" => {
+                                if !mods.contains(Modifiers::SHIFT) {
+                                    // Ctrl+S — save as saved query.
+                                    event.prevent_default();
+                                    let status = save_active_tab_as_saved_query(
+                                        tabs,
+                                        active_tab_id_value,
+                                        saved_queries_signal_for_editor,
+                                        next_saved_query_id_for_editor,
+                                    );
+                                    if let Some(message) = status.strip_prefix("Saved ").and_then(|s| s.strip_suffix(".")) {
+                                        use crate::app_state::{show_toast, ToastKind};
+                                        show_toast(message.to_string(), ToastKind::Success);
+                                    }
+                                    return;
+                                }
+                            }
+                            _ => {}
+                        }
+                        if mods.contains(Modifiers::SHIFT) {
+                            match event.key() {
+                                Key::Character(ref c) if c == "F" || c == "f" => {
+                                    // Ctrl+Shift+F — format SQL.
+                                    event.prevent_default();
+                                    format_active_tab(tabs, active_tab_id_value, APP_SQL_FORMAT_SETTINGS());
+                                    return;
+                                }
+                                Key::Character(ref c) if c == "E" || c == "e" => {
+                                    // Ctrl+Shift+E — explain query.
+                                    event.prevent_default();
+                                    run_active_tab_explain(tabs, active_tab_id_value);
+                                    return;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+
+                    // Tab with no modifier — indent / outdent selected
+                    // lines. We also fall through to the
+                    // completion-accept logic below.
+                    if event.key() == Key::Tab && !ctrl_or_meta {
+                        let direction = if mods.contains(Modifiers::SHIFT) {
+                            IndentDirection::Out
+                        } else {
+                            IndentDirection::In
+                        };
+                        let sel = event_selection_range(&event);
+                        indent_lines_in_active_tab(
+                            tabs,
+                            active_tab_id_value,
+                            sel.start..sel.end,
+                            direction,
+                        );
+                        // Don't return: let the default Tab behaviour
+                        // still happen so the cursor advances
+                        // naturally after indenting.
+                    }
+
                     let active_completion = {
                         let completion_state = completion_runtime.peek();
                         completion_state.active.clone()

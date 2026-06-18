@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::app_state::context_menu::{open_context_menu, ContextMenuItem};
 use crate::screens::workspace::actions::{
     append_next_tab_page, apply_active_tab_filter, clear_active_tab_filter, load_tab_page,
     read_only_mode_block_status, read_only_mode_enabled, refresh_tab_result, rows_toolbar_summary,
@@ -530,6 +531,21 @@ pub fn ResultTable(
                                                     for column in page.columns.iter().cloned() {
                                                         th {
                                                             class: "results__head",
+                                                            oncontextmenu: {
+                                                                let column_name = column.clone();
+                                                                let tabs_for_header_menu = tabs;
+                                                                let active_tab_id_for_header_menu = active_tab_id;
+                                                                move |event| {
+                                                                    event.prevent_default();
+                                                                    let coords = event.client_coordinates();
+                                                                    let items = build_header_context_menu(
+                                                                        column_name.clone(),
+                                                                        tabs_for_header_menu,
+                                                                        active_tab_id_for_header_menu,
+                                                                    );
+                                                                    open_context_menu(coords.x, coords.y, items);
+                                                                }
+                                                            },
                                                             if sort_enabled {
                                                                 button {
                                                                     class: sort_button_class(active_sort.as_ref(), &column),
@@ -585,6 +601,25 @@ pub fn ResultTable(
                                                                     editing_row_ref.set(Some(r.row_ref.clone()));
                                                                 }
                                                             },
+                                                            oncontextmenu: {
+                                                                let tabs_for_row_menu = tabs;
+                                                                let active_tab_id_for_row_menu = active_tab_id;
+                                                                let columns_for_row_menu = page.columns.clone();
+                                                                let row_values = row.values.clone();
+                                                                let has_pending_changes_for_menu = has_pending_changes;
+                                                                move |event| {
+                                                                    event.prevent_default();
+                                                                    let coords = event.client_coordinates();
+                                                                    let items = build_row_context_menu(
+                                                                        columns_for_row_menu.clone(),
+                                                                        row_values.clone(),
+                                                                        tabs_for_row_menu,
+                                                                        active_tab_id_for_row_menu,
+                                                                        has_pending_changes_for_menu,
+                                                                    );
+                                                                    open_context_menu(coords.x, coords.y, items);
+                                                                }
+                                                            },
                                                             for (col_index, cell) in row.values.iter().enumerate() {
                                                                 td {
                                                                     class: cell_class(
@@ -593,6 +628,27 @@ pub fn ResultTable(
                                                                         page.columns.get(col_index),
                                                                         &updated_cells_set,
                                                                     ),
+                                                                    oncontextmenu: {
+                                                                        let tabs_for_cell_menu = tabs;
+                                                                        let active_tab_id_for_cell_menu = active_tab_id;
+                                                                        let columns_for_cell_menu = page.columns.clone();
+                                                                        let row_values = row.values.clone();
+                                                                        let cell_value = cell.clone();
+                                                                        let col = col_index;
+                                                                        move |event| {
+                                                                            event.prevent_default();
+                                                                            let coords = event.client_coordinates();
+                                                                            let items = build_cell_context_menu(
+                                                                                columns_for_cell_menu.clone(),
+                                                                                row_values.clone(),
+                                                                                col,
+                                                                                cell_value.clone(),
+                                                                                tabs_for_cell_menu,
+                                                                                active_tab_id_for_cell_menu,
+                                                                            );
+                                                                            open_context_menu(coords.x, coords.y, items);
+                                                                        }
+                                                                    },
                                                                     ondoubleclick: {
                                                                         let cell_value = cell.clone();
                                                                         let editable = table_cells_editable;
@@ -888,6 +944,352 @@ pub fn result_status_text_for_display(status: &str) -> &str {
 
 pub fn format_row_edit_error(operation: &str, err: impl std::fmt::Display) -> String {
     format!("{operation} error: {err}")
+}
+
+// ---------------------------------------------------------------------------
+// Context-menu builders for the result table.
+//
+// Three surfaces are wired up to the global context menu:
+//   - column headers (`<th>`) — sort/filter actions on a column
+//   - table rows (`<tr>`) — copy / filter / sort / select actions
+//   - table cells (`<td>`) — copy value / filter by this value
+//
+// Each builder returns a `Vec<ContextMenuItem>` that the parent
+// component passes to `open_context_menu`. The builders deliberately
+// stay close to the existing `actions` API so that the menu does
+// not introduce new persistence or side-effect surface area.
+// ---------------------------------------------------------------------------
+
+fn build_header_context_menu(
+    column_name: String,
+    tabs: Signal<Vec<QueryTabState>>,
+    active_tab_id: Signal<u64>,
+) -> Vec<ContextMenuItem> {
+    let mut items: Vec<ContextMenuItem> = Vec::new();
+
+    // 1. Sort ascending.
+    {
+        let column_name = column_name.clone();
+        items.push(ContextMenuItem::new("Sort ascending", move || {
+            sort_by_column(&column_name, false, tabs, active_tab_id);
+        })
+        .with_icon(ActionIcon::Previous));
+    }
+
+    // 2. Sort descending.
+    {
+        let column_name = column_name.clone();
+        items.push(ContextMenuItem::new("Sort descending", move || {
+            sort_by_column(&column_name, true, tabs, active_tab_id);
+        })
+        .with_icon(ActionIcon::Next));
+    }
+
+    // 3. Filter column (opens the existing filter panel with a
+    //    blank draft; the user types the value there).
+    {
+        let column_name = column_name.clone();
+        items.push(
+            ContextMenuItem::new("Filter by this column…", move || {
+                apply_filter_for_value(
+                    column_name.clone(),
+                    String::new(),
+                    QueryFilterOperator::Contains,
+                    tabs,
+                    active_tab_id,
+                );
+            })
+            .with_icon(ActionIcon::Filter)
+            .separator(),
+        );
+    }
+
+    // 4. Clear filter — only meaningful when one is already set.
+    {
+        let active_id = active_tab_id();
+        let has_filter = tabs
+            .read()
+            .iter()
+            .find(|tab| tab.id == active_id)
+            .and_then(|tab| tab.filter.as_ref())
+            .is_some();
+        if has_filter {
+            items.push(
+                ContextMenuItem::new("Clear filter", move || {
+                    clear_active_tab_filter(tabs, active_tab_id());
+                })
+                .with_icon(ActionIcon::FilterClear),
+            );
+        }
+    }
+
+    items
+}
+
+fn build_row_context_menu(
+    columns: Vec<String>,
+    row_values: Vec<String>,
+    tabs: Signal<Vec<QueryTabState>>,
+    active_tab_id: Signal<u64>,
+    has_pending_changes: bool,
+) -> Vec<ContextMenuItem> {
+    use crate::app_state::context_menu::copy_to_clipboard;
+
+    let mut items: Vec<ContextMenuItem> = Vec::new();
+
+    // 1. Copy row as JSON.
+    {
+        let columns = columns.clone();
+        let row_values = row_values.clone();
+        items.push(
+            ContextMenuItem::new("Copy row as JSON", move || {
+                let _ = copy_to_clipboard(format_row_json(&columns, &row_values));
+            })
+            .with_icon(ActionIcon::ExportJson),
+        );
+    }
+
+    // 2. Copy row as TSV (header + tab-separated values).
+    {
+        let columns = columns.clone();
+        let row_values = row_values.clone();
+        items.push(
+            ContextMenuItem::new("Copy row as TSV", move || {
+                let _ = copy_to_clipboard(format_row_tsv(&columns, &row_values));
+            })
+            .with_icon(ActionIcon::ExportCsv),
+        );
+    }
+
+    // 3. Copy row as INSERT (uses the same `INSERT INTO … VALUES (…)`
+    //    template style as the Explorer menu).
+    {
+        let values = row_values.clone();
+        items.push(
+            ContextMenuItem::new("Copy row as INSERT template", move || {
+                let _ = copy_to_clipboard(format!(
+                    "INSERT INTO <table> VALUES ({});",
+                    values
+                        .iter()
+                        .map(|v| if v.is_empty() { "NULL".to_string() } else { v.clone() })
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            })
+            .with_icon(ActionIcon::ExportSql)
+            .separator(),
+        );
+    }
+
+    // 4. Filter by every column whose value is non-empty. The
+    //    first match wins — a single "Filter row" entry opens the
+    //    filter panel with a draft pointing at the first column.
+    let first_non_empty: Option<(usize, String)> = row_values
+        .iter()
+        .enumerate()
+        .find_map(|(idx, v)| {
+            if v.is_empty() {
+                None
+            } else {
+                Some((idx, v.clone()))
+            }
+        });
+    if let Some((idx, value)) = first_non_empty {
+        // Two-step pattern: the inner `column` is not always present
+        // for the picked `idx`, so this cannot collapse into a tuple
+        // `if let` without losing the early-out.
+        #[allow(clippy::collapsible_if)]
+        if let Some(column) = columns.get(idx).cloned() {
+            items.push(
+                ContextMenuItem::new("Filter by this row", move || {
+                    apply_filter_for_value(
+                        column.clone(),
+                        value.clone(),
+                        QueryFilterOperator::Contains,
+                        tabs,
+                        active_tab_id,
+                    );
+                })
+                .with_icon(ActionIcon::Filter),
+            );
+        }
+    }
+
+    // 5. Sort by first column. Sorting is a per-column action, but
+    //    surfacing it on the row makes it discoverable for users who
+    //    do not realise the column header is interactive.
+    if let Some(first) = columns.first().cloned() {
+        items.push(
+            ContextMenuItem::new("Sort by first column", move || {
+                sort_by_column(&first, false, tabs, active_tab_id);
+            })
+            .with_icon(ActionIcon::Previous),
+        );
+    }
+
+    // 6. Edit row is only meaningful for editable cells and not
+    //    while there are unsaved changes that would conflict.
+    if !has_pending_changes {
+        items.push(
+            ContextMenuItem::new("Edit row details", move || {
+                // The user can also click the row to open the details
+                // aside. We just make sure the existing `click` flow
+                // is also available from the menu.
+                set_active_tab_status(tabs, active_tab_id(), "Row selected.".to_string());
+            })
+            .with_icon(ActionIcon::Details),
+        );
+    }
+
+    items
+}
+
+fn build_cell_context_menu(
+    columns: Vec<String>,
+    row_values: Vec<String>,
+    col_index: usize,
+    cell_value: String,
+    tabs: Signal<Vec<QueryTabState>>,
+    active_tab_id: Signal<u64>,
+) -> Vec<ContextMenuItem> {
+    use crate::app_state::context_menu::copy_to_clipboard;
+
+    let mut items: Vec<ContextMenuItem> = Vec::new();
+    let column_name = columns
+        .get(col_index)
+        .cloned()
+        .unwrap_or_else(|| format!("col_{col_index}"));
+
+    // 1. Copy cell value.
+    {
+        let cell_value = cell_value.clone();
+        items.push(
+            ContextMenuItem::new("Copy value", move || {
+                let _ = copy_to_clipboard(cell_value.clone());
+            })
+            .with_icon(ActionIcon::Duplicate),
+        );
+    }
+
+    // 2. Copy as JSON literal — wraps the value in quotes so it can
+    //    be pasted straight into a `.json` file or a query.
+    {
+        let cell_value = cell_value.clone();
+        items.push(
+            ContextMenuItem::new("Copy as JSON literal", move || {
+                let literal = serde_json::to_string(&cell_value)
+                    .unwrap_or_else(|_| format!("\"{}\"", cell_value));
+                let _ = copy_to_clipboard(literal);
+            })
+            .with_icon(ActionIcon::ExportJson),
+        );
+    }
+
+    // 3. Filter by this value — only when the cell is not empty.
+    if !cell_value.trim().is_empty() {
+        let cell_value = cell_value.clone();
+        let column_name = column_name.clone();
+        items.push(
+            ContextMenuItem::new("Filter by this value", move || {
+                apply_filter_for_value(
+                    column_name.clone(),
+                    cell_value.clone(),
+                    QueryFilterOperator::Contains,
+                    tabs,
+                    active_tab_id,
+                );
+            })
+            .with_icon(ActionIcon::Filter)
+            .separator(),
+        );
+    }
+
+    // 4. Sort by this column. This mirrors the header's sort action
+    //    so users who right-click on a cell can also re-sort.
+    {
+        let col_asc = column_name.clone();
+        items.push(
+            ContextMenuItem::new("Sort ascending", move || {
+                sort_by_column(&col_asc, false, tabs, active_tab_id);
+            })
+            .with_icon(ActionIcon::Previous),
+        );
+        let col_desc = column_name;
+        items.push(
+            ContextMenuItem::new("Sort descending", move || {
+                sort_by_column(&col_desc, true, tabs, active_tab_id);
+            })
+            .with_icon(ActionIcon::Next),
+        );
+    }
+
+    // 5. Copy entire row. This is a convenience entry so that the
+    //    user does not have to back out and re-open the row menu
+    //    when they discover they wanted more than just the cell.
+    {
+        let row_values = row_values.clone();
+        let columns = columns.clone();
+        items.push(
+            ContextMenuItem::new("Copy entire row as TSV", move || {
+                let _ = copy_to_clipboard(format_row_tsv(&columns, &row_values));
+            })
+            .with_icon(ActionIcon::ExportCsv),
+        );
+    }
+
+    items
+}
+
+/// Set the active tab's sort to `column_name` in the given direction.
+/// Going from descending to `None` (i.e. clear sort) is handled by
+/// the existing `toggle_active_tab_sort` state machine — calling
+/// that helper three times cycles ascending → descending → none.
+fn sort_by_column(
+    column_name: &str,
+    descending: bool,
+    tabs: Signal<Vec<QueryTabState>>,
+    active_tab_id: Signal<u64>,
+) {
+    // Inspect the current sort. If it matches the requested
+    // direction, no-op. Otherwise walk the state machine by calling
+    // `toggle_active_tab_sort` until the desired state is reached.
+    for _ in 0..2 {
+        let current = tabs
+            .read()
+            .iter()
+            .find(|tab| tab.id == active_tab_id())
+            .and_then(|tab| tab.sort.clone());
+        let matches = match (&current, descending) {
+            (Some(sort), false) => sort.column_name == column_name && !sort.descending,
+            (Some(sort), true) => sort.column_name == column_name && sort.descending,
+            _ => false,
+        };
+        if matches {
+            return;
+        }
+        toggle_active_tab_sort(tabs, active_tab_id(), column_name.to_string());
+    }
+}
+
+/// Apply a filter on `column_name` matching `value` with the
+/// given operator. An empty `value` plus `Contains` opens a blank
+/// filter (the user can then type the value in the panel).
+fn apply_filter_for_value(
+    column_name: String,
+    value: String,
+    operator: QueryFilterOperator,
+    tabs: Signal<Vec<QueryTabState>>,
+    active_tab_id: Signal<u64>,
+) {
+    let filter = QueryFilter {
+        mode: QueryFilterMode::And,
+        rules: vec![QueryFilterRule {
+            column_name,
+            operator,
+            value,
+        }],
+    };
+    apply_active_tab_filter(tabs, active_tab_id(), filter);
 }
 
 #[cfg(test)]
@@ -1480,6 +1882,18 @@ fn format_row_json(columns: &[String], row: &[String]) -> String {
     }
 
     serde_json::to_string_pretty(&Value::Object(object)).unwrap_or_else(|_| "{}".to_string())
+}
+
+/// Serialize a row as tab-separated values with a header line.
+/// The output is suitable for pasting into spreadsheets.
+fn format_row_tsv(columns: &[String], row: &[String]) -> String {
+    let header = columns.join("\t");
+    let body = row
+        .iter()
+        .map(|value| value.replace(['\t', '\n', '\r'], " "))
+        .collect::<Vec<_>>()
+        .join("\t");
+    format!("{header}\n{body}")
 }
 
 fn detail_json_value(value: &str) -> Value {

@@ -143,6 +143,60 @@ pub enum QueryOutput {
     AffectedRows(u64),
 }
 
+/// One statement's outcome inside a multi-statement batch run.
+///
+/// Stored in `QueryTabState::batch_results` so the UI can render a
+/// tab strip of per-statement results + a final Status tab.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BatchResult {
+    /// 0-based index in the original script (matches `Statement::index`).
+    pub index: usize,
+    /// First line (0-based) of the statement in the original SQL.
+    pub line: usize,
+    /// Short preview of the statement (first non-whitespace line, max ~80 chars).
+    pub preview: String,
+    pub outcome: BatchOutcome,
+    /// `Some(duration_ms)` on success.
+    pub duration_ms: Option<u64>,
+    /// `Some(rows)` on success (Table → len, AffectedRows → count).
+    pub rows: Option<usize>,
+    /// `Some(message)` on error.
+    pub error_message: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BatchOutcome {
+    /// Executed without error.
+    Ok,
+    /// Execution returned an error from the server.
+    Error,
+    /// Not executed because a previous statement in the batch failed.
+    Skipped,
+    /// Batch is still running this statement.
+    Running,
+}
+
+impl BatchOutcome {
+    pub fn is_ok(self) -> bool {
+        matches!(self, BatchOutcome::Ok)
+    }
+    pub fn is_terminal(self) -> bool {
+        matches!(self, BatchOutcome::Ok | BatchOutcome::Error | BatchOutcome::Skipped)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BatchTransactionState {
+    /// No transaction was used (read-only batch, or ClickHouse).
+    None,
+    /// `BEGIN` was sent, batch is in progress.
+    InProgress,
+    /// `COMMIT` was sent at the end.
+    Committed,
+    /// `ROLLBACK` was sent after a failed statement.
+    RolledBack,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WorkspaceTabKind {
     Query,
@@ -169,6 +223,64 @@ pub struct QueryTabState {
     pub pending_table_changes: PendingTableChanges,
     pub execution_plan: Option<ExecutionPlan>,
     pub show_execution_plan: bool,
+    /// Multi-statement batch state. `Some(...)` when a batch run is in
+    /// progress or has just completed; `None` for single-statement runs.
+    ///
+    /// UI uses this to render a tab strip of per-statement results.
+    pub batch_results: Option<BatchRunState>,
+}
+
+/// In-progress or completed multi-statement batch run.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BatchRunState {
+    /// All non-empty statements in the batch, in order. Length is
+    /// stable for the lifetime of the run; outcomes are mutated in place.
+    pub results: Vec<BatchResult>,
+    /// Index of the currently-rendering tab in the result strip.
+    /// `0..results.len()` selects a per-statement tab; `results.len()`
+    /// selects the summary "Status" tab.
+    pub active_index: usize,
+    /// Server-side transaction state (only meaningful for PG/MySQL/SQLite
+    /// batches that include at least one write).
+    pub tx_state: BatchTransactionState,
+    /// Total wall-clock duration of the batch in milliseconds.
+    pub total_duration_ms: u64,
+}
+
+impl Default for BatchRunState {
+    fn default() -> Self {
+        Self {
+            results: Vec::new(),
+            active_index: 0,
+            tx_state: BatchTransactionState::None,
+            total_duration_ms: 0,
+        }
+    }
+}
+
+impl Default for QueryTabState {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            session_id: 0,
+            title: String::new(),
+            sql: String::new(),
+            status: String::new(),
+            result: None,
+            current_offset: 0,
+            page_size: 100,
+            last_run_sql: None,
+            preview_source: None,
+            filter: None,
+            sort: None,
+            tab_kind: WorkspaceTabKind::Query,
+            is_loading_more: false,
+            pending_table_changes: PendingTableChanges::default(),
+            execution_plan: None,
+            show_execution_plan: false,
+            batch_results: None,
+        }
+    }
 }
 
 /// Metrics collected during query execution.

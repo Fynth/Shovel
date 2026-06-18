@@ -1,0 +1,30 @@
+# Stable rustfmt settings for the workspace.
+# https://rust-lang.github.io/rustfmt/
+
+edition = "2021"
+max_width = 100
+tab_spaces = 4
+newline_style = "Unix"
+use_small_heuristics = "Default"
+# Group imports into a single block by source.
+imports_granularity = "Crate"
+# Reorder imports alphabetically, group by std/core/external/crate.
+imports_layout = "HorizontalVertical"
+# Do not reorder items within modules — keep them in source order.
+reorder_modules = false
+# Match arms on separate lines, not crammed.
+match_arm_blocks = false
+# Compress single-line `if` blocks? No — readability over density.
+condense_wildcard_suffixes = false
+# Trailing commas in all multi-line constructs.
+trailing_comma = "Vertical"
+# Use field init shorthand where possible.
+use_field_init_shorthand = true
+# Wrap `format!` strings consistently.
+format_strings = false
+# Format comments — keep them aligned.
+format_code_in_doc_comments = true
+# Format macro rules!
+format_macro_matchers = true
+# Don't normalize comments (preserves deliberate alignment).
+normalize_comments = false
