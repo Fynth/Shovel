@@ -114,6 +114,7 @@ pub static APP_SHOW_AGENT_PANEL: GlobalSignal<bool> =
 pub static APP_SHOW_SETTINGS_MODAL: GlobalSignal<bool> = Signal::global(|| false);
 pub static APP_TOOLTIP: GlobalSignal<Option<AppTooltip>> = Signal::global(|| None);
 pub static APP_TOAST: GlobalSignal<Vec<AppToast>> = Signal::global(Vec::new);
+pub static APP_TAB_DRAFTS: GlobalSignal<Vec<models::TabDraft>> = Signal::global(Vec::new);
 static NEXT_TOAST_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 static TOAST_CANCEL_TOKENS: std::sync::LazyLock<Mutex<HashMap<u64, CancellationToken>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -280,6 +281,9 @@ fn sync_runtime_ui_settings(settings: &AppUiSettings) {
     *APP_SHOW_HISTORY.write() = settings.show_history;
     *APP_SHOW_SQL_EDITOR.write() = settings.show_sql_editor;
     *APP_SHOW_AGENT_PANEL.write() = settings.ai_features_enabled && settings.show_agent_panel;
+    crate::screens::workspace::components::agent_panel::prompt::sync_ai_response_language(
+        settings.ai_response_language.clone(),
+    );
 }
 
 pub fn open_settings_modal() {
@@ -441,6 +445,7 @@ pub fn remove_session(session_id: u64) {
 pub fn restore_connection_sessions(
     restored: Vec<(ConnectionRequest, DatabaseConnection)>,
     active_name: Option<String>,
+    tab_drafts: Vec<models::TabDraft>,
 ) {
     // First collect existing session names and release SSH tunnels
     let existing_keys = {
@@ -492,11 +497,12 @@ pub fn restore_connection_sessions(
         state.show_connection_screen = state.sessions.is_empty();
     });
 
+    *APP_TAB_DRAFTS.write() = tab_drafts;
     persist_session_state();
 }
 
 fn persist_session_state() {
-    let (open_requests, active_connection_name) = {
+    let (open_requests, active_connection_name, tab_drafts) = {
         let state = APP_STATE.read();
         let requests = state
             .sessions
@@ -507,14 +513,15 @@ fn persist_session_state() {
             .active_session_id
             .and_then(|active_id| state.session(active_id))
             .map(|session| session.request.identity_key());
-        (requests, active)
+        let drafts = APP_TAB_DRAFTS().clone();
+        (requests, active, drafts)
     };
 
     // Offload synchronous file I/O to a blocking thread so we don't stall the
     // Dioxus render thread.
     spawn(async move {
         let result = tokio::task::spawn_blocking(move || {
-            services::save_session_state_sync(open_requests, active_connection_name)
+            services::save_session_state_sync(open_requests, active_connection_name, tab_drafts)
         })
         .await;
 

@@ -16,7 +16,7 @@ use crate::{
             tab_connection_or_error,
             toggle_active_tab_sort,
         },
-        components::{ActionIcon, IconButton, ResultChart},
+        components::{ActionIcon, DataDiffViewer, IconButton, ResultChart},
     },
 };
 use dioxus::{html::input_data::MouseButton, prelude::*};
@@ -35,6 +35,18 @@ use models::{
     QueryTabState,
 };
 use serde_json::{Map, Value};
+
+/// Resolve the qualified table name backing the active tab's result, if any.
+/// Falls back to the `<table>` placeholder so generated INSERT statements stay
+/// editable when the result comes from an arbitrary query.
+fn active_table_name(tabs: Signal<Vec<QueryTabState>>, active_tab_id: Signal<u64>) -> String {
+    tabs.read()
+        .iter()
+        .find(|tab| tab.id == active_tab_id())
+        .and_then(|tab| tab.preview_source.as_ref())
+        .map(|source| source.qualified_name.clone())
+        .unwrap_or_else(|| "<table>".to_string())
+}
 
 #[derive(Clone, PartialEq)]
 struct EditingCell {
@@ -88,6 +100,8 @@ pub fn ResultTable(
     let mut scroll_offset = use_signal(|| 0.0_f64);
     let mut viewport_height = use_signal(|| 600.0_f64);
     let mut show_chart = use_signal(|| false);
+    let mut pinned_result = use_signal(|| None::<models::QueryPage>);
+    let mut show_compare = use_signal(|| false);
 
     let current_editing = editing_cell();
     let active_tab = tabs
@@ -394,6 +408,23 @@ pub fn ResultTable(
                                             onclick: move |_| show_chart.toggle(),
                                             "Chart"
                                         }
+                                        button {
+                                            class: if pinned_result().is_some() {
+                                                "button button--ghost button--small button--active"
+                                            } else {
+                                                "button button--ghost button--small"
+                                            },
+                                            onclick: move |_| {
+                                                pinned_result.set(Some(page.clone()));
+                                            },
+                                            "Pin for compare"
+                                        }
+                                        button {
+                                            class: "button button--ghost button--small",
+                                            disabled: pinned_result().is_none(),
+                                            onclick: move |_| show_compare.set(true),
+                                            "Compare with pinned"
+                                        }
                                     }
                                     }
 
@@ -627,6 +658,8 @@ pub fn ResultTable(
                                                                 let columns_for_row_menu = page.columns.clone();
                                                                 let row_values = row.values.clone();
                                                                 let has_pending_changes_for_menu = has_pending_changes;
+                                                                let table_name_for_menu = active_table_name(tabs, active_tab_id);
+                                                                let all_rows_for_menu = page.rows.clone();
                                                                 move |event| {
                                                                     event.prevent_default();
                                                                     let coords = event.client_coordinates();
@@ -636,6 +669,8 @@ pub fn ResultTable(
                                                                         tabs_for_row_menu,
                                                                         active_tab_id_for_row_menu,
                                                                         has_pending_changes_for_menu,
+                                                                        table_name_for_menu.clone(),
+                                                                        all_rows_for_menu.clone(),
                                                                     );
                                                                     open_context_menu(coords.x, coords.y, items);
                                                                 }
@@ -905,6 +940,18 @@ pub fn ResultTable(
                                 rows: page.rows.clone(),
                                 visible: show_chart,
                             }
+                            if show_compare() && pinned_result().is_some() {
+                                div {
+                                    class: "workspace__overlay",
+                                    DataDiffViewer {
+                                        left_data: pinned_result(),
+                                        right_data: Some(page.clone()),
+                                        left_label: "Pinned".to_string(),
+                                        right_label: "Current".to_string(),
+                                        on_close: move |_| show_compare.set(false),
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1056,8 +1103,11 @@ fn build_row_context_menu(
     tabs: Signal<Vec<QueryTabState>>,
     active_tab_id: Signal<u64>,
     has_pending_changes: bool,
+    table_name: String,
+    all_rows: Vec<Vec<String>>,
 ) -> Vec<ContextMenuItem> {
     use crate::app_state::context_menu::copy_to_clipboard;
+    use services::format_insert_statements;
 
     let mut items: Vec<ContextMenuItem> = Vec::new();
 
@@ -1085,28 +1135,42 @@ fn build_row_context_menu(
         );
     }
 
-    // 3. Copy row as INSERT (uses the same `INSERT INTO … VALUES (…)`
-    //    template style as the Explorer menu).
+    // 3. Copy row as INSERT — a real, escaped `INSERT INTO <table> (cols) VALUES (...)`
+    //    using the active tab's source table when known. DBeaver-class data
+    //    migration clipboard action; the previous placeholder did not quote
+    //    values or include the column list.
     {
-        let values = row_values.clone();
+        let table = table_name.clone();
+        let columns = columns.clone();
+        let row = row_values.clone();
         items.push(
-            ContextMenuItem::new("Copy row as INSERT template", move || {
-                let _ = copy_to_clipboard(format!(
-                    "INSERT INTO <table> VALUES ({});",
-                    values
-                        .iter()
-                        .map(|v| if v.is_empty() {
-                            "NULL".to_string()
-                        } else {
-                            v.clone()
-                        })
-                        .collect::<Vec<_>>()
-                        .join(", ")
+            ContextMenuItem::new("Copy row as INSERT", move || {
+                let _ = copy_to_clipboard(format_insert_statements(
+                    &table,
+                    &columns,
+                    std::slice::from_ref(&row),
                 ));
+            })
+            .with_icon(ActionIcon::ExportSql),
+        );
+    }
+
+    // 3b. Copy all rows on the current page as INSERT statements — useful for
+    //    bulk data export to the clipboard. Carries the group separator; when
+    //    it is absent the single-row item carries it to preserve the divider.
+    if all_rows.len() > 1 {
+        let table = table_name.clone();
+        let columns = columns.clone();
+        let rows = all_rows.clone();
+        items.push(
+            ContextMenuItem::new("Copy all rows as INSERT", move || {
+                let _ = copy_to_clipboard(format_insert_statements(&table, &columns, &rows));
             })
             .with_icon(ActionIcon::ExportSql)
             .separator(),
         );
+    } else if let Some(last) = items.pop() {
+        items.push(last.separator());
     }
 
     // 4. Filter by every column whose value is non-empty. The

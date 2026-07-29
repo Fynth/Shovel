@@ -25,6 +25,7 @@ use crate::{
         set_show_saved_queries,
         set_show_sql_editor,
         set_theme_preference,
+        update_ui_settings,
     },
     screens::SqlFormatSettingsFields,
 };
@@ -256,6 +257,25 @@ pub fn SettingsModal() -> Element {
                                 },
                             }
                             span { "Enable AI features (ACP panel, prompts, and SQL actions)" }
+                        }
+                        div {
+                            class: "field",
+                            label {
+                                class: "field__label",
+                                "AI response language"
+                            }
+                            input {
+                                class: "input",
+                                r#type: "text",
+                                placeholder: "English",
+                                value: "{settings.ai_response_language}",
+                                disabled: !settings.ai_features_enabled,
+                                oninput: move |event| {
+                                    update_ui_settings(|current| {
+                                        current.ai_response_language = event.value();
+                                    });
+                                },
+                            }
                         }
                         label {
                             class: "settings-modal__toggle",

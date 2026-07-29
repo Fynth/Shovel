@@ -18,6 +18,7 @@ pub struct SessionRestoreResult {
     pub restored: Vec<(ConnectionRequest, DatabaseConnection)>,
     pub active_connection_name: Option<String>,
     pub failed_requests: Vec<(ConnectionRequest, String)>,
+    pub tab_drafts: Vec<models::TabDraft>,
 }
 
 pub async fn load_app_startup_settings() -> Result<AppStartupSettings, String> {
@@ -93,10 +94,11 @@ where
 }
 
 pub async fn restore_saved_sessions() -> Result<SessionRestoreResult, String> {
-    let (open_requests, active_connection_name) = storage::load_session_state().await?;
+    let (open_requests, active_connection_name, tab_drafts) = storage::load_session_state().await?;
     if open_requests.is_empty() {
         return Ok(SessionRestoreResult {
             active_connection_name,
+            tab_drafts,
             ..SessionRestoreResult::default()
         });
     }
@@ -122,6 +124,7 @@ pub async fn restore_saved_sessions() -> Result<SessionRestoreResult, String> {
         restored,
         active_connection_name,
         failed_requests,
+        tab_drafts,
     })
 }
 

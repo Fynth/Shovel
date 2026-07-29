@@ -52,6 +52,7 @@ pub use query::{
     export_query_page_sql_dump,
     export_query_page_xlsx,
     export_query_page_xml,
+    format_insert_statements,
     format_sql,
     import_csv_into_table,
     insert_table_row,

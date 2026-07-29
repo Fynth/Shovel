@@ -1,4 +1,4 @@
-use super::components::{ExplorerConnectionSection, replace_messages};
+use super::components::{ErDiagramState, ErTable, ExplorerConnectionSection, replace_messages};
 use crate::app_state::APP_UI_SETTINGS;
 use dioxus::prelude::*;
 use models::{
@@ -18,6 +18,42 @@ pub const WORKSPACE_ROOT_ID: &str = "workspace-root";
 
 pub fn format_explorer_error(err: impl std::fmt::Display) -> String {
     format!("Error: {err}")
+}
+
+pub fn build_er_diagram_from_sections(
+    sections: &[ExplorerConnectionSection],
+) -> Option<ErDiagramState> {
+    let mut tables = Vec::new();
+
+    for section in sections {
+        for node in &section.nodes {
+            if node.kind != models::ExplorerNodeKind::Schema {
+                continue;
+            }
+            let schema_name = node.name.clone();
+            for child in &node.children {
+                if child.kind != models::ExplorerNodeKind::Table {
+                    continue;
+                }
+                tables.push(ErTable {
+                    schema: schema_name.clone(),
+                    name: child.name.clone(),
+                    columns: Vec::new(),
+                    primary_key: Vec::new(),
+                    foreign_keys: Vec::new(),
+                });
+            }
+        }
+    }
+
+    if tables.is_empty() {
+        return None;
+    }
+
+    Some(ErDiagramState {
+        tables,
+        relationships: Vec::new(),
+    })
 }
 
 pub fn should_render_explorer_status(status: &str) -> bool {
@@ -365,6 +401,8 @@ pub fn tool_panel_class(panel: WorkspaceToolPanel) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
+        ExplorerConnectionSection,
+        build_er_diagram_from_sections,
         derive_chat_thread_title,
         format_explorer_error,
         is_low_signal_explorer_status,
@@ -452,5 +490,58 @@ mod tests {
         assert!(is_low_signal_explorer_status("Ready"));
         assert!(!is_low_signal_explorer_status("Loading..."));
         assert!(!is_low_signal_explorer_status("Error: failed"));
+    }
+
+    #[test]
+    fn er_diagram_empty_sections_returns_none() {
+        assert!(build_er_diagram_from_sections(&[]).is_none());
+    }
+
+    #[test]
+    fn er_diagram_builds_tables_from_schema_nodes() {
+        use models::ExplorerNodeKind;
+
+        let sections = vec![ExplorerConnectionSection {
+            session_id: 1,
+            name: "test".to_string(),
+            kind_label: "SQLite".to_string(),
+            status: "Ready".to_string(),
+            is_active: true,
+            nodes: vec![models::ExplorerNode {
+                name: "main".to_string(),
+                kind: ExplorerNodeKind::Schema,
+                schema: None,
+                qualified_name: "main".to_string(),
+                children: vec![
+                    models::ExplorerNode {
+                        name: "users".to_string(),
+                        kind: ExplorerNodeKind::Table,
+                        schema: Some("main".to_string()),
+                        qualified_name: "main.users".to_string(),
+                        children: Vec::new(),
+                    },
+                    models::ExplorerNode {
+                        name: "orders".to_string(),
+                        kind: ExplorerNodeKind::Table,
+                        schema: Some("main".to_string()),
+                        qualified_name: "main.orders".to_string(),
+                        children: Vec::new(),
+                    },
+                    models::ExplorerNode {
+                        name: "v_users".to_string(),
+                        kind: ExplorerNodeKind::View,
+                        schema: Some("main".to_string()),
+                        qualified_name: "main.v_users".to_string(),
+                        children: Vec::new(),
+                    },
+                ],
+            }],
+        }];
+
+        let diagram = build_er_diagram_from_sections(&sections).expect("diagram should be built");
+        assert_eq!(diagram.tables.len(), 2); // only tables, not views
+        assert!(diagram.tables.iter().any(|t| t.name == "users"));
+        assert!(diagram.tables.iter().any(|t| t.name == "orders"));
+        assert!(diagram.relationships.is_empty());
     }
 }

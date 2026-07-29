@@ -130,6 +130,14 @@ pub struct SqliteFormData {
     pub path: String,
 }
 
+fn default_postgres_ssl_mode() -> String {
+    "prefer".to_string()
+}
+
+fn default_mysql_ssl_mode() -> String {
+    "preferred".to_string()
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PostgresFormData {
     pub host: String,
@@ -139,6 +147,8 @@ pub struct PostgresFormData {
     pub database: String,
     #[serde(default)]
     pub ssh_tunnel: Option<SshTunnelConfig>,
+    #[serde(default = "default_postgres_ssl_mode")]
+    pub ssl_mode: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -150,6 +160,8 @@ pub struct MySqlFormData {
     pub database: String,
     #[serde(default)]
     pub ssh_tunnel: Option<SshTunnelConfig>,
+    #[serde(default = "default_mysql_ssl_mode")]
+    pub ssl_mode: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -672,6 +684,7 @@ mod tests {
             username: String::new(),
             password: "ignored".to_string(),
             database: String::new(),
+            ssl_mode: "prefer".to_string(),
             ssh_tunnel: None,
         });
 
@@ -692,6 +705,7 @@ mod tests {
             username: "analytics".to_string(),
             password: String::new(),
             database: String::new(),
+            ssl_mode: "prefer".to_string(),
             ssh_tunnel: None,
         });
 
@@ -748,6 +762,7 @@ mod tests {
             username: String::new(),
             password: "ignored".to_string(),
             database: String::new(),
+            ssl_mode: "preferred".to_string(),
             ssh_tunnel: None,
         });
 
@@ -768,6 +783,7 @@ mod tests {
             username: "app".to_string(),
             password: String::new(),
             database: String::new(),
+            ssl_mode: "preferred".to_string(),
             ssh_tunnel: None,
         });
 
@@ -789,6 +805,7 @@ mod tests {
             username: "admin".to_string(),
             password: "secret".to_string(),
             database: "mydb".to_string(),
+            ssl_mode: "prefer".to_string(),
             ssh_tunnel: Some(SshTunnelConfig {
                 host: "bastion.example.com".to_string(),
                 port: 2222,
@@ -813,6 +830,7 @@ mod tests {
             username: "postgres".to_string(),
             password: String::new(),
             database: "postgres".to_string(),
+            ssl_mode: "prefer".to_string(),
             ssh_tunnel: None,
         };
         let json = serde_json::to_string(&data).expect("serialize");
@@ -829,6 +847,7 @@ mod tests {
             username: "root".to_string(),
             password: "secret".to_string(),
             database: "mydb".to_string(),
+            ssl_mode: "preferred".to_string(),
             ssh_tunnel: Some(SshTunnelConfig {
                 host: "bastion.example.com".to_string(),
                 port: 22,
@@ -883,6 +902,7 @@ mod tests {
                 username: "postgres".to_string(),
                 password: "pass".to_string(),
                 database: "testdb".to_string(),
+                ssl_mode: "prefer".to_string(),
                 ssh_tunnel: None,
             }),
             ConnectionRequest::MySql(MySqlFormData {
@@ -891,6 +911,7 @@ mod tests {
                 username: "root".to_string(),
                 password: "pass".to_string(),
                 database: "testdb".to_string(),
+                ssl_mode: "preferred".to_string(),
                 ssh_tunnel: Some(SshTunnelConfig {
                     host: "ssh.example.com".to_string(),
                     port: 22,
@@ -925,6 +946,7 @@ mod tests {
                 username: "admin".to_string(),
                 password: "secret".to_string(),
                 database: "production".to_string(),
+                ssl_mode: "prefer".to_string(),
                 ssh_tunnel: Some(SshTunnelConfig {
                     host: "bastion.prod.example.com".to_string(),
                     port: 22,
@@ -1024,5 +1046,32 @@ mod tests {
         let json = r#"{"host":"localhost","port":8123,"username":"default","password":"","database":"default"}"#;
         let parsed: ClickHouseFormData = serde_json::from_str(json).expect("deserialize");
         assert!(parsed.ssh_tunnel.is_none());
+    }
+
+    // ── Missing ssl_mode falls back to the serde default ──────────────
+    // Old saved connections on disk predate the ssl_mode field; the
+    // #[serde(default)] must keep deserialization working.
+
+    #[test]
+    fn postgres_missing_ssl_mode_defaults_to_prefer() {
+        let json =
+            r#"{"host":"localhost","port":5432,"username":"pg","password":"pw","database":"db"}"#;
+        let parsed: PostgresFormData = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(parsed.ssl_mode, "prefer");
+    }
+
+    #[test]
+    fn mysql_missing_ssl_mode_defaults_to_preferred() {
+        let json =
+            r#"{"host":"localhost","port":3306,"username":"root","password":"pw","database":"db"}"#;
+        let parsed: MySqlFormData = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(parsed.ssl_mode, "preferred");
+    }
+
+    #[test]
+    fn postgres_explicit_ssl_mode_overrides_default() {
+        let json = r#"{"host":"localhost","port":5432,"username":"pg","password":"pw","database":"db","ssl_mode":"require"}"#;
+        let parsed: PostgresFormData = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(parsed.ssl_mode, "require");
     }
 }

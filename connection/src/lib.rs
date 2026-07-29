@@ -207,6 +207,7 @@ pub async fn connect_to_db(
                     username: data.username.clone(),
                     password: data.password.clone(),
                     database: data.database.clone(),
+                    ssl_mode: data.ssl_mode.clone(),
                 };
                 PgDriver::connect(config)
                     .await
@@ -245,6 +246,7 @@ pub async fn connect_to_db(
                     username: data.username.clone(),
                     password: data.password.clone(),
                     database: data.database.clone(),
+                    ssl_mode: data.ssl_mode.clone(),
                 };
                 MySqlDriver::connect(config)
                     .await

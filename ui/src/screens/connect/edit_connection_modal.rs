@@ -20,6 +20,7 @@ struct RemoteConnectionDraft {
     username: String,
     password: String,
     database: String,
+    ssl_mode: String,
     ssh_enabled: bool,
     ssh_host: String,
     ssh_port: String,
@@ -33,6 +34,7 @@ impl RemoteConnectionDraft {
             host: "localhost".to_string(),
             port: "5432".to_string(),
             username: "postgres".to_string(),
+            ssl_mode: "prefer".to_string(),
             password: String::new(),
             database: "postgres".to_string(),
             ssh_enabled: false,
@@ -48,6 +50,7 @@ impl RemoteConnectionDraft {
             host: "localhost".to_string(),
             port: "8123".to_string(),
             username: "default".to_string(),
+            ssl_mode: String::new(),
             password: String::new(),
             database: "default".to_string(),
             ssh_enabled: false,
@@ -63,6 +66,7 @@ impl RemoteConnectionDraft {
             host: "localhost".to_string(),
             port: "3306".to_string(),
             username: "root".to_string(),
+            ssl_mode: "preferred".to_string(),
             password: String::new(),
             database: String::new(),
             ssh_enabled: false,
@@ -97,6 +101,7 @@ impl RemoteConnectionDraft {
     fn from_postgres(data: &PostgresFormData) -> Self {
         Self {
             host: data.host.clone(),
+            ssl_mode: data.ssl_mode.clone(),
             port: data.port.to_string(),
             username: data.username.clone(),
             password: data.password.clone(),
@@ -128,6 +133,7 @@ impl RemoteConnectionDraft {
     fn from_clickhouse(data: &ClickHouseFormData) -> Self {
         Self {
             host: data.host.clone(),
+            ssl_mode: String::new(),
             port: data.port.to_string(),
             username: data.username.clone(),
             password: data.password.clone(),
@@ -159,6 +165,7 @@ impl RemoteConnectionDraft {
     fn from_mysql(data: &MySqlFormData) -> Self {
         Self {
             host: data.host.clone(),
+            ssl_mode: data.ssl_mode.clone(),
             port: data.port.to_string(),
             username: data.username.clone(),
             password: data.password.clone(),
@@ -276,6 +283,7 @@ pub fn EditConnectionModal(
                                     username: draft.username,
                                     password: draft.password,
                                     database: draft.database,
+                                    ssl_mode: draft.ssl_mode,
                                     ssh_tunnel,
                                 })
                             }
@@ -288,6 +296,7 @@ pub fn EditConnectionModal(
                                     username: draft.username,
                                     password: draft.password,
                                     database: draft.database,
+                                    ssl_mode: draft.ssl_mode,
                                     ssh_tunnel,
                                 })
                             }

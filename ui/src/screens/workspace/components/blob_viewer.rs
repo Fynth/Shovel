@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 #[allow(dead_code)]
 pub enum BlobViewMode {
     Hex,
@@ -242,8 +242,11 @@ fn detect_blob_type(data: &[u8], mime_hint: Option<&str>) -> BlobViewMode {
         return BlobViewMode::Text;
     }
 
-    if data.len() >= 6 {
-        let header_lower = String::from_utf8_lossy(&data[..6]).to_lowercase();
+    // Use a window large enough to fit `"<!doctype html"` and `"<html"`;
+    // a 6-byte window silently missed standard HTML5 documents.
+    if !data.is_empty() {
+        let window = data.len().min(16);
+        let header_lower = String::from_utf8_lossy(&data[..window]).to_lowercase();
         if header_lower.contains("html") || header_lower.contains("doctype") {
             return BlobViewMode::Text;
         }
@@ -343,5 +346,218 @@ fn format_bytes(size: u64) -> String {
         format!("{:.2} KB", size as f64 / KB as f64)
     } else {
         format!("{size} bytes")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── detect_blob_type ──────────────────────────────────────────
+
+    #[test]
+    fn detect_png_magic_bytes() {
+        assert_eq!(
+            detect_blob_type(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A], None),
+            BlobViewMode::Image
+        );
+    }
+
+    #[test]
+    fn detect_jpeg_magic_bytes() {
+        assert_eq!(
+            detect_blob_type(&[0xFF, 0xD8, 0xFF, 0xE0], None),
+            BlobViewMode::Image
+        );
+    }
+
+    #[test]
+    fn detect_gif_magic_bytes() {
+        assert_eq!(
+            detect_blob_type(&[0x47, 0x49, 0x46, 0x38, 0x39, 0x61], None),
+            BlobViewMode::Image
+        );
+    }
+
+    #[test]
+    fn detect_riff_webp_magic_bytes() {
+        assert_eq!(
+            detect_blob_type(&[0x52, 0x49, 0x46, 0x46, 0x00, 0x00], None),
+            BlobViewMode::Image
+        );
+    }
+
+    #[test]
+    fn detect_bmp_magic_bytes() {
+        assert_eq!(
+            detect_blob_type(&[0x42, 0x4D, 0x00, 0x00, 0x00], None),
+            BlobViewMode::Image
+        );
+    }
+
+    #[test]
+    fn detect_xml_prefix() {
+        assert_eq!(
+            detect_blob_type(b"<?xml version=\"1.0\"?>", None),
+            BlobViewMode::Text
+        );
+    }
+
+    #[test]
+    fn detect_svg_prefix() {
+        assert_eq!(
+            detect_blob_type(b"<svg xmlns=\"http://www.w3.org/2000/svg\">", None),
+            BlobViewMode::Text
+        );
+    }
+
+    #[test]
+    fn detect_html_tag() {
+        assert_eq!(
+            detect_blob_type(b"<html><head></head></html>", None),
+            BlobViewMode::Text
+        );
+    }
+
+    #[test]
+    fn detect_doctype_html5() {
+        // Regression: a 6-byte window missed `"<!doctype"` (9 bytes).
+        assert_eq!(
+            detect_blob_type(b"<!DOCTYPE html>\n<html>", None),
+            BlobViewMode::Text
+        );
+    }
+
+    #[test]
+    fn detect_mime_hint_image_overrides_bytes() {
+        assert_eq!(
+            detect_blob_type(&[0x00, 0x01, 0x02, 0x03], Some("image/png")),
+            BlobViewMode::Image
+        );
+    }
+
+    #[test]
+    fn detect_mime_hint_text() {
+        assert_eq!(
+            detect_blob_type(&[0x00, 0x01], Some("text/plain")),
+            BlobViewMode::Text
+        );
+    }
+
+    #[test]
+    fn detect_mime_hint_json() {
+        assert_eq!(
+            detect_blob_type(b"{\"k\":1}", Some("application/json")),
+            BlobViewMode::Text
+        );
+    }
+
+    #[test]
+    fn detect_binary_falls_back_to_hex() {
+        assert_eq!(
+            detect_blob_type(&[0x00, 0x01, 0x02, 0x03, 0x04, 0x05], None),
+            BlobViewMode::Hex
+        );
+    }
+
+    #[test]
+    fn detect_empty_data_is_hex() {
+        assert_eq!(detect_blob_type(&[], None), BlobViewMode::Hex);
+    }
+
+    // ── format_bytes ──────────────────────────────────────────────
+
+    #[test]
+    fn format_bytes_bytes_range() {
+        assert_eq!(format_bytes(0), "0 bytes");
+        assert_eq!(format_bytes(1), "1 bytes");
+        assert_eq!(format_bytes(1023), "1023 bytes");
+    }
+
+    #[test]
+    fn format_bytes_kb_boundary() {
+        assert_eq!(format_bytes(1024), "1.00 KB");
+        assert_eq!(format_bytes(1536), "1.50 KB");
+    }
+
+    #[test]
+    fn format_bytes_mb_boundary() {
+        assert_eq!(format_bytes(1_048_576), "1.00 MB");
+    }
+
+    #[test]
+    fn format_bytes_gb_boundary() {
+        assert_eq!(format_bytes(1_073_741_824), "1.00 GB");
+    }
+
+    // ── base64_encode ─────────────────────────────────────────────
+
+    #[test]
+    fn base64_empty() {
+        assert_eq!(base64_encode(b""), "");
+    }
+
+    #[test]
+    fn base64_three_bytes_no_padding() {
+        assert_eq!(base64_encode(b"Man"), "TWFu");
+        assert_eq!(base64_encode(b"abc"), "YWJj");
+    }
+
+    #[test]
+    fn base64_two_bytes_one_padding() {
+        assert_eq!(base64_encode(b"Ma"), "TWE=");
+    }
+
+    #[test]
+    fn base64_one_byte_two_padding() {
+        assert_eq!(base64_encode(b"M"), "TQ==");
+    }
+
+    // ── render_hex_dump ───────────────────────────────────────────
+
+    #[test]
+    fn hex_dump_structure_and_printable_flag() {
+        let lines = render_hex_dump(b"AB\x00C", 16);
+        assert_eq!(lines.len(), 1);
+        let line = &lines[0];
+        assert_eq!(line.address, "00000000:");
+        assert_eq!(line.bytes.len(), 4);
+        assert_eq!(line.bytes[0].hex, "41");
+        assert!(line.bytes[0].is_printable);
+        assert_eq!(line.bytes[0].char, 'A');
+        assert!(!line.bytes[2].is_printable);
+        assert_eq!(line.bytes[2].char, '.');
+        assert_eq!(line.ascii, "AB.C");
+    }
+
+    #[test]
+    fn hex_dump_wraps_across_lines() {
+        let lines = render_hex_dump(b"ABCDEFGH", 4);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].address, "00000000:");
+        assert_eq!(lines[1].address, "00000004:");
+        assert_eq!(lines[0].bytes.len(), 4);
+        assert_eq!(lines[1].bytes.len(), 4);
+    }
+
+    // ── render_text_preview / render_image_preview ────────────────
+
+    #[test]
+    fn text_preview_is_lossy_utf8() {
+        assert_eq!(render_text_preview(b"hello"), "hello");
+        // Invalid UTF-8 byte becomes the replacement char, not a panic.
+        assert!(render_text_preview(&[0x68, 0x69, 0xFF]).contains('\u{fffd}'));
+    }
+
+    #[test]
+    fn image_preview_png_returns_data_uri() {
+        let out = render_image_preview(&[0x89, 0x50, 0x4E, 0x47, 0x0D]);
+        assert_eq!(out.as_deref(), Some("data:image/png;base64,iVBORw0="));
+    }
+
+    #[test]
+    fn image_preview_non_image_returns_none() {
+        assert_eq!(render_image_preview(b"hello"), None);
+        assert_eq!(render_image_preview(&[0x00, 0x01]), None);
     }
 }

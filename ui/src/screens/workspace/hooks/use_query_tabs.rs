@@ -4,7 +4,7 @@ use dioxus::prelude::*;
 use models::QueryTabState;
 
 use super::super::actions::new_query_tab;
-use crate::app_state::APP_STATE;
+use crate::app_state::{APP_STATE, APP_TAB_DRAFTS};
 
 pub struct QueryTabsState {
     pub tabs: Signal<Vec<QueryTabState>>,
@@ -52,19 +52,56 @@ pub fn use_query_tabs() -> QueryTabsState {
                 return;
             }
 
+            // Look up a saved tab draft for this session's connection.
+            let (saved_title, saved_sql) = {
+                let app_state = APP_STATE.read();
+                let identity_key = app_state
+                    .session(session_id)
+                    .map(|session| session.request.identity_key());
+                if let Some(key) = identity_key {
+                    APP_TAB_DRAFTS()
+                        .iter()
+                        .find(|draft| draft.session_identity_key == key)
+                        .map(|draft| (draft.title.clone(), draft.sql.clone()))
+                        .unwrap_or_else(|| ("Query 1".to_string(), "select 1 as id;".to_string()))
+                } else {
+                    ("Query 1".to_string(), "select 1 as id;".to_string())
+                }
+            };
+
             let tab_id = next_tab_id();
             next_tab_id += 1;
             tabs.with_mut(|all_tabs| {
-                all_tabs.push(new_query_tab(
-                    tab_id,
-                    session_id,
-                    format!("Query {tab_id}"),
-                    "select 1 as id;".to_string(),
-                ));
+                all_tabs.push(new_query_tab(tab_id, session_id, saved_title, saved_sql));
             });
             active_tab_id.set(tab_id);
         } else {
             active_tab_id.set(0);
+        }
+    });
+
+    // Persist tab drafts whenever tabs change so SQL drafts survive restarts.
+    use_effect(move || {
+        let _ = tabs(); // subscribe to tab changes
+        let app_state = APP_STATE.read();
+        let drafts: Vec<models::TabDraft> = tabs
+            .read()
+            .iter()
+            .filter_map(|tab| {
+                let session = app_state.session(tab.session_id)?;
+                if tab.sql.trim().is_empty() || tab.sql.trim() == "select 1 as id;" {
+                    return None;
+                }
+                Some(models::TabDraft {
+                    session_identity_key: session.request.identity_key(),
+                    title: tab.title.clone(),
+                    sql: tab.sql.clone(),
+                })
+            })
+            .collect();
+        let current = APP_TAB_DRAFTS();
+        if *current != drafts {
+            *APP_TAB_DRAFTS.write() = drafts;
         }
     });
 

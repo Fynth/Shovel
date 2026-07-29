@@ -160,6 +160,103 @@ pub(super) fn send_chat_prompt_request(
     });
 }
 
+/// Send a "Describe this table with AI" request from the explorer
+/// context menu. Reuses the chat prompt pipeline but with a
+/// pre-built prompt that asks the agent to describe the specified
+/// table's structure, purpose, and notable columns.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn send_describe_object_request(
+    mut panel_state: Signal<AcpPanelState>,
+    tabs: Signal<Vec<QueryTabState>>,
+    active_tab_id: u64,
+    connection_label: String,
+    mut chat_revision: Signal<u64>,
+    allow_db_read: bool,
+    qualified_name: String,
+) {
+    if panel_state().busy {
+        return;
+    }
+
+    let prompt = format!(
+        "Describe the table {qualified_name} in the active database. \
+    Explain its purpose, key columns, relationships, and any notable design choices. \
+    If you can see the schema context, use it. Keep the description concise."
+    );
+
+    let connection = if allow_db_read {
+        active_editor_connection(tabs, active_tab_id)
+    } else {
+        None
+    };
+    let focus_source = active_editor_focus_source(tabs, active_tab_id);
+
+    panel_state.with_mut(|state| {
+        state.busy = true;
+        state.pending_sql_insert = false;
+        state.suppress_transcript = false;
+        state.hidden_agent_response.clear();
+        state.status = "Preparing table description request...".to_string();
+    });
+
+    spawn(async move {
+        let (contextual_prompt, routing_context) = match connection {
+            Some(connection) => {
+                match services::build_acp_database_context(
+                    connection,
+                    connection_label.clone(),
+                    focus_source,
+                )
+                .await
+                {
+                    Ok(db_context) => (
+                        build_chat_prompt(
+                            &connection_label,
+                            &prompt,
+                            Some(db_context.clone()),
+                            None,
+                            None,
+                        ),
+                        build_routing_context(&connection_label, None, Some(&db_context)),
+                    ),
+                    Err(_) => (
+                        build_chat_prompt(&connection_label, &prompt, None, None, None),
+                        build_routing_context(&connection_label, None, None),
+                    ),
+                }
+            }
+            None => (
+                build_chat_prompt(&connection_label, &prompt, None, None, None),
+                build_routing_context(&connection_label, None, None),
+            ),
+        };
+
+        match send_routed_prompt(contextual_prompt, routing_context) {
+            Ok(()) => {
+                panel_state.with_mut(|state| {
+                    push_message(
+                        state,
+                        AcpMessageKind::User,
+                        format!("Describe: {qualified_name}"),
+                    );
+                    state.busy = true;
+                    state.pending_sql_insert = false;
+                    state.status = "Waiting for agent response...".to_string();
+                });
+                chat_revision += 1;
+            }
+            Err(err) => {
+                panel_state.with_mut(|state| {
+                    state.status = err.clone();
+                    state.busy = false;
+                    push_message(state, AcpMessageKind::Error, err);
+                });
+                chat_revision += 1;
+            }
+        }
+    });
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_sql_generation_request(
     mut panel_state: Signal<AcpPanelState>,

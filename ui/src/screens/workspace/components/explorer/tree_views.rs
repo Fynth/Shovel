@@ -21,7 +21,8 @@ use crate::{
             run_table_preview_for_tab,
             tab_connection_or_error,
         },
-        components::IconButton,
+        components::{IconButton, send_describe_object_request},
+        context::WorkspaceAcpContext,
     },
 };
 use dioxus::prelude::*;
@@ -237,6 +238,7 @@ fn ExplorerObjectRow(
     selected_node: Signal<String>,
 ) -> Element {
     let table_mutation_inflight = use_signal(|| None::<TableMutationKind>);
+    let acp_ctx = use_context::<WorkspaceAcpContext>();
     let mut show_duplicate_table = use_signal(|| false);
     let (connection_name, connection_kind) = APP_STATE
         .read()
@@ -280,6 +282,33 @@ fn ExplorerObjectRow(
         tree_reload,
     );
 
+    // Add "Describe with AI" menu item for tables/views when AI features are on.
+    let mut menu_items = items;
+    if matches!(node.kind, ExplorerNodeKind::Table | ExplorerNodeKind::View)
+        && crate::app_state::APP_AI_FEATURES_ENABLED()
+    {
+        let qualified = preview_source.qualified_name.clone();
+        let panel_state = acp_ctx.acp_panel_state;
+        let chat_revision = acp_ctx.chat_revision;
+        let allow_db_read = acp_ctx.allow_agent_db_read;
+        let label = acp_ctx.connection_label.clone();
+        menu_items.push(
+            ContextMenuItem::new("Describe with AI", move || {
+                send_describe_object_request(
+                    panel_state,
+                    tabs,
+                    active_tab_id(),
+                    label.clone(),
+                    chat_revision,
+                    allow_db_read(),
+                    qualified.clone(),
+                );
+            })
+            .with_icon(ActionIcon::Agent)
+            .separator(),
+        );
+    }
+
     rsx! {
         div {
             class: if selected {
@@ -290,7 +319,7 @@ fn ExplorerObjectRow(
             oncontextmenu: move |event| {
                 event.prevent_default();
                 let coords = event.client_coordinates();
-                open_context_menu(coords.x, coords.y, items.clone());
+                open_context_menu(coords.x, coords.y, menu_items.clone());
             },
             button {
                 class: if selected {

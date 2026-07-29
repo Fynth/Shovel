@@ -1,6 +1,6 @@
 mod actions;
 mod chat;
-mod components;
+pub(crate) mod components;
 mod context;
 pub mod helpers;
 mod hooks;
@@ -39,6 +39,10 @@ use self::{
     chat::{create_chat_thread, delete_chat_thread, select_chat_thread},
     components::{
         AcpAgentPanel,
+        BlobData,
+        BlobViewer,
+        ErDiagramState,
+        ErDiagramViewer,
         IconButton,
         QueryHistoryPanel,
         SavedQueriesPanel,
@@ -519,6 +523,8 @@ fn WorkspaceBody(
     chat_threads: Signal<Vec<ChatThreadSummary>>,
     active_chat_thread_id: Signal<Option<i64>>,
     connection_label: String,
+    mut er_diagram: Signal<Option<ErDiagramState>>,
+    mut blob_viewer: Signal<Option<BlobData>>,
 ) -> Element {
     rsx! {
         if show_sidebar {
@@ -674,6 +680,15 @@ fn WorkspaceBody(
                         onclick: move |_| tree_reload += 1,
                     }
                     IconButton {
+                        icon: ActionIcon::Details,
+                        label: "ER diagram".to_string(),
+                        small: true,
+                        onclick: move |_| {
+                            let sections = tree_sections();
+                            er_diagram.set(helpers::build_er_diagram_from_sections(&sections));
+                        },
+                    }
+                    IconButton {
                         icon: ActionIcon::NewConnection,
                         label: "New connection".to_string(),
                         primary: true,
@@ -787,6 +802,9 @@ pub fn Workspace() -> Element {
         .unwrap_or_else(|| "No connection".to_string());
     let show_history = APP_SHOW_HISTORY();
 
+    let mut er_diagram = use_signal(|| None::<ErDiagramState>);
+    let mut blob_viewer = use_signal(|| None::<BlobData>);
+
     // ── Layout signals (owned by Workspace) ────────────────────────
     let sidebar_width = use_signal(|| 320.0);
     let sidebar_resize_active = use_signal(|| false);
@@ -799,13 +817,13 @@ pub fn Workspace() -> Element {
     let ExplorerState {
         tree_status,
         tree_sections,
-        tree_reload,
+        mut tree_reload,
     } = use_explorer_state();
 
     let QueryTabsState {
-        tabs,
-        active_tab_id,
-        next_tab_id,
+        mut tabs,
+        mut active_tab_id,
+        mut next_tab_id,
     } = use_query_tabs();
 
     let ChatState {
@@ -921,6 +939,67 @@ pub fn Workspace() -> Element {
                     drop_target.set(None);
                 }
             },
+            onkeydown: move |event: dioxus::prelude::KeyboardEvent| {
+                use dioxus::prelude::{Key, Modifiers};
+                let key = event.key();
+                let mods = event.modifiers();
+                let ctrl = mods.contains(Modifiers::CONTROL)
+                    || mods.contains(Modifiers::META);
+
+                // Ctrl/Cmd+T — new query tab
+                if ctrl && matches!(key, Key::Character(ref c) if c == "t" || c == "T") {
+                    event.prevent_default();
+                    if let Some(session) = APP_STATE.read().active_session().cloned() {
+                        let tab_id = next_tab_id();
+                        next_tab_id += 1;
+                        let tab = actions::new_query_tab(
+                            tab_id,
+                            session.id,
+                            format!("Query {}", tabs.read().len() + 1),
+                            String::new(),
+                        );
+                        tabs.with_mut(|all_tabs| all_tabs.push(tab));
+                        active_tab_id.set(tab_id);
+                    }
+                    return;
+                }
+
+                // Ctrl/Cmd+W — close active tab (keep at least one)
+                if ctrl && matches!(key, Key::Character(ref c) if c == "w" || c == "W") {
+                    event.prevent_default();
+                    if tabs.read().len() > 1 {
+                        let current_id = active_tab_id();
+                        tabs.with_mut(|all_tabs| all_tabs.retain(|t| t.id != current_id));
+                        if let Some(first) = tabs.read().first() {
+                            active_tab_id.set(first.id);
+                            crate::app_state::activate_session(first.session_id);
+                        }
+                    }
+                    return;
+                }
+
+                // F5 — refresh explorer tree
+                if key == Key::F5 {
+                    event.prevent_default();
+                    tree_reload += 1;
+                    return;
+                }
+
+                // Ctrl/Cmd+Tab — switch to next tab
+                if ctrl && key == Key::Tab {
+                    event.prevent_default();
+                    let all_tabs = tabs.read();
+                    if all_tabs.len() > 1 {
+                        let current_idx = all_tabs.iter().position(|t| t.id == active_tab_id());
+                        if let Some(idx) = current_idx {
+                            let next_idx = (idx + 1) % all_tabs.len();
+                            let next_tab = &all_tabs[next_idx];
+                            active_tab_id.set(next_tab.id);
+                            crate::app_state::activate_session(next_tab.session_id);
+                        }
+                    }
+                }
+            },
             WorkspaceBody {
                 show_sidebar,
                 show_inspector,
@@ -957,6 +1036,27 @@ pub fn Workspace() -> Element {
                 chat_threads,
                 active_chat_thread_id,
                 connection_label: connection_label.clone(),
+                er_diagram,
+                blob_viewer,
+            }
+            if er_diagram().is_some() {
+                div {
+                    class: "workspace__overlay",
+                    ErDiagramViewer {
+                        diagram_state: er_diagram,
+                        on_close: move |_| er_diagram.set(None),
+                        on_table_click: move |_table_name: String | {},
+                    }
+                }
+            }
+            if blob_viewer().is_some() {
+                div {
+                    class: "workspace__overlay",
+                    BlobViewer {
+                        blob_data: blob_viewer,
+                        on_close: move |_| blob_viewer.set(None),
+                    }
+                }
             }
         }
     }

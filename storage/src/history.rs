@@ -45,6 +45,8 @@ struct PostgresConnectionMetadata {
     username: String,
     database: String,
     #[serde(default)]
+    ssl_mode: String,
+    #[serde(default)]
     ssh_tunnel: Option<SshTunnelConfig>,
 }
 
@@ -54,6 +56,8 @@ struct MySqlConnectionMetadata {
     port: u16,
     username: String,
     database: String,
+    #[serde(default)]
+    ssl_mode: String,
     #[serde(default)]
     ssh_tunnel: Option<SshTunnelConfig>,
 }
@@ -73,6 +77,8 @@ struct PersistedSessionState {
     #[serde(default)]
     open_connections: Vec<PersistedSavedConnection>,
     active_connection_name: Option<String>,
+    #[serde(default)]
+    tab_drafts: Vec<models::TabDraft>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,6 +86,8 @@ struct LegacySessionState {
     #[serde(default)]
     open_requests: Vec<ConnectionRequest>,
     active_connection_name: Option<String>,
+    #[serde(default)]
+    tab_drafts: Vec<models::TabDraft>,
 }
 
 /// Load all saved connections from disk, hydrating secrets from the keyring.
@@ -214,9 +222,10 @@ pub async fn append_query_history(item: QueryHistoryItem) -> Result<(), String> 
 pub async fn save_session_state(
     open_requests: Vec<ConnectionRequest>,
     active_connection_name: Option<String>,
+    tab_drafts: Vec<models::TabDraft>,
 ) -> Result<(), String> {
     let (state, secret_errors) =
-        build_persisted_session_state(open_requests, active_connection_name);
+        build_persisted_session_state(open_requests, active_connection_name, tab_drafts);
     write_json_file(session_state_path(), &state)
         .await
         .and_then(|_| finalize_secret_errors("session state", secret_errors))
@@ -235,12 +244,20 @@ pub async fn save_session_state(
 /// # Errors
 ///
 /// Returns an error string if the file cannot be read or parsed.
-pub async fn load_session_state() -> Result<(Vec<ConnectionRequest>, Option<String>), String> {
+#[allow(clippy::type_complexity)]
+pub async fn load_session_state() -> Result<
+    (
+        Vec<ConnectionRequest>,
+        Option<String>,
+        Vec<models::TabDraft>,
+    ),
+    String,
+> {
     let state = read_session_state_async(session_state_path()).await?;
     let active_connection_name =
         normalize_active_connection_name(&state.open_connections, state.active_connection_name);
     let open_requests = hydrate_session_requests(state.open_connections)?;
-    Ok((open_requests, active_connection_name))
+    Ok((open_requests, active_connection_name, state.tab_drafts))
 }
 
 /// Persist the current session state to disk synchronously.
@@ -260,9 +277,10 @@ pub async fn load_session_state() -> Result<(Vec<ConnectionRequest>, Option<Stri
 pub fn save_session_state_sync(
     open_requests: Vec<ConnectionRequest>,
     active_connection_name: Option<String>,
+    tab_drafts: Vec<models::TabDraft>,
 ) -> Result<(), String> {
     let (state, secret_errors) =
-        build_persisted_session_state(open_requests, active_connection_name);
+        build_persisted_session_state(open_requests, active_connection_name, tab_drafts);
     write_session_state_sync(session_state_path(), &state)
         .and_then(|_| finalize_secret_errors("session state", secret_errors))
 }
@@ -281,12 +299,20 @@ pub fn save_session_state_sync(
 /// # Errors
 ///
 /// Returns an error string if the file cannot be read or parsed.
-pub fn load_session_state_sync() -> Result<(Vec<ConnectionRequest>, Option<String>), String> {
+#[allow(clippy::type_complexity)]
+pub fn load_session_state_sync() -> Result<
+    (
+        Vec<ConnectionRequest>,
+        Option<String>,
+        Vec<models::TabDraft>,
+    ),
+    String,
+> {
     let state = read_session_state_sync(session_state_path())?;
     let active_connection_name =
         normalize_active_connection_name(&state.open_connections, state.active_connection_name);
     let open_requests = hydrate_session_requests(state.open_connections)?;
-    Ok((open_requests, active_connection_name))
+    Ok((open_requests, active_connection_name, state.tab_drafts))
 }
 
 async fn persist_saved_connections(
@@ -388,6 +414,7 @@ fn to_persisted_connection(saved_connection: SavedConnection) -> PersistedSavedC
                 port: data.port,
                 username: data.username,
                 database: data.database,
+                ssl_mode: data.ssl_mode,
                 ssh_tunnel: data.ssh_tunnel,
             }),
         ConnectionRequest::MySql(data) =>
@@ -396,6 +423,7 @@ fn to_persisted_connection(saved_connection: SavedConnection) -> PersistedSavedC
                 port: data.port,
                 username: data.username,
                 database: data.database,
+                ssl_mode: data.ssl_mode,
                 ssh_tunnel: data.ssh_tunnel,
             }),
         ConnectionRequest::ClickHouse(data) =>
@@ -557,6 +585,11 @@ fn persisted_request_without_password(request: &PersistedConnectionRequest) -> C
                 username: data.username.clone(),
                 password: String::new(),
                 database: data.database.clone(),
+                ssl_mode: if data.ssl_mode.is_empty() {
+                    "prefer".to_string()
+                } else {
+                    data.ssl_mode.clone()
+                },
                 ssh_tunnel: data.ssh_tunnel.clone(),
             }),
         PersistedConnectionRequest::MySql(data) => ConnectionRequest::MySql(MySqlFormData {
@@ -565,6 +598,11 @@ fn persisted_request_without_password(request: &PersistedConnectionRequest) -> C
             username: data.username.clone(),
             password: String::new(),
             database: data.database.clone(),
+            ssl_mode: if data.ssl_mode.is_empty() {
+                "preferred".to_string()
+            } else {
+                data.ssl_mode.clone()
+            },
             ssh_tunnel: data.ssh_tunnel.clone(),
         }),
         PersistedConnectionRequest::ClickHouse(data) =>
@@ -592,6 +630,11 @@ fn persisted_request_with_password(
                 username: data.username,
                 password: password.clone().unwrap_or_default(),
                 database: data.database,
+                ssl_mode: if data.ssl_mode.is_empty() {
+                    "prefer".to_string()
+                } else {
+                    data.ssl_mode
+                },
                 ssh_tunnel: data.ssh_tunnel,
             }),
         PersistedConnectionRequest::MySql(data) => ConnectionRequest::MySql(MySqlFormData {
@@ -600,6 +643,11 @@ fn persisted_request_with_password(
             username: data.username,
             password: password.clone().unwrap_or_default(),
             database: data.database,
+            ssl_mode: if data.ssl_mode.is_empty() {
+                "preferred".to_string()
+            } else {
+                data.ssl_mode
+            },
             ssh_tunnel: data.ssh_tunnel,
         }),
         PersistedConnectionRequest::ClickHouse(data) =>
@@ -629,6 +677,7 @@ fn normalize_active_connection_name(
 fn build_persisted_session_state(
     open_requests: Vec<ConnectionRequest>,
     active_connection_name: Option<String>,
+    tab_drafts: Vec<models::TabDraft>,
 ) -> (PersistedSessionState, Vec<String>) {
     let mut secret_errors = Vec::new();
     let open_connections = open_requests
@@ -649,6 +698,7 @@ fn build_persisted_session_state(
         PersistedSessionState {
             open_connections,
             active_connection_name,
+            tab_drafts,
         },
         secret_errors,
     )
@@ -693,6 +743,7 @@ fn parse_session_state(content: &str, path: &Path) -> Result<PersistedSessionSta
                 .map(to_persisted_connection)
                 .collect(),
             active_connection_name: legacy.active_connection_name,
+            tab_drafts: legacy.tab_drafts,
         }),
         Err(err) => Err(format!("failed to parse {}: {err}", path.display())),
     }
@@ -730,8 +781,14 @@ fn write_session_state_sync(path: PathBuf, value: &PersistedSessionState) -> Res
 
 #[cfg(test)]
 mod tests {
-    use super::upsert_saved_connection;
-    use models::{ConnectionRequest, SavedConnection, SqliteFormData};
+    use super::*;
+    use models::{
+        ConnectionRequest,
+        MySqlFormData,
+        PostgresFormData,
+        SavedConnection,
+        SqliteFormData,
+    };
 
     fn sqlite_request(path: &str) -> ConnectionRequest {
         ConnectionRequest::Sqlite(SqliteFormData {
@@ -778,5 +835,107 @@ mod tests {
         assert_eq!(saved_connections.len(), 2);
         assert_eq!(saved_connections[0].request, first_request);
         assert_eq!(saved_connections[1].request, second_request);
+    }
+
+    // ── ssl_mode round-trip through session persistence ────────────────
+    // Regression: ssl_mode was hardcoded during hydration, discarding the
+    // user's chosen SSL mode on every save/restore cycle.
+
+    fn postgres_request(ssl_mode: &str) -> ConnectionRequest {
+        ConnectionRequest::Postgres(PostgresFormData {
+            host: "db.example.com".to_string(),
+            port: 5432,
+            username: "pg".to_string(),
+            password: String::new(),
+            database: "app".to_string(),
+            ssl_mode: ssl_mode.to_string(),
+            ssh_tunnel: None,
+        })
+    }
+
+    fn mysql_request(ssl_mode: &str) -> ConnectionRequest {
+        ConnectionRequest::MySql(MySqlFormData {
+            host: "db.example.com".to_string(),
+            port: 3306,
+            username: "root".to_string(),
+            password: String::new(),
+            database: "app".to_string(),
+            ssl_mode: ssl_mode.to_string(),
+            ssh_tunnel: None,
+        })
+    }
+
+    #[test]
+    fn postgres_ssl_mode_survives_roundtrip_with_password() {
+        let conn = SavedConnection {
+            name: "pg-prod".to_string(),
+            request: postgres_request("require"),
+        };
+        let persisted = to_persisted_connection(conn);
+        let restored = persisted_request_with_password(persisted.request, Some("pw".to_string()));
+        match restored {
+            ConnectionRequest::Postgres(data) => assert_eq!(data.ssl_mode, "require"),
+            other => panic!("expected Postgres, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn mysql_ssl_mode_survives_roundtrip_without_password() {
+        let conn = SavedConnection {
+            name: "mysql-prod".to_string(),
+            request: mysql_request("verify-identity"),
+        };
+        let persisted = to_persisted_connection(conn);
+        let restored = persisted_request_without_password(&persisted.request);
+        match restored {
+            ConnectionRequest::MySql(data) => assert_eq!(data.ssl_mode, "verify-identity"),
+            other => panic!("expected MySql, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn legacy_postgres_session_without_ssl_mode_defaults_to_prefer() {
+        // Old saved sessions predate the ssl_mode field; #[serde(default)]
+        // must fill it in (empty) and hydration must map empty -> "prefer".
+        let json = r#"{
+            "name":"pg-old",
+            "request":{
+                "Postgres":{
+                    "host":"db.example.com",
+                    "port":5432,
+                    "username":"pg",
+                    "database":"app",
+                    "ssh_tunnel":null
+                }
+            }
+        }"#;
+        let persisted: PersistedSavedConnection = serde_json::from_str(json).expect("deserialize");
+        let restored = persisted_request_without_password(&persisted.request);
+        match restored {
+            ConnectionRequest::Postgres(data) => assert_eq!(data.ssl_mode, "prefer"),
+            other => panic!("expected Postgres, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn legacy_mysql_session_without_ssl_mode_defaults_to_preferred() {
+        let json = r#"{
+            "name":"mysql-old",
+            "request":{
+                "MySql":{
+                    "host":"db.example.com",
+                    "port":3306,
+                    "username":"root",
+                    "database":"app",
+                    "ssh_tunnel":null
+                }
+            }
+        }"#;
+        let persisted: PersistedSavedConnection = serde_json::from_str(json).expect("deserialize");
+        let restored = persisted_request_with_password(persisted.request, None);
+        match restored {
+            ConnectionRequest::MySql(data) => assert_eq!(data.ssl_mode, "preferred"),
+            other => panic!("expected MySql, got {other:?}"),
+        }
     }
 }

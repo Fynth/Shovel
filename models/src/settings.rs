@@ -173,8 +173,10 @@ pub struct AppUiSettings {
     pub show_agent_panel: bool,
     pub default_page_size: u32,
     pub tool_panel_layout: WorkspaceToolLayout,
+
     pub codestral: CodeStralSettings,
     pub deepseek: DeepSeekSettings,
+    pub ai_response_language: String,
 }
 
 impl Default for AppUiSettings {
@@ -194,6 +196,7 @@ impl Default for AppUiSettings {
             tool_panel_layout: WorkspaceToolLayout::default(),
             codestral: CodeStralSettings::default(),
             deepseek: DeepSeekSettings::default(),
+            ai_response_language: "English".to_string(),
         }
     }
 }
@@ -206,6 +209,18 @@ mod tests {
     fn fresh_default_keeps_sql_editor_collapsed() {
         let defaults = AppUiSettings::default();
         assert!(!defaults.show_sql_editor);
+    }
+
+    #[test]
+    fn fresh_default_ai_response_language_is_english() {
+        assert_eq!(AppUiSettings::default().ai_response_language, "English");
+    }
+
+    #[test]
+    fn legacy_settings_missing_ai_response_language_defaults_to_english() {
+        let settings: AppUiSettings = serde_json::from_str(r#"{"theme":"Dark"}"#)
+            .expect("legacy settings fixture should deserialize");
+        assert_eq!(settings.ai_response_language, "English");
     }
 
     #[test]

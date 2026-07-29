@@ -8,6 +8,7 @@ pub struct MySqlConfig {
     pub username: String,
     pub password: String,
     pub database: String,
+    pub ssl_mode: String,
 }
 
 pub struct MySqlDriver;
@@ -41,7 +42,7 @@ impl database::DatabaseDriver for MySqlDriver {
                 .port(port)
                 .username(&username)
                 .password(&info.password)
-                .ssl_mode(MySqlSslMode::Preferred);
+                .ssl_mode(parse_mysql_ssl_mode(&info.ssl_mode));
             if !database.is_empty() {
                 options = options.database(&database);
             }
@@ -117,6 +118,17 @@ fn split_host_and_port(value: &str) -> (String, Option<u16>) {
     }
 
     (value.to_string(), None)
+}
+
+fn parse_mysql_ssl_mode(mode: &str) -> MySqlSslMode {
+    match mode.trim().to_ascii_lowercase().as_str() {
+        "disabled" => MySqlSslMode::Disabled,
+        "preferred" => MySqlSslMode::Preferred,
+        "required" => MySqlSslMode::Required,
+        "verify-ca" => MySqlSslMode::VerifyCa,
+        "verify-identity" => MySqlSslMode::VerifyIdentity,
+        _ => MySqlSslMode::Preferred,
+    }
 }
 
 #[cfg(test)]
@@ -255,5 +267,80 @@ mod tests {
             split_host_and_port("host:notaport"),
             ("host:notaport".to_string(), None)
         );
+    }
+
+    // ── parse_mysql_ssl_mode ─────────────────────────────────────────
+
+    #[test]
+    fn mysql_ssl_mode_disabled() {
+        assert!(matches!(
+            parse_mysql_ssl_mode("disabled"),
+            MySqlSslMode::Disabled
+        ));
+    }
+
+    #[test]
+    fn mysql_ssl_mode_preferred() {
+        assert!(matches!(
+            parse_mysql_ssl_mode("preferred"),
+            MySqlSslMode::Preferred
+        ));
+    }
+
+    #[test]
+    fn mysql_ssl_mode_required() {
+        assert!(matches!(
+            parse_mysql_ssl_mode("required"),
+            MySqlSslMode::Required
+        ));
+    }
+
+    #[test]
+    fn mysql_ssl_mode_verify_ca() {
+        assert!(matches!(
+            parse_mysql_ssl_mode("verify-ca"),
+            MySqlSslMode::VerifyCa
+        ));
+    }
+
+    #[test]
+    fn mysql_ssl_mode_verify_identity() {
+        assert!(matches!(
+            parse_mysql_ssl_mode("verify-identity"),
+            MySqlSslMode::VerifyIdentity
+        ));
+    }
+
+    #[test]
+    fn mysql_ssl_mode_case_insensitive() {
+        assert!(matches!(
+            parse_mysql_ssl_mode("REQUIRED"),
+            MySqlSslMode::Required
+        ));
+        assert!(matches!(
+            parse_mysql_ssl_mode("Disabled"),
+            MySqlSslMode::Disabled
+        ));
+    }
+
+    #[test]
+    fn mysql_ssl_mode_trims_whitespace() {
+        assert!(matches!(
+            parse_mysql_ssl_mode("  required  "),
+            MySqlSslMode::Required
+        ));
+    }
+
+    #[test]
+    fn mysql_ssl_mode_unknown_defaults_to_preferred() {
+        assert!(matches!(parse_mysql_ssl_mode(""), MySqlSslMode::Preferred));
+        assert!(matches!(
+            parse_mysql_ssl_mode("nonsense"),
+            MySqlSslMode::Preferred
+        ));
+        assert!(matches!(
+            parse_mysql_ssl_mode("tls"),
+            MySqlSslMode::Preferred
+        ));
     }
 }

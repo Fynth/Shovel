@@ -11,6 +11,7 @@ pub fn MySqlForm(mut saved_connections_revision: Signal<u64>) -> Element {
     let mut username = use_signal(|| "root".to_string());
     let mut password = use_signal(|| "".to_string());
     let mut database = use_signal(String::new);
+    let mut ssl_mode = use_signal(|| "preferred".to_string());
     let ssh_enabled = use_signal(|| false);
     let ssh_host = use_signal(String::new);
     let ssh_port = use_signal(|| "22".to_string());
@@ -33,6 +34,7 @@ pub fn MySqlForm(mut saved_connections_revision: Signal<u64>) -> Element {
                     username: username(),
                     password: password(),
                     database: database(),
+                    ssl_mode: ssl_mode(),
                     ssh_tunnel: if ssh_enabled() {
                         Some(SshTunnelConfig {
                             host: ssh_host(),
@@ -122,6 +124,22 @@ pub fn MySqlForm(mut saved_connections_revision: Signal<u64>) -> Element {
                     value: "{database}",
                     placeholder: "Optional default database",
                     oninput: move |event| database.set(event.value()),
+                }
+            }
+
+            div {
+                class: "field",
+                label { class: "field__label", r#for: "mysql-ssl-mode", "SSL Mode" }
+                select {
+                    class: "input",
+                    id: "mysql-ssl-mode",
+                    value: "{ssl_mode}",
+                    onchange: move |event| ssl_mode.set(event.value()),
+                    option { value: "disabled", "disabled" }
+                    option { value: "preferred", "preferred" }
+                    option { value: "required", "required" }
+                    option { value: "verify-ca", "verify-ca" }
+                    option { value: "verify-identity", "verify-identity" }
                 }
             }
 

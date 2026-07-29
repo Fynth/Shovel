@@ -37,6 +37,7 @@ fn postgres_request() -> ConnectionRequest {
         username: "postgres".to_string(),
         password: "secret".to_string(),
         database: "app".to_string(),
+        ssl_mode: "prefer".to_string(),
         ssh_tunnel: None,
     })
 }
@@ -48,6 +49,7 @@ fn mysql_request() -> ConnectionRequest {
         username: "root".to_string(),
         password: "secret".to_string(),
         database: "app".to_string(),
+        ssl_mode: "preferred".to_string(),
         ssh_tunnel: None,
     })
 }

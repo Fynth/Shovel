@@ -19,6 +19,33 @@ use super::state::push_message;
 
 const MAX_ACTIVE_RESULT_ROWS: usize = 5;
 
+/// Thread-safe storage for the AI response language preference.
+/// Updated from `APP_UI_SETTINGS` when settings change; defaults to English.
+static AI_RESPONSE_LANGUAGE: std::sync::LazyLock<std::sync::RwLock<String>> =
+    std::sync::LazyLock::new(|| std::sync::RwLock::new("English".to_string()));
+
+/// Update the AI response language from UI settings. Called when
+/// settings are loaded or changed.
+pub(crate) fn sync_ai_response_language(language: String) {
+    if let Ok(mut guard) = AI_RESPONSE_LANGUAGE.write() {
+        *guard = language;
+    }
+}
+
+/// Returns the "Always answer in X" directive based on the user's
+/// AI response language setting. Defaults to English.
+fn response_language_directive() -> String {
+    let language = AI_RESPONSE_LANGUAGE
+        .read()
+        .map(|g| g.clone())
+        .unwrap_or_else(|_| "English".to_string());
+    if language.trim().is_empty() {
+        "Always answer in English.\n".to_string()
+    } else {
+        format!("Always answer in {language}.\n")
+    }
+}
+
 pub(crate) fn extract_sql_candidate(text: &str) -> Option<String> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -135,11 +162,10 @@ Active SQL:\n```sql\n{active_sql}\n```\n"
         prompt.push('\n');
     }
     prompt.push_str(
-        "Always answer in English.\n\
-Explain what the SQL does, what assumptions it makes, and any correctness or performance risks.\n\
+        &(response_language_directive() + "Explain what the SQL does, what assumptions it makes, and any correctness or performance risks.\n\
 If the query looks wrong or unsafe, say so clearly.\n\
 Do not add LIMIT, OFFSET, TOP, FETCH, SAMPLE, or TABLESAMPLE unless the user explicitly asks for it or the original SQL already uses one.\n\
-If a better read-only alternative is appropriate, include exactly one improved SQL query inside a single ```sql``` block.\n",
+If a better read-only alternative is appropriate, include exactly one improved SQL query inside a single ```sql``` block.\n"),
     );
     prompt
 }
@@ -176,11 +202,10 @@ Explain plan snapshot:\n```\n{explain_plan}\n```\n"
         prompt.push('\n');
     }
     prompt.push_str(
-        "Always answer in English.\n\
-Explain what the plan is doing, point out the expensive scans or joins, and call out any obvious performance risks.\n\
+        &(response_language_directive() + "Explain what the plan is doing, point out the expensive scans or joins, and call out any obvious performance risks.\n\
 Do not invent exact costs, row counts, or index usage beyond what the plan output explicitly shows.\n\
 Do not add LIMIT, OFFSET, TOP, FETCH, SAMPLE, or TABLESAMPLE unless the user explicitly asks for it or the original SQL already uses one.\n\
-If a better read-only rewrite is obvious, include exactly one improved SQL query inside a single ```sql``` block.\n",
+If a better read-only rewrite is obvious, include exactly one improved SQL query inside a single ```sql``` block.\n"),
     );
     prompt
 }
@@ -319,14 +344,13 @@ Database context: {connection_label}\n"
         message.push('\n');
     }
     message.push_str(
-        "Always answer in English.\n\
-Snapshot rows are previews only. Never infer total row counts, aggregates, or full-table statistics unless a query result explicitly provides them.\n\
+        &(response_language_directive() + "Snapshot rows are previews only. Never infer total row counts, aggregates, or full-table statistics unless a query result explicitly provides them.\n\
 If the available context is insufficient, say what is unknown and include exactly one read-only SQL query inside a single ```sql``` block so the app can verify it automatically.\n\
 Use the ongoing ACP session history for follow-up questions, but do not invent facts that were not established earlier in the session.\n\
 Prefer facts from the active editor context over generic assumptions.\n\
 Do not add LIMIT, OFFSET, TOP, FETCH, SAMPLE, or TABLESAMPLE unless the user explicitly asks for it.\n\
 If you propose schema creation, always use an auto-generated primary key `id`.\n\
-If you propose inserts, omit `id` unless the user explicitly asks for manual ids.\n",
+If you propose inserts, omit `id` unless the user explicitly asks for manual ids.\n"),
     );
     message.push_str(&format!("User request: {prompt}"));
     message

@@ -473,6 +473,40 @@ fn sql_literal(value: &str) -> String {
     }
 }
 
+/// Format rows from a query result as one `INSERT` statement per row,
+/// suitable for copying to the clipboard. Identifiers are quoted with the
+/// standard SQL double-quote convention and string values are escaped via
+/// [`sql_literal`] (NULL for null/`\N`, embedded single quotes doubled).
+///
+/// `table` is used verbatim as the target table name. When the source table
+/// is unknown pass a placeholder such as `<table>` so the user can fill it in;
+/// the column list and value escaping are still produced correctly.
+///
+/// Returns an empty string if there are no columns or no rows.
+pub fn format_insert_statements(table: &str, columns: &[String], rows: &[Vec<String>]) -> String {
+    if columns.is_empty() || rows.is_empty() {
+        return String::new();
+    }
+    let quoted_table = quote_sql_identifier(table);
+    let quoted_columns = columns
+        .iter()
+        .map(|c| quote_sql_identifier(c))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut out = String::with_capacity(rows.len() * 64);
+    for row in rows {
+        let values = row
+            .iter()
+            .map(|v| sql_literal(v))
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!(
+            "INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({values});\n"
+        ));
+    }
+    out.trim_end().to_string()
+}
+
 async fn ensure_parent_dir(path: &Path) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -718,6 +752,71 @@ mod tests {
     fn sql_literal_non_null_with_whitespace() {
         // "  hello  " is trimmed for null check but value is NOT trimmed for output
         assert_eq!(sql_literal("  hello  "), "'  hello  '");
+    }
+
+    // ── format_insert_statements ──────────────────────────────────────
+
+    #[test]
+    fn format_insert_single_row() {
+        let cols = vec!["id".to_string(), "name".to_string()];
+        let rows = vec![vec!["1".to_string(), "Alice".to_string()]];
+        let sql = format_insert_statements("users", &cols, &rows);
+        assert_eq!(
+            sql,
+            "INSERT INTO \"users\" (\"id\", \"name\") VALUES ('1', 'Alice');"
+        );
+    }
+
+    #[test]
+    fn format_insert_multiple_rows_one_per_line() {
+        let cols = vec!["id".to_string()];
+        let rows = vec![vec!["1".to_string()], vec!["2".to_string()]];
+        let sql = format_insert_statements("t", &cols, &rows);
+        assert_eq!(
+            sql,
+            "INSERT INTO \"t\" (\"id\") VALUES ('1');\nINSERT INTO \"t\" (\"id\") VALUES ('2');"
+        );
+    }
+
+    #[test]
+    fn format_insert_escapes_single_quotes() {
+        let cols = vec!["name".to_string()];
+        let rows = vec![vec!["O'Brien".to_string()]];
+        let sql = format_insert_statements("t", &cols, &rows);
+        assert_eq!(sql, "INSERT INTO \"t\" (\"name\") VALUES ('O''Brien');");
+    }
+
+    #[test]
+    fn format_insert_null_values_become_null_literal() {
+        let cols = vec!["a".to_string(), "b".to_string()];
+        let rows = vec![vec!["null".to_string(), "\\N".to_string()]];
+        let sql = format_insert_statements("t", &cols, &rows);
+        assert_eq!(sql, "INSERT INTO \"t\" (\"a\", \"b\") VALUES (NULL, NULL);");
+    }
+
+    #[test]
+    fn format_insert_quotes_reserved_identifier() {
+        let cols = vec!["order".to_string()];
+        let rows = vec![vec!["1".to_string()]];
+        let sql = format_insert_statements("t", &cols, &rows);
+        assert_eq!(sql, "INSERT INTO \"t\" (\"order\") VALUES ('1');");
+    }
+
+    #[test]
+    fn format_insert_placeholder_table_for_unknown_source() {
+        let cols = vec!["id".to_string()];
+        let rows = vec![vec!["1".to_string()]];
+        let sql = format_insert_statements("<table>", &cols, &rows);
+        assert_eq!(sql, "INSERT INTO \"<table>\" (\"id\") VALUES ('1');");
+    }
+
+    #[test]
+    fn format_insert_empty_input_returns_empty() {
+        assert_eq!(
+            format_insert_statements("t", &[], &[vec!["1".to_string()]]),
+            ""
+        );
+        assert_eq!(format_insert_statements("t", &["a".to_string()], &[]), "");
     }
 
     // ── build_insert_sql ──────────────────────────────────────────────

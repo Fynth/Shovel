@@ -94,7 +94,11 @@ pub fn App() -> Element {
                 return;
             }
 
-            restore_connection_sessions(result.restored, result.active_connection_name);
+            restore_connection_sessions(
+                result.restored,
+                result.active_connection_name,
+                result.tab_drafts,
+            );
         });
     });
 

@@ -8,6 +8,7 @@ pub struct PgConfig {
     pub username: String,
     pub password: String,
     pub database: String,
+    pub ssl_mode: String,
 }
 
 pub struct PgDriver {}
@@ -40,7 +41,7 @@ impl database::DatabaseDriver for PgDriver {
                 .username(&username)
                 .password(&info.password)
                 .database(&database)
-                .ssl_mode(PgSslMode::Prefer);
+                .ssl_mode(parse_pg_ssl_mode(&info.ssl_mode));
 
             match Self::Pool::connect_with(options).await {
                 Ok(pool) => return Ok(pool),
@@ -83,6 +84,18 @@ fn normalized_database(database: &str, username: &str) -> String {
         username.to_string()
     } else {
         database.to_string()
+    }
+}
+
+fn parse_pg_ssl_mode(mode: &str) -> PgSslMode {
+    match mode.trim().to_ascii_lowercase().as_str() {
+        "disable" => PgSslMode::Disable,
+        "allow" => PgSslMode::Allow,
+        "prefer" => PgSslMode::Prefer,
+        "require" => PgSslMode::Require,
+        "verify-ca" => PgSslMode::VerifyCa,
+        "verify-full" => PgSslMode::VerifyFull,
+        _ => PgSslMode::Prefer,
     }
 }
 
@@ -182,5 +195,65 @@ mod tests {
     fn normalized_database_prefers_database_over_username() {
         // When database is non-empty after trimming, it should be used
         assert_eq!(normalized_database("production", "admin"), "production");
+    }
+
+    // ── parse_pg_ssl_mode ────────────────────────────────────────────
+
+    #[test]
+    fn pg_ssl_mode_disable() {
+        assert!(matches!(parse_pg_ssl_mode("disable"), PgSslMode::Disable));
+    }
+
+    #[test]
+    fn pg_ssl_mode_allow() {
+        assert!(matches!(parse_pg_ssl_mode("allow"), PgSslMode::Allow));
+    }
+
+    #[test]
+    fn pg_ssl_mode_prefer() {
+        assert!(matches!(parse_pg_ssl_mode("prefer"), PgSslMode::Prefer));
+    }
+
+    #[test]
+    fn pg_ssl_mode_require() {
+        assert!(matches!(parse_pg_ssl_mode("require"), PgSslMode::Require));
+    }
+
+    #[test]
+    fn pg_ssl_mode_verify_ca() {
+        assert!(matches!(
+            parse_pg_ssl_mode("verify-ca"),
+            PgSslMode::VerifyCa
+        ));
+    }
+
+    #[test]
+    fn pg_ssl_mode_verify_full() {
+        assert!(matches!(
+            parse_pg_ssl_mode("verify-full"),
+            PgSslMode::VerifyFull
+        ));
+    }
+
+    #[test]
+    fn pg_ssl_mode_case_insensitive() {
+        assert!(matches!(parse_pg_ssl_mode("REQUIRE"), PgSslMode::Require));
+        assert!(matches!(parse_pg_ssl_mode("Disable"), PgSslMode::Disable));
+    }
+
+    #[test]
+    fn pg_ssl_mode_trims_whitespace() {
+        assert!(matches!(
+            parse_pg_ssl_mode("  require  "),
+            PgSslMode::Require
+        ));
+    }
+
+    #[test]
+    fn pg_ssl_mode_unknown_defaults_to_prefer() {
+        assert!(matches!(parse_pg_ssl_mode(""), PgSslMode::Prefer));
+        assert!(matches!(parse_pg_ssl_mode("nonsense"), PgSslMode::Prefer));
+        // MySQL-style values should NOT cross over to Postgres.
+        assert!(matches!(parse_pg_ssl_mode("disabled"), PgSslMode::Prefer));
     }
 }

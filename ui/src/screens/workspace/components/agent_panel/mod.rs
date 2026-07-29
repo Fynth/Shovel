@@ -1,7 +1,7 @@
 mod clickhouse;
 mod composer;
 mod messages;
-mod prompt;
+pub(crate) mod prompt;
 mod registry_card;
 mod requests;
 mod setup;
@@ -54,7 +54,11 @@ use self::{
 
 pub(crate) use self::{
     prompt::{extract_sql_candidate, preferred_sql_target_tab_id},
-    requests::{execute_agent_sql_request, send_sql_generation_request},
+    requests::{
+        execute_agent_sql_request,
+        send_describe_object_request,
+        send_sql_generation_request,
+    },
     setup::ensure_default_sql_agent_connected,
     state::{apply_acp_events, default_acp_panel_state, replace_messages},
 };

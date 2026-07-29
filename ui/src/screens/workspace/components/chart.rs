@@ -755,3 +755,180 @@ pub fn ResultChart(columns: Vec<String>, rows: Vec<Vec<String>>, visible: Signal
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── is_numeric ────────────────────────────────────────────────
+
+    #[test]
+    fn is_numeric_plain_integers_and_decimals() {
+        assert!(is_numeric("42"));
+        assert!(is_numeric("3.5"));
+        assert!(is_numeric("-7"));
+        assert!(is_numeric("0"));
+    }
+
+    #[test]
+    fn is_numeric_strips_formatting() {
+        assert!(is_numeric("1,234.56"));
+        assert!(is_numeric("$100"));
+        assert!(is_numeric("€50"));
+        assert!(is_numeric("£25"));
+        assert!(is_numeric("50%"));
+        assert!(is_numeric("1 000"));
+    }
+
+    #[test]
+    fn is_numeric_rejects_empty_and_null() {
+        assert!(!is_numeric(""));
+        assert!(!is_numeric("   "));
+        assert!(!is_numeric("null"));
+        assert!(!is_numeric("NULL"));
+    }
+
+    #[test]
+    fn is_numeric_rejects_text() {
+        assert!(!is_numeric("abc"));
+        assert!(!is_numeric("N/A"));
+        assert!(!is_numeric("-"));
+    }
+
+    // ── parse_numeric ─────────────────────────────────────────────
+
+    #[test]
+    fn parse_numeric_basic() {
+        assert_eq!(parse_numeric("42"), 42.0);
+        assert_eq!(parse_numeric("2.5"), 2.5);
+        assert_eq!(parse_numeric("-7"), -7.0);
+    }
+
+    #[test]
+    fn parse_numeric_strips_formatting() {
+        assert_eq!(parse_numeric("1,234.56"), 1234.56);
+        assert_eq!(parse_numeric("$100"), 100.0);
+        assert_eq!(parse_numeric("50%"), 50.0);
+    }
+
+    #[test]
+    fn parse_numeric_invalid_returns_zero() {
+        assert_eq!(parse_numeric("abc"), 0.0);
+        assert_eq!(parse_numeric(""), 0.0);
+        assert_eq!(parse_numeric("null"), 0.0);
+    }
+
+    // ── extract_chart_data ────────────────────────────────────────
+
+    #[test]
+    fn extract_chart_data_empty_inputs() {
+        let (labels, numeric) = extract_chart_data(&[], &[]);
+        assert!(labels.is_empty());
+        assert!(numeric.is_empty());
+
+        let cols = vec!["name".to_string()];
+        let (labels, numeric) = extract_chart_data(&cols, &[]);
+        assert!(labels.is_empty());
+        assert!(numeric.is_empty());
+    }
+
+    #[test]
+    fn extract_chart_data_labels_from_first_column() {
+        let cols = vec!["name".to_string(), "age".to_string()];
+        let rows = vec![
+            vec!["Alice".to_string(), "30".to_string()],
+            vec!["Bob".to_string(), "25".to_string()],
+        ];
+        let (labels, numeric) = extract_chart_data(&cols, &rows);
+        assert_eq!(labels, vec!["Alice", "Bob"]);
+        assert_eq!(numeric, vec![1]);
+    }
+
+    #[test]
+    fn extract_chart_data_skips_non_numeric_columns() {
+        let cols = vec!["name".to_string(), "bio".to_string(), "score".to_string()];
+        let rows = vec![
+            vec![
+                "Alice".to_string(),
+                "engineer".to_string(),
+                "90".to_string(),
+            ],
+            vec!["Bob".to_string(), "doctor".to_string(), "85".to_string()],
+        ];
+        let (_labels, numeric) = extract_chart_data(&cols, &rows);
+        assert_eq!(numeric, vec![2]);
+    }
+
+    #[test]
+    fn extract_chart_data_threshold_rejects_mostly_text() {
+        // 1 of 4 numeric = 25%, below the 30% threshold.
+        let cols = vec!["k".to_string(), "v".to_string()];
+        let rows = vec![
+            vec!["a".to_string(), "1".to_string()],
+            vec!["b".to_string(), "x".to_string()],
+            vec!["c".to_string(), "y".to_string()],
+            vec!["d".to_string(), "z".to_string()],
+        ];
+        let (_labels, numeric) = extract_chart_data(&cols, &rows);
+        assert!(
+            numeric.is_empty(),
+            "column with 25% numeric should be rejected"
+        );
+    }
+
+    #[test]
+    fn extract_chart_data_empty_row_gets_empty_label() {
+        let cols = vec!["name".to_string(), "v".to_string()];
+        // A row with no cells exercises the `unwrap_or_default` fallback for labels.
+        let rows = vec![vec![]];
+        let (labels, _numeric) = extract_chart_data(&cols, &rows);
+        assert_eq!(labels, vec![""]);
+    }
+
+    // ── chart_color ───────────────────────────────────────────────
+
+    #[test]
+    fn chart_color_single_series_returns_first() {
+        assert_eq!(chart_color(0, 1), "var(--color-primary, #6366f1)");
+    }
+
+    #[test]
+    fn chart_color_cycles_through_palette() {
+        assert_eq!(chart_color(0, 5), "var(--color-primary, #6366f1)");
+        assert_eq!(chart_color(1, 5), "var(--color-info, #3b82f6)");
+        assert_eq!(chart_color(2, 5), "var(--color-success, #22c55e)");
+    }
+
+    #[test]
+    fn chart_color_wraps_around() {
+        // palette has 6 entries; index 6 wraps to 0.
+        assert_eq!(chart_color(6, 7), chart_color(0, 7));
+        assert_eq!(chart_color(7, 7), chart_color(1, 7));
+    }
+
+    // ── pie_slice_path ────────────────────────────────────────────
+
+    #[test]
+    fn pie_slice_path_starts_at_center_ends_close() {
+        let path = pie_slice_path(100.0, 100.0, 50.0, 0.0, 90.0);
+        assert!(
+            path.starts_with("M 100.0 100.0"),
+            "path must start at center: {path}"
+        );
+        assert!(path.ends_with('Z'), "path must be closed: {path}");
+        // 90° <= 180° → large-arc flag is 0.
+        assert!(
+            path.contains(" 0 1 "),
+            "large-arc flag should be 0 for <=180°: {path}"
+        );
+    }
+
+    #[test]
+    fn pie_slice_path_large_arc_for_big_slice() {
+        let path = pie_slice_path(100.0, 100.0, 50.0, 0.0, 270.0);
+        assert!(
+            path.contains(" 1 1 "),
+            "large-arc flag should be 1 for >180°: {path}"
+        );
+    }
+}

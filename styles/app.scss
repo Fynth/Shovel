@@ -24,6 +24,8 @@
 @use "components/execution-plan";
 @use "components/agent-panel";
 @use "components/result-grid";
+@use "components/chart";
+@use "components/data-diff";
 @use "components/toast";
 @use "components/error-boundary";
 @use "utilities/helpers";

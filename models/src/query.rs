@@ -332,3 +332,14 @@ pub enum QueryHistoryErrorStatus {
     Failed,
     Any,
 }
+
+/// Persisted SQL draft for a query tab. Linked to a connection
+/// via `session_identity_key` (not runtime `session_id`, which
+/// changes between launches). Only `title` and `sql` are saved —
+/// results, filters, and other runtime state are not persisted.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TabDraft {
+    pub session_identity_key: String,
+    pub title: String,
+    pub sql: String,
+}
