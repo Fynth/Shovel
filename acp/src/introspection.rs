@@ -349,8 +349,9 @@ impl IntrospectionPool {
         match &self.connection {
             DatabaseConnection::Postgres(pool) => self.collect_pg_active_queries(pool).await,
             DatabaseConnection::MySql(pool) => self.collect_mysql_active_queries(pool).await,
-            DatabaseConnection::ClickHouse(config) =>
-                self.collect_clickhouse_active_queries(config).await,
+            DatabaseConnection::ClickHouse(config) => {
+                self.collect_clickhouse_active_queries(config).await
+            }
             DatabaseConnection::Sqlite(pool) => self.collect_sqlite_active_queries(pool).await,
         }
     }
@@ -360,8 +361,9 @@ impl IntrospectionPool {
         match &self.connection {
             DatabaseConnection::Postgres(pool) => self.collect_pg_query_history(pool).await,
             DatabaseConnection::MySql(pool) => self.collect_mysql_query_history(pool).await,
-            DatabaseConnection::ClickHouse(config) =>
-                self.collect_clickhouse_query_history(config).await,
+            DatabaseConnection::ClickHouse(config) => {
+                self.collect_clickhouse_query_history(config).await
+            }
             DatabaseConnection::Sqlite(pool) => self.collect_sqlite_query_history(pool).await,
         }
     }
@@ -371,8 +373,9 @@ impl IntrospectionPool {
         match &self.connection {
             DatabaseConnection::Postgres(pool) => self.collect_pg_index_stats(pool).await,
             DatabaseConnection::MySql(pool) => self.collect_mysql_index_stats(pool).await,
-            DatabaseConnection::ClickHouse(config) =>
-                self.collect_clickhouse_index_stats(config).await,
+            DatabaseConnection::ClickHouse(config) => {
+                self.collect_clickhouse_index_stats(config).await
+            }
             DatabaseConnection::Sqlite(pool) => self.collect_sqlite_index_stats(pool).await,
         }
     }
@@ -382,8 +385,9 @@ impl IntrospectionPool {
         match &self.connection {
             DatabaseConnection::Postgres(pool) => self.collect_pg_table_stats(pool).await,
             DatabaseConnection::MySql(pool) => self.collect_mysql_table_stats(pool).await,
-            DatabaseConnection::ClickHouse(config) =>
-                self.collect_clickhouse_table_stats(config).await,
+            DatabaseConnection::ClickHouse(config) => {
+                self.collect_clickhouse_table_stats(config).await
+            }
             DatabaseConnection::Sqlite(pool) => self.collect_sqlite_table_stats(pool).await,
         }
     }
@@ -393,8 +397,9 @@ impl IntrospectionPool {
         match &self.connection {
             DatabaseConnection::Postgres(pool) => self.collect_pg_schema_info(pool).await,
             DatabaseConnection::MySql(pool) => self.collect_mysql_schema_info(pool).await,
-            DatabaseConnection::ClickHouse(config) =>
-                self.collect_clickhouse_schema_info(config).await,
+            DatabaseConnection::ClickHouse(config) => {
+                self.collect_clickhouse_schema_info(config).await
+            }
             DatabaseConnection::Sqlite(pool) => self.collect_sqlite_schema_info(pool).await,
         }
     }

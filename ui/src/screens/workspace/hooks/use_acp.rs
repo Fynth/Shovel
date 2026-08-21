@@ -9,22 +9,14 @@ use models::{AcpPanelState, ChatThreadSummary, QueryTabState};
 use super::super::{
     actions::update_active_tab_sql,
     components::{
-        AgentSqlExecutionMode,
-        apply_acp_events,
-        default_acp_panel_state,
-        execute_agent_sql_request,
-        extract_sql_candidate,
-        preferred_sql_target_tab_id,
+        AgentSqlExecutionMode, apply_acp_events, default_acp_panel_state,
+        execute_agent_sql_request, extract_sql_candidate, preferred_sql_target_tab_id,
         replace_messages,
     },
     helpers::{derive_chat_thread_title, reset_panel_for_thread, upsert_chat_thread_summary},
 };
 use crate::app_state::{
-    APP_AI_FEATURES_ENABLED,
-    APP_SHOW_AGENT_PANEL,
-    APP_STATE,
-    set_show_sql_editor,
-    toast_error,
+    APP_AI_FEATURES_ENABLED, APP_SHOW_AGENT_PANEL, APP_STATE, set_show_sql_editor, toast_error,
 };
 
 pub struct AcpStateInputs {
@@ -241,10 +233,11 @@ pub fn use_acp_state(inputs: AcpStateInputs) -> AcpState {
                             .iter()
                             .filter(|message| message.id > handled_message_id)
                             .find_map(|message| match message.kind {
-                                models::AcpMessageKind::Agent =>
+                                models::AcpMessageKind::Agent => {
                                     extract_sql_candidate(&message.text).map(|sql| {
                                         (message.id, sql, panel_state.pending_sql_insert)
-                                    }),
+                                    })
+                                }
                                 _ => None,
                             })
                     } else {

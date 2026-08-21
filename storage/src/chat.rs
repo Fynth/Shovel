@@ -2,8 +2,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use models::{AcpMessageKind, AcpUiMessage, ChatArtifact, ChatThreadSummary};
 use sqlx::{
-    Row,
-    SqlitePool,
+    Row, SqlitePool,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous},
 };
 use tokio::{fs, sync::OnceCell};

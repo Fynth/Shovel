@@ -210,10 +210,11 @@ pub(super) fn is_internal_status_message(text: &str) -> bool {
 pub(super) fn is_visible_message(message: &AcpUiMessage) -> bool {
     match message.kind {
         AcpMessageKind::Tool => false,
-        AcpMessageKind::System =>
+        AcpMessageKind::System => {
             message.artifact.is_some()
                 && !matches!(message.artifact, Some(ChatArtifact::QuerySummary { .. }))
-                && !is_internal_status_message(&message.text),
+                && !is_internal_status_message(&message.text)
+        }
         _ => !is_connection_notice(&message.kind, &message.text),
     }
 }
@@ -346,18 +347,10 @@ pub fn is_verbose_acp_registry_preparing_text(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        acp_registry_connecting_text,
-        acp_registry_loading_text,
-        artifact_title,
-        build_thread_meta,
-        compact_connection_label,
-        compact_header_title,
-        format_clipboard_fallback_error,
-        is_verbose_acp_registry_loading_text,
-        is_verbose_acp_registry_preparing_text,
-        is_visible_message,
-        render_message_markdown_html,
-        should_render_message_text,
+        acp_registry_connecting_text, acp_registry_loading_text, artifact_title, build_thread_meta,
+        compact_connection_label, compact_header_title, format_clipboard_fallback_error,
+        is_verbose_acp_registry_loading_text, is_verbose_acp_registry_preparing_text,
+        is_visible_message, render_message_markdown_html, should_render_message_text,
     };
     use models::{AcpMessageKind, AcpOllamaConfig, AcpPanelState, AcpUiMessage, ChatArtifact};
 

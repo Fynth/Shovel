@@ -363,8 +363,9 @@ fn classify_kind(sql: &str) -> StatementKind {
     // leading comments and parentheses.
     let keyword = super::leading_keyword(s);
     match keyword.as_deref() {
-        Some("select" | "with" | "show" | "describe" | "desc" | "explain" | "pragma") =>
-            StatementKind::Read,
+        Some("select" | "with" | "show" | "describe" | "desc" | "explain" | "pragma") => {
+            StatementKind::Read
+        }
         Some(_) => StatementKind::Write,
         None => StatementKind::Write,
     }

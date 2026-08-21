@@ -11,52 +11,31 @@ pub mod splitter;
 use database::DatabaseDriver;
 use driver_clickhouse::ClickHouseDriver;
 use models::{
-    DatabaseConnection,
-    DatabaseError,
-    QueryFilter,
-    QueryOutput,
-    QuerySort,
-    TablePreviewSource,
+    DatabaseConnection, DatabaseError, QueryFilter, QueryOutput, QuerySort, TablePreviewSource,
 };
 use sqlx::Row;
 
 pub use ddl::{create_table, drop_table, duplicate_table, truncate_table};
 pub use execution_plan::execute_explain;
 pub use mutations::{
-    delete_table_row,
-    insert_table_row,
-    insert_table_row_with_values,
-    next_table_primary_key_id,
+    delete_table_row, insert_table_row, insert_table_row_with_values, next_table_primary_key_id,
     update_table_cell,
 };
 pub use preview::load_table_preview_page;
 
 use self::{
     build::{
-        SqlBuildDialect,
-        build_editable_paginated_query,
-        build_outer_paginated_query,
-        build_paginated_query,
-        clickhouse_filter_expression,
-        mysql_filter_expression,
-        postgres_filter_expression,
-        quote_identifier,
-        quote_identifier_clickhouse,
-        sql_literal,
+        SqlBuildDialect, build_editable_paginated_query, build_outer_paginated_query,
+        build_paginated_query, clickhouse_filter_expression, mysql_filter_expression,
+        postgres_filter_expression, quote_identifier, quote_identifier_clickhouse, sql_literal,
         sqlite_filter_expression,
     },
     editable::editable_select_plan,
     rows::{
-        clickhouse_rows_to_page,
-        clickhouse_rows_to_paginated_page,
-        invalid_sqlite_locator,
-        mysql_preview_rows_to_paginated_page,
-        mysql_rows_to_page,
-        mysql_rows_to_paginated_page,
-        postgres_preview_rows_to_paginated_page,
-        postgres_rows_to_paginated_page,
-        sqlite_preview_rows_to_paginated_page,
-        sqlite_rows_to_paginated_page,
+        clickhouse_rows_to_page, clickhouse_rows_to_paginated_page, invalid_sqlite_locator,
+        mysql_preview_rows_to_paginated_page, mysql_rows_to_page, mysql_rows_to_paginated_page,
+        postgres_preview_rows_to_paginated_page, postgres_rows_to_paginated_page,
+        sqlite_preview_rows_to_paginated_page, sqlite_rows_to_paginated_page,
     },
 };
 
@@ -111,14 +90,18 @@ pub async fn execute_query_page(
     sort: Option<QuerySort>,
 ) -> Result<QueryOutput, DatabaseError> {
     match connection {
-        DatabaseConnection::Sqlite(pool) =>
-            execute_sqlite_query_page(&sql, &pool, page_size, offset, filter, sort).await,
-        DatabaseConnection::Postgres(pool) =>
-            execute_postgres_query_page(&sql, &pool, page_size, offset, filter, sort).await,
-        DatabaseConnection::MySql(pool) =>
-            execute_mysql_query_page(&sql, &pool, page_size, offset, filter, sort).await,
-        DatabaseConnection::ClickHouse(config) =>
-            execute_clickhouse_query_page(&sql, &config, page_size, offset, filter, sort).await,
+        DatabaseConnection::Sqlite(pool) => {
+            execute_sqlite_query_page(&sql, &pool, page_size, offset, filter, sort).await
+        }
+        DatabaseConnection::Postgres(pool) => {
+            execute_postgres_query_page(&sql, &pool, page_size, offset, filter, sort).await
+        }
+        DatabaseConnection::MySql(pool) => {
+            execute_mysql_query_page(&sql, &pool, page_size, offset, filter, sort).await
+        }
+        DatabaseConnection::ClickHouse(config) => {
+            execute_clickhouse_query_page(&sql, &config, page_size, offset, filter, sort).await
+        }
     }
 }
 
@@ -713,17 +696,9 @@ mod round_trip;
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{
-        create_table,
-        drop_table,
-        duplicate_table,
-        execute_query_page,
-        is_read_only_sql,
-        leading_sql_keyword,
-        mysql_locator_expression,
-        parse_clickhouse_primary_key_expression,
-        parse_mysql_locator,
-        preview_source_for_sql,
-        reorder_clickhouse_primary_key_columns,
+        create_table, drop_table, duplicate_table, execute_query_page, is_read_only_sql,
+        leading_sql_keyword, mysql_locator_expression, parse_clickhouse_primary_key_expression,
+        parse_mysql_locator, preview_source_for_sql, reorder_clickhouse_primary_key_columns,
         truncate_table,
     };
     use models::{DatabaseConnection, QueryOutput, TablePreviewSource};

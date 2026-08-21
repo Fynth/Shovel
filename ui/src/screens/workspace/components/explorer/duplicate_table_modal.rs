@@ -299,8 +299,9 @@ fn duplicated_qualified_name(
 ) -> String {
     match kind {
         DatabaseKind::Sqlite => quote_sql_identifier(table_name.trim()),
-        DatabaseKind::Postgres | DatabaseKind::MySql | DatabaseKind::ClickHouse =>
-            quoted_table_name_preview(kind, source.schema.as_deref(), table_name.trim()),
+        DatabaseKind::Postgres | DatabaseKind::MySql | DatabaseKind::ClickHouse => {
+            quoted_table_name_preview(kind, source.schema.as_deref(), table_name.trim())
+        }
     }
 }
 

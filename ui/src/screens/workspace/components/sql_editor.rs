@@ -5,23 +5,16 @@ mod selection;
 
 use crate::{
     app_state::{
-        APP_SQL_FORMAT_SETTINGS,
-        APP_UI_SETTINGS,
+        APP_SQL_FORMAT_SETTINGS, APP_UI_SETTINGS,
         context_menu::{ContextMenuItem, open_context_menu},
         toast_error,
     },
     completion::{CompletionService, CompletionToken},
     screens::workspace::{
         actions::{
-            IndentDirection,
-            clear_active_tab_sql,
-            format_active_tab,
-            indent_lines_in_active_tab,
-            replace_active_tab_sql,
-            run_active_tab,
-            run_active_tab_explain,
-            save_active_tab_as_saved_query,
-            sync_active_tab_sql_draft,
+            IndentDirection, clear_active_tab_sql, format_active_tab, indent_lines_in_active_tab,
+            replace_active_tab_sql, run_active_tab, run_active_tab_explain,
+            save_active_tab_as_saved_query, sync_active_tab_sql_draft,
             toggle_line_comments_in_active_tab,
         },
         components::explorer::ExplorerConnectionSection,
@@ -35,12 +28,8 @@ use std::time::Duration;
 use self::{
     highlight::SqlHighlightContent,
     selection::{
-        EditorSelection,
-        current_token_range,
-        editor_value_and_selection_query_script,
-        set_editor_value_script,
-        sync_editor_selection,
-        sync_editor_selection_debounced,
+        EditorSelection, current_token_range, editor_value_and_selection_query_script,
+        set_editor_value_script, sync_editor_selection, sync_editor_selection_debounced,
     },
 };
 

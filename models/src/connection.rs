@@ -666,13 +666,8 @@ fn ssh_identity_suffix(config: Option<&SshTunnelConfig>) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        ClickHouseFormData,
-        ConnectionRequest,
-        MySqlFormData,
-        PostgresFormData,
-        SavedConnection,
-        SqliteFormData,
-        SshTunnelConfig,
+        ClickHouseFormData, ConnectionRequest, MySqlFormData, PostgresFormData, SavedConnection,
+        SqliteFormData, SshTunnelConfig,
     };
 
     #[test]

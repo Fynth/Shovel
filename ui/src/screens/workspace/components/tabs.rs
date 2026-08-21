@@ -1,45 +1,24 @@
 use crate::{
     app_state::{
-        APP_AI_FEATURES_ENABLED,
-        APP_SHOW_SQL_EDITOR,
-        APP_SQL_FORMAT_SETTINGS,
-        APP_STATE,
+        APP_AI_FEATURES_ENABLED, APP_SHOW_SQL_EDITOR, APP_SQL_FORMAT_SETTINGS, APP_STATE,
         open_connection_screen,
     },
     screens::workspace::actions::{
-        new_query_tab,
-        open_structure_tab,
-        read_only_mode_block_status,
-        read_only_mode_enabled,
-        refresh_tab_result,
-        replace_active_tab_sql,
-        run_explain_for_tab,
-        run_query_for_tab,
-        set_active_tab_status,
-        tab_connection_or_error,
-        toggle_execution_plan_for_tab,
+        new_query_tab, open_structure_tab, read_only_mode_block_status, read_only_mode_enabled,
+        refresh_tab_result, replace_active_tab_sql, run_explain_for_tab, run_query_for_tab,
+        set_active_tab_status, tab_connection_or_error, toggle_execution_plan_for_tab,
     },
 };
 use dioxus::prelude::*;
 use models::{
-    AcpPanelState,
-    QueryHistoryItem,
-    QueryOutput,
-    QueryTabState,
-    SqlFormatSettings,
+    AcpPanelState, QueryHistoryItem, QueryOutput, QueryTabState, SqlFormatSettings,
     TablePreviewSource,
 };
 use rfd::AsyncFileDialog;
 
 use super::{
-    ActionIcon,
-    ExecutionPlanView,
-    ExplorerConnectionSection,
-    IconButton,
-    ResultTable,
-    SqlEditor,
-    ensure_default_sql_agent_connected,
-    send_sql_generation_request,
+    ActionIcon, ExecutionPlanView, ExplorerConnectionSection, IconButton, ResultTable, SqlEditor,
+    ensure_default_sql_agent_connected, send_sql_generation_request,
 };
 
 const EDITOR_MIN_HEIGHT: f64 = 160.0;
@@ -796,8 +775,9 @@ fn import_csv_into_active_table(tabs: Signal<Vec<QueryTabState>>, current_tab: Q
                     refresh_tab_result(tabs, updated_tab, Some(source));
                 }
             }
-            Err(err) =>
-                set_active_tab_status(tabs, current_tab.id, format!("CSV import error: {err}")),
+            Err(err) => {
+                set_active_tab_status(tabs, current_tab.id, format!("CSV import error: {err}"))
+            }
         }
     });
 }

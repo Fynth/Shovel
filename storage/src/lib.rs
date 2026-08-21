@@ -15,13 +15,8 @@ mod settings;
 /// (`shovel.db`). Threads are associated with a database connection and contain
 /// ordered sequences of [`AcpUiMessage`](models::AcpUiMessage) values.
 pub use chat::{
-    create_chat_thread,
-    delete_chat_thread,
-    load_chat_thread_messages,
-    load_chat_threads,
-    save_chat_thread_snapshot,
-    search_chat_messages,
-    search_chat_sql_artifacts,
+    create_chat_thread, delete_chat_thread, load_chat_thread_messages, load_chat_threads,
+    save_chat_thread_snapshot, search_chat_messages, search_chat_sql_artifacts,
 };
 /// Saved connections, session state, and query history orchestration.
 ///
@@ -29,15 +24,9 @@ pub use chat::{
 /// secret storage via the system keyring), session state persistence (open tabs
 /// and the active connection), and query history recording.
 pub use history::{
-    append_query_history,
-    load_query_history,
-    load_saved_connections,
-    load_session_state,
-    load_session_state_sync,
-    replace_connection_request,
-    save_connection_request,
-    save_session_state,
-    save_session_state_sync,
+    append_query_history, load_query_history, load_saved_connections, load_session_state,
+    load_session_state_sync, replace_connection_request, save_connection_request,
+    save_session_state, save_session_state_sync,
 };
 /// SQLite-backed query history store with FTS5 full-text search.
 ///
@@ -63,14 +52,8 @@ pub use semantic_cache::{CacheStats, SemanticCacheStore};
 /// (CodeStral and DeepSeek). API keys are stored in the system keyring
 /// with a fallback to the local secret store.
 pub use settings::{
-    load_app_ui_settings,
-    load_codestral_api_key,
-    load_deepseek_api_key,
-    load_sql_format_settings,
-    save_app_ui_settings,
-    save_codestral_api_key,
-    save_deepseek_api_key,
-    save_sql_format_settings,
+    load_app_ui_settings, load_codestral_api_key, load_deepseek_api_key, load_sql_format_settings,
+    save_app_ui_settings, save_codestral_api_key, save_deepseek_api_key, save_sql_format_settings,
 };
 
 /// Returns the root directory for ACP workspace data, creating it if it doesn't exist.

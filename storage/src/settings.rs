@@ -71,8 +71,9 @@ fn load_api_key_sync(service: &str, account: &str) -> Result<String, String> {
                 let _ = delete_fallback_secret(service, account);
                 Ok(api_key)
             }
-            Err(KeyringError::NoEntry) =>
-                Ok(load_fallback_secret(service, account)?.unwrap_or_default()),
+            Err(KeyringError::NoEntry) => {
+                Ok(load_fallback_secret(service, account)?.unwrap_or_default())
+            }
             Err(_) => Ok(load_fallback_secret(service, account)?.unwrap_or_default()),
         },
         Err(_) => Ok(load_fallback_secret(service, account)?.unwrap_or_default()),

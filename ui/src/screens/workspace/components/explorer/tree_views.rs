@@ -1,25 +1,19 @@
 use super::{
-    count_objects,
-    disconnect_session,
+    count_objects, disconnect_session,
     duplicate_table_modal::{DuplicateTableModal, DuplicateTableTarget},
     split_children,
 };
 use crate::{
     app_state::{
-        APP_STATE,
-        activate_session,
+        APP_STATE, activate_session,
         context_menu::{ContextMenuItem, open_context_menu},
         session_connection,
     },
     screens::workspace::{
         ActionIcon,
         actions::{
-            ensure_tab_for_session,
-            mark_table_deleted,
-            mark_table_truncated,
-            read_only_mode_enabled,
-            run_table_preview_for_tab,
-            tab_connection_or_error,
+            ensure_tab_for_session, mark_table_deleted, mark_table_truncated,
+            read_only_mode_enabled, run_table_preview_for_tab, tab_connection_or_error,
         },
         components::{IconButton, send_describe_object_request},
         context::WorkspaceAcpContext,
@@ -525,8 +519,9 @@ fn table_mutation_error_title(action: TableMutationKind) -> &'static str {
 
 fn table_mutation_connection_closed_description(action: TableMutationKind) -> &'static str {
     match action {
-        TableMutationKind::Truncate =>
-            "The connection was closed before the table could be truncated.",
+        TableMutationKind::Truncate => {
+            "The connection was closed before the table could be truncated."
+        }
         TableMutationKind::Drop => "The connection was closed before the table could be dropped.",
     }
 }

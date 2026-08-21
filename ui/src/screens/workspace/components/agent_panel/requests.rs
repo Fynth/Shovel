@@ -5,20 +5,11 @@ use super::{
     AgentSqlExecutionMode,
     clickhouse::resolve_agent_sql_execution,
     prompt::{
-        active_editor_connection,
-        active_editor_error,
-        active_editor_focus_source,
-        active_editor_prompt_context,
-        active_editor_sql,
-        build_chat_prompt,
-        build_sql_error_fix_prompt,
-        build_sql_explanation_prompt,
-        build_sql_generation_prompt,
-        build_sql_plan_prompt,
-        build_thread_history_context,
-        describe_query_output,
-        insert_sql_into_editor,
-        preferred_sql_target_tab_id,
+        active_editor_connection, active_editor_error, active_editor_focus_source,
+        active_editor_prompt_context, active_editor_sql, build_chat_prompt,
+        build_sql_error_fix_prompt, build_sql_explanation_prompt, build_sql_generation_prompt,
+        build_sql_plan_prompt, build_thread_history_context, describe_query_output,
+        insert_sql_into_editor, preferred_sql_target_tab_id,
     },
     state::push_message,
 };
@@ -890,8 +881,9 @@ pub(crate) fn execute_agent_sql_request(
 
     let base_status = match execution_mode {
         AgentSqlExecutionMode::Manual => "Executed agent SQL in the active SQL tab.".to_string(),
-        AgentSqlExecutionMode::AutoReadOnly =>
-            "Executed read-only SQL from the ACP agent.".to_string(),
+        AgentSqlExecutionMode::AutoReadOnly => {
+            "Executed read-only SQL from the ACP agent.".to_string()
+        }
     };
 
     spawn(async move {

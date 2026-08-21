@@ -1,13 +1,7 @@
 use keyring::{Entry, Error as KeyringError};
 use models::{
-    ClickHouseFormData,
-    ConnectionRequest,
-    MySqlFormData,
-    PostgresFormData,
-    QueryHistoryItem,
-    SavedConnection,
-    SqliteFormData,
-    SshTunnelConfig,
+    ClickHouseFormData, ConnectionRequest, MySqlFormData, PostgresFormData, QueryHistoryItem,
+    SavedConnection, SqliteFormData, SshTunnelConfig,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -408,7 +402,7 @@ fn hydrate_saved_connection(
 fn to_persisted_connection(saved_connection: SavedConnection) -> PersistedSavedConnection {
     let request = match saved_connection.request {
         ConnectionRequest::Sqlite(data) => PersistedConnectionRequest::Sqlite(data),
-        ConnectionRequest::Postgres(data) =>
+        ConnectionRequest::Postgres(data) => {
             PersistedConnectionRequest::Postgres(PostgresConnectionMetadata {
                 host: data.host,
                 port: data.port,
@@ -416,8 +410,9 @@ fn to_persisted_connection(saved_connection: SavedConnection) -> PersistedSavedC
                 database: data.database,
                 ssl_mode: data.ssl_mode,
                 ssh_tunnel: data.ssh_tunnel,
-            }),
-        ConnectionRequest::MySql(data) =>
+            })
+        }
+        ConnectionRequest::MySql(data) => {
             PersistedConnectionRequest::MySql(MySqlConnectionMetadata {
                 host: data.host,
                 port: data.port,
@@ -425,15 +420,17 @@ fn to_persisted_connection(saved_connection: SavedConnection) -> PersistedSavedC
                 database: data.database,
                 ssl_mode: data.ssl_mode,
                 ssh_tunnel: data.ssh_tunnel,
-            }),
-        ConnectionRequest::ClickHouse(data) =>
+            })
+        }
+        ConnectionRequest::ClickHouse(data) => {
             PersistedConnectionRequest::ClickHouse(ClickHouseConnectionMetadata {
                 host: data.host,
                 port: data.port,
                 username: data.username,
                 database: data.database,
                 ssh_tunnel: data.ssh_tunnel,
-            }),
+            })
+        }
     };
 
     PersistedSavedConnection {
@@ -550,8 +547,9 @@ fn load_secret(connection_name: &str) -> Result<Option<String>, String> {
 fn delete_secret(connection_name: &str) -> Result<(), String> {
     match secret_entry(connection_name) {
         Ok(entry) => match entry.delete_credential() {
-            Ok(()) | Err(KeyringError::NoEntry) =>
-                delete_fallback_secret(KEYRING_SERVICE, connection_name),
+            Ok(()) | Err(KeyringError::NoEntry) => {
+                delete_fallback_secret(KEYRING_SERVICE, connection_name)
+            }
             Err(_) => delete_fallback_secret(KEYRING_SERVICE, connection_name),
         },
         Err(_) => delete_fallback_secret(KEYRING_SERVICE, connection_name),
@@ -578,7 +576,7 @@ fn secret_key(connection_name: &str) -> String {
 fn persisted_request_without_password(request: &PersistedConnectionRequest) -> ConnectionRequest {
     match request {
         PersistedConnectionRequest::Sqlite(data) => ConnectionRequest::Sqlite(data.clone()),
-        PersistedConnectionRequest::Postgres(data) =>
+        PersistedConnectionRequest::Postgres(data) => {
             ConnectionRequest::Postgres(PostgresFormData {
                 host: data.host.clone(),
                 port: data.port,
@@ -591,7 +589,8 @@ fn persisted_request_without_password(request: &PersistedConnectionRequest) -> C
                     data.ssl_mode.clone()
                 },
                 ssh_tunnel: data.ssh_tunnel.clone(),
-            }),
+            })
+        }
         PersistedConnectionRequest::MySql(data) => ConnectionRequest::MySql(MySqlFormData {
             host: data.host.clone(),
             port: data.port,
@@ -605,7 +604,7 @@ fn persisted_request_without_password(request: &PersistedConnectionRequest) -> C
             },
             ssh_tunnel: data.ssh_tunnel.clone(),
         }),
-        PersistedConnectionRequest::ClickHouse(data) =>
+        PersistedConnectionRequest::ClickHouse(data) => {
             ConnectionRequest::ClickHouse(ClickHouseFormData {
                 host: data.host.clone(),
                 port: data.port,
@@ -613,7 +612,8 @@ fn persisted_request_without_password(request: &PersistedConnectionRequest) -> C
                 password: String::new(),
                 database: data.database.clone(),
                 ssh_tunnel: data.ssh_tunnel.clone(),
-            }),
+            })
+        }
     }
 }
 
@@ -623,7 +623,7 @@ fn persisted_request_with_password(
 ) -> ConnectionRequest {
     match request {
         PersistedConnectionRequest::Sqlite(data) => ConnectionRequest::Sqlite(data),
-        PersistedConnectionRequest::Postgres(data) =>
+        PersistedConnectionRequest::Postgres(data) => {
             ConnectionRequest::Postgres(PostgresFormData {
                 host: data.host,
                 port: data.port,
@@ -636,7 +636,8 @@ fn persisted_request_with_password(
                     data.ssl_mode
                 },
                 ssh_tunnel: data.ssh_tunnel,
-            }),
+            })
+        }
         PersistedConnectionRequest::MySql(data) => ConnectionRequest::MySql(MySqlFormData {
             host: data.host,
             port: data.port,
@@ -650,7 +651,7 @@ fn persisted_request_with_password(
             },
             ssh_tunnel: data.ssh_tunnel,
         }),
-        PersistedConnectionRequest::ClickHouse(data) =>
+        PersistedConnectionRequest::ClickHouse(data) => {
             ConnectionRequest::ClickHouse(ClickHouseFormData {
                 host: data.host,
                 port: data.port,
@@ -658,7 +659,8 @@ fn persisted_request_with_password(
                 password: password.unwrap_or_default(),
                 database: data.database,
                 ssh_tunnel: data.ssh_tunnel,
-            }),
+            })
+        }
     }
 }
 
@@ -783,11 +785,7 @@ fn write_session_state_sync(path: PathBuf, value: &PersistedSessionState) -> Res
 mod tests {
     use super::*;
     use models::{
-        ConnectionRequest,
-        MySqlFormData,
-        PostgresFormData,
-        SavedConnection,
-        SqliteFormData,
+        ConnectionRequest, MySqlFormData, PostgresFormData, SavedConnection, SqliteFormData,
     };
 
     fn sqlite_request(path: &str) -> ConnectionRequest {

@@ -309,12 +309,8 @@ fn matches_query(value: &str, query: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        ExplorerConnectionSection,
-        ExplorerNodeKind,
-        filter_connection_sections,
-        filter_node,
-        filter_nodes,
-        matches_query,
+        ExplorerConnectionSection, ExplorerNodeKind, filter_connection_sections, filter_node,
+        filter_nodes, matches_query,
     };
     use models::ExplorerNode;
 

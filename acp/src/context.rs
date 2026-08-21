@@ -5,14 +5,8 @@ use std::{
 };
 
 use models::{
-    DatabaseConnection,
-    DatabaseError,
-    ExplorerNode,
-    ExplorerNodeKind,
-    QueryHistoryItem,
-    QueryOutput,
-    QueryPage,
-    TablePreviewSource,
+    DatabaseConnection, DatabaseError, ExplorerNode, ExplorerNodeKind, QueryHistoryItem,
+    QueryOutput, QueryPage, TablePreviewSource,
 };
 
 use explorer::{describe_table, load_connection_tree};
@@ -824,14 +818,9 @@ fn collect_table_sources_inner(nodes: &[ExplorerNode], sources: &mut Vec<TablePr
 #[cfg(test)]
 mod tests {
     use super::{
-        append_catalog_summary,
-        append_observed_values,
-        append_page_preview,
-        append_structure_profile,
-        build_catalog_signature,
-        inline_excerpt,
-        prioritize_table_sources,
-        relation_heading,
+        append_catalog_summary, append_observed_values, append_page_preview,
+        append_structure_profile, build_catalog_signature, inline_excerpt,
+        prioritize_table_sources, relation_heading,
     };
     use models::{ExplorerNode, ExplorerNodeKind, QueryPage, TablePreviewSource};
 

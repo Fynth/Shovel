@@ -3,13 +3,9 @@ use driver_clickhouse::ClickHouseDriver;
 use models::{DatabaseConnection, DatabaseError, TablePreviewSource};
 
 use super::{
-    load_clickhouse_create_statement,
-    load_sqlite_create_statement,
-    qualified_clickhouse_table_name,
-    qualified_mysql_table_name,
-    qualified_postgres_table_name,
-    qualified_sqlite_table_name,
-    rewrite_create_table_statement,
+    load_clickhouse_create_statement, load_sqlite_create_statement,
+    qualified_clickhouse_table_name, qualified_mysql_table_name, qualified_postgres_table_name,
+    qualified_sqlite_table_name, rewrite_create_table_statement,
 };
 
 pub async fn create_table(

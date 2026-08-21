@@ -1,24 +1,10 @@
 use agent_client_protocol::{
-    self as acp,
-    Agent as _,
-    ContentBlock,
-    ContentChunk,
-    RequestPermissionOutcome,
-    RequestPermissionResponse,
-    SelectedPermissionOutcome,
-    SessionNotification,
-    SessionUpdate,
+    self as acp, Agent as _, ContentBlock, ContentChunk, RequestPermissionOutcome,
+    RequestPermissionResponse, SelectedPermissionOutcome, SessionNotification, SessionUpdate,
 };
 use models::{
-    AcpConnectionInfo,
-    AcpEvent,
-    AcpLaunchRequest,
-    AcpMessageKind,
-    AcpPermissionOption,
-    AcpPermissionRequest,
-    AgentRoutingRequest,
-    AgentRoutingResponse,
-    AgentSpecialist,
+    AcpConnectionInfo, AcpEvent, AcpLaunchRequest, AcpMessageKind, AcpPermissionOption,
+    AcpPermissionRequest, AgentRoutingRequest, AgentRoutingResponse, AgentSpecialist,
 };
 
 use crate::agents::AgentCoordinator;
@@ -28,9 +14,7 @@ use std::{
     path::PathBuf,
     rc::Rc,
     sync::{
-        Arc,
-        Mutex,
-        OnceLock,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicU64, Ordering},
         mpsc,
     },
@@ -1479,12 +1463,8 @@ fn respond_to_permission_request(
 #[cfg(test)]
 mod tests {
     use super::{
-        acp,
-        format_error_with_stderr,
-        is_opencode_command,
-        is_text_file_busy_error,
-        normalize_cwd_path,
-        opencode_runtime_environment,
+        acp, format_error_with_stderr, is_opencode_command, is_text_file_busy_error,
+        normalize_cwd_path, opencode_runtime_environment,
     };
     use std::sync::{Arc, Mutex};
 
