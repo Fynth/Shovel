@@ -643,7 +643,20 @@ fn WorkspaceBody(
                         small: true,
                         onclick: move |_| {
                             let sections = tree_sections();
-                            er_diagram.set(helpers::build_er_diagram_from_sections(&sections));
+                            // Показываем диаграмму сразу (без связей), а линии
+                            // подтягиваем асинхронно после загрузки внешних ключей.
+                            er_diagram.set(helpers::build_er_diagram(&sections, &[]));
+                            let connection =
+                                APP_STATE.read().active_session().map(|s| s.connection.clone());
+                            let Some(connection) = connection else {
+                                return;
+                            };
+                            spawn(async move {
+                                let fks = services::load_foreign_keys(connection)
+                                    .await
+                                    .unwrap_or_default();
+                                er_diagram.set(helpers::build_er_diagram(&sections, &fks));
+                            });
                         },
                     }
                     IconButton {

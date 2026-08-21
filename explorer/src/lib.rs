@@ -7,11 +7,18 @@ mod mysql;
 mod postgres;
 mod sqlite;
 
-pub use mysql::{describe_table_mysql, load_connection_tree_mysql, load_table_columns_mysql};
-pub use postgres::{
-    describe_table_postgres, load_connection_tree_postgres, load_table_columns_postgres,
+pub use mysql::{
+    describe_table_mysql, load_connection_tree_mysql, load_foreign_keys_mysql,
+    load_table_columns_mysql,
 };
-pub use sqlite::{describe_table_sqlite, load_connection_tree_sqlite, load_table_columns_sqlite};
+pub use postgres::{
+    describe_table_postgres, load_connection_tree_postgres, load_foreign_keys_postgres,
+    load_table_columns_postgres,
+};
+pub use sqlite::{
+    describe_table_sqlite, load_connection_tree_sqlite, load_foreign_keys_sqlite,
+    load_table_columns_sqlite,
+};
 
 pub async fn describe_table(
     connection: DatabaseConnection,
@@ -236,6 +243,19 @@ pub async fn load_connection_tree(
                 })
                 .collect())
         }
+    }
+}
+
+/// Загружает внешние ключи подключения для ER-диаграммы.
+/// ClickHouse не поддерживает FK — возвращаем пустой список.
+pub async fn load_foreign_keys(
+    connection: DatabaseConnection,
+) -> Result<Vec<models::TableForeignKey>, DatabaseError> {
+    match connection {
+        DatabaseConnection::Sqlite(pool) => load_foreign_keys_sqlite(&pool).await,
+        DatabaseConnection::Postgres(pool) => load_foreign_keys_postgres(&pool).await,
+        DatabaseConnection::MySql(pool) => load_foreign_keys_mysql(&pool).await,
+        DatabaseConnection::ClickHouse(_) => Ok(Vec::new()),
     }
 }
 

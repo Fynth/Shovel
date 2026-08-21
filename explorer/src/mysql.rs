@@ -1,4 +1,4 @@
-use models::{DatabaseError, ExplorerNode, ExplorerNodeKind, QueryOutput};
+use models::{DatabaseError, ExplorerNode, ExplorerNodeKind, QueryOutput, TableForeignKey};
 use sqlx::Row;
 
 pub async fn describe_table_mysql(
@@ -284,6 +284,62 @@ pub async fn describe_table_mysql(
     }
 
     Ok(QueryOutput::Table(structure_page(rows)))
+}
+
+/// Загружает все внешние ключи пользовательских баз MySQL.
+/// `information_schema.key_column_usage` даёт по строке на колонку FK
+/// (для составных FK `constraint_name` повторяется — каждая пара колонок
+/// становится отдельной связью на диаграмме). Системные базы отбрасываем.
+pub async fn load_foreign_keys_mysql(
+    pool: &sqlx::MySqlPool,
+) -> Result<Vec<TableForeignKey>, DatabaseError> {
+    let rows = sqlx::query(
+        r#"
+        select
+          constraint_name,
+          table_schema  as from_schema,
+          table_name    as from_table,
+          column_name   as from_column,
+          referenced_table_schema as to_schema,
+          referenced_table_name   as to_table,
+          referenced_column_name  as to_column
+        from information_schema.key_column_usage
+        where referenced_table_name is not null
+          and table_schema not in ('information_schema', 'mysql', 'performance_schema', 'sys')
+        order by table_schema, table_name, ordinal_position
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(DatabaseError::MySql)?;
+
+    let mut foreign_keys = Vec::new();
+    for row in rows {
+        foreign_keys.push(TableForeignKey {
+            name: row
+                .try_get::<String, _>("constraint_name")
+                .unwrap_or_default(),
+            from_schema: row.try_get::<String, _>("from_schema").unwrap_or_default(),
+            from_table: row.try_get::<String, _>("from_table").unwrap_or_default(),
+            from_column: row.try_get::<String, _>("from_column").unwrap_or_default(),
+            to_schema: row
+                .try_get::<Option<String>, _>("to_schema")
+                .ok()
+                .flatten()
+                .unwrap_or_default(),
+            to_table: row
+                .try_get::<Option<String>, _>("to_table")
+                .ok()
+                .flatten()
+                .unwrap_or_default(),
+            to_column: row
+                .try_get::<Option<String>, _>("to_column")
+                .ok()
+                .flatten()
+                .unwrap_or_default(),
+        });
+    }
+    Ok(foreign_keys)
 }
 
 pub async fn load_table_columns_mysql(

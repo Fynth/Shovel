@@ -24,7 +24,7 @@ pub(crate) use agent_panel::{
 pub(crate) use blob_viewer::{BlobData, BlobViewer};
 pub use chart::ResultChart;
 pub(crate) use data_diff::DataDiffViewer;
-pub(crate) use er_diagram::{ErDiagramState, ErDiagramViewer, ErTable};
+pub(crate) use er_diagram::{ErDiagramState, ErDiagramViewer, ErRelationship, ErTable};
 pub use execution_plan::ExecutionPlanView;
 pub use explorer::{ExplorerConnectionSection, SidebarConnectionTree};
 pub use history::QueryHistoryPanel;

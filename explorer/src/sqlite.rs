@@ -1,4 +1,4 @@
-use models::{DatabaseError, ExplorerNode, ExplorerNodeKind, QueryOutput};
+use models::{DatabaseError, ExplorerNode, ExplorerNodeKind, QueryOutput, TableForeignKey};
 use sqlx::Row;
 
 pub async fn describe_table_sqlite(
@@ -255,6 +255,69 @@ pub async fn load_connection_tree_sqlite(
         qualified_name: "main".to_string(),
         children: tables.into_iter().chain(views).collect(),
     }])
+}
+
+/// Загружает все внешние ключи базы SQLite. У SQLite нет единого каталога
+/// FK, поэтому перебираем таблицы из `sqlite_master` и для каждой вызываем
+/// `PRAGMA foreign_key_list`. Схема FK-цели в SQLite всегда совпадает со
+/// схемой источника (межбазовые FK через ATTACH не поддерживаются).
+pub async fn load_foreign_keys_sqlite(
+    pool: &sqlx::SqlitePool,
+) -> Result<Vec<TableForeignKey>, DatabaseError> {
+    let schema = "main".to_string();
+    let table_rows = sqlx::query(
+        r#"
+        select name
+        from sqlite_master
+        where type = 'table'
+          and name not like 'sqlite_%'
+        order by name
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(DatabaseError::Sqlite)?;
+
+    let mut foreign_keys = Vec::new();
+    for table_row in table_rows {
+        let from_table = table_row
+            .try_get::<String, _>("name")
+            .map_err(DatabaseError::Sqlite)?;
+
+        let pragma = format!(
+            "PRAGMA {}.foreign_key_list({})",
+            super::quote_identifier(&schema),
+            super::quote_identifier(&from_table)
+        );
+        let fk_rows = sqlx::query(&pragma)
+            .fetch_all(pool)
+            .await
+            .map_err(DatabaseError::Sqlite)?;
+
+        for fk_row in fk_rows {
+            let id = fk_row.try_get::<i64, _>("id").unwrap_or_default();
+            let from_column = fk_row.try_get::<String, _>("from").unwrap_or_default();
+            let to_table = fk_row.try_get::<String, _>("table").unwrap_or_default();
+            // Колонка-цель может быть пустой для составных FK в старых SQLite.
+            let to_column = fk_row
+                .try_get::<Option<String>, _>("to")
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+
+            foreign_keys.push(TableForeignKey {
+                name: format!("fk_{id}_{from_table}_{from_column}"),
+                from_schema: schema.clone(),
+                from_table: from_table.clone(),
+                from_column,
+                to_schema: schema.clone(),
+                to_table,
+                to_column,
+            });
+        }
+    }
+
+    Ok(foreign_keys)
 }
 
 fn structure_row(

@@ -1,4 +1,6 @@
-use super::components::{ErDiagramState, ErTable, ExplorerConnectionSection, replace_messages};
+use super::components::{
+    ErDiagramState, ErRelationship, ErTable, ExplorerConnectionSection, replace_messages,
+};
 use crate::app_state::APP_UI_SETTINGS;
 use dioxus::prelude::*;
 use models::{
@@ -26,10 +28,21 @@ pub fn format_duration(ms: u64) -> String {
     }
 }
 
-pub fn build_er_diagram_from_sections(
+/// Строит данные ER-диаграммы из секций дерева + загруженных внешних ключей.
+/// Линии связей создаются только для FK, у которых обе таблицы (источник и
+/// цель) присутствуют в дереве — чтобы не рисовать линии в никуда для FK,
+/// ссылающихся на таблицы вне текущего подключения/схемы.
+///
+/// Между парой таблиц рисуется одна линия (составные FK и несколько FK между
+/// одной парой таблиц схлопываются в одну связь), чтобы избежать пучка
+/// параллельных линий.
+pub fn build_er_diagram(
     sections: &[ExplorerConnectionSection],
+    foreign_keys: &[models::TableForeignKey],
 ) -> Option<ErDiagramState> {
     let mut tables = Vec::new();
+    // Множество (schema, table) для фильтрации FK по присутствию в дереве.
+    let mut known: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
 
     for section in sections {
         for node in &section.nodes {
@@ -41,6 +54,7 @@ pub fn build_er_diagram_from_sections(
                 if child.kind != models::ExplorerNodeKind::Table {
                     continue;
                 }
+                known.insert((schema_name.clone(), child.name.clone()));
                 tables.push(ErTable {
                     schema: schema_name.clone(),
                     name: child.name.clone(),
@@ -56,9 +70,30 @@ pub fn build_er_diagram_from_sections(
         return None;
     }
 
+    // Дедуплицируем по паре таблиц — одна линия на пару (источник, цель).
+    let mut seen_pairs: std::collections::HashSet<(String, String)> =
+        std::collections::HashSet::new();
+    let mut relationships = Vec::new();
+    for fk in foreign_keys {
+        let from = (fk.from_schema.clone(), fk.from_table.clone());
+        let to = (fk.to_schema.clone(), fk.to_table.clone());
+        if !known.contains(&from) || !known.contains(&to) {
+            continue;
+        }
+        if !seen_pairs.insert((fk.from_table.clone(), fk.to_table.clone())) {
+            continue;
+        }
+        relationships.push(ErRelationship {
+            from_table: fk.from_table.clone(),
+            from_column: fk.from_column.clone(),
+            to_table: fk.to_table.clone(),
+            to_column: fk.to_column.clone(),
+        });
+    }
+
     Some(ErDiagramState {
         tables,
-        relationships: Vec::new(),
+        relationships,
     })
 }
 
@@ -407,7 +442,7 @@ pub fn tool_panel_class(panel: WorkspaceToolPanel) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        ExplorerConnectionSection, build_er_diagram_from_sections, derive_chat_thread_title,
+        ExplorerConnectionSection, build_er_diagram, derive_chat_thread_title,
         format_explorer_error, is_low_signal_explorer_status, reset_panel_for_thread,
         should_render_explorer_status,
     };
@@ -496,14 +531,13 @@ mod tests {
 
     #[test]
     fn er_diagram_empty_sections_returns_none() {
-        assert!(build_er_diagram_from_sections(&[]).is_none());
+        assert!(build_er_diagram(&[], &[]).is_none());
     }
 
-    #[test]
-    fn er_diagram_builds_tables_from_schema_nodes() {
+    fn sample_schema_sections() -> Vec<ExplorerConnectionSection> {
         use models::ExplorerNodeKind;
 
-        let sections = vec![ExplorerConnectionSection {
+        vec![ExplorerConnectionSection {
             session_id: 1,
             name: "test".to_string(),
             kind_label: "SQLite".to_string(),
@@ -538,12 +572,82 @@ mod tests {
                     },
                 ],
             }],
-        }];
+        }]
+    }
 
-        let diagram = build_er_diagram_from_sections(&sections).expect("diagram should be built");
+    #[test]
+    fn er_diagram_builds_tables_from_schema_nodes() {
+        let sections = sample_schema_sections();
+        let diagram = build_er_diagram(&sections, &[]).expect("diagram should be built");
         assert_eq!(diagram.tables.len(), 2); // only tables, not views
         assert!(diagram.tables.iter().any(|t| t.name == "users"));
         assert!(diagram.tables.iter().any(|t| t.name == "orders"));
         assert!(diagram.relationships.is_empty());
+    }
+
+    #[test]
+    fn er_diagram_wires_relationships_for_known_tables() {
+        let sections = sample_schema_sections();
+        let fks = vec![models::TableForeignKey {
+            name: "orders_user_fk".to_string(),
+            from_schema: "main".to_string(),
+            from_table: "orders".to_string(),
+            from_column: "user_id".to_string(),
+            to_schema: "main".to_string(),
+            to_table: "users".to_string(),
+            to_column: "id".to_string(),
+        }];
+        let diagram = build_er_diagram(&sections, &fks).expect("diagram should be built");
+        assert_eq!(diagram.relationships.len(), 1);
+        let rel = &diagram.relationships[0];
+        assert_eq!(rel.from_table, "orders");
+        assert_eq!(rel.to_table, "users");
+        assert_eq!(rel.from_column, "user_id");
+        assert_eq!(rel.to_column, "id");
+    }
+
+    #[test]
+    fn er_diagram_skips_fk_with_missing_endpoint() {
+        let sections = sample_schema_sections();
+        // Цель "profiles" отсутствует в дереве — связь не рисуется.
+        let fks = vec![models::TableForeignKey {
+            name: "orders_profile_fk".to_string(),
+            from_schema: "main".to_string(),
+            from_table: "orders".to_string(),
+            from_column: "profile_id".to_string(),
+            to_schema: "main".to_string(),
+            to_table: "profiles".to_string(),
+            to_column: "id".to_string(),
+        }];
+        let diagram = build_er_diagram(&sections, &fks).expect("diagram should be built");
+        assert!(diagram.relationships.is_empty());
+    }
+
+    #[test]
+    fn er_diagram_dedupes_composite_fk_to_one_line() {
+        let sections = sample_schema_sections();
+        // Составной FK из двух колонок между одной парой таблиц — одна линия.
+        let fks = vec![
+            models::TableForeignKey {
+                name: "fk_order_owner".to_string(),
+                from_schema: "main".to_string(),
+                from_table: "orders".to_string(),
+                from_column: "owner_a".to_string(),
+                to_schema: "main".to_string(),
+                to_table: "users".to_string(),
+                to_column: "a".to_string(),
+            },
+            models::TableForeignKey {
+                name: "fk_order_owner".to_string(),
+                from_schema: "main".to_string(),
+                from_table: "orders".to_string(),
+                from_column: "owner_b".to_string(),
+                to_schema: "main".to_string(),
+                to_table: "users".to_string(),
+                to_column: "b".to_string(),
+            },
+        ];
+        let diagram = build_er_diagram(&sections, &fks).expect("diagram should be built");
+        assert_eq!(diagram.relationships.len(), 1);
     }
 }

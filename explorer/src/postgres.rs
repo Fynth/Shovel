@@ -1,4 +1,4 @@
-use models::{DatabaseError, ExplorerNode, ExplorerNodeKind, QueryOutput};
+use models::{DatabaseError, ExplorerNode, ExplorerNodeKind, QueryOutput, TableForeignKey};
 use sqlx::Row;
 
 pub async fn describe_table_postgres(
@@ -178,6 +178,60 @@ pub async fn describe_table_postgres(
     }
 
     Ok(QueryOutput::Table(structure_page(rows)))
+}
+
+/// Загружает все внешние ключи пользовательских схем PostgreSQL.
+/// Разбираем `conkey`/`confkey` через `unnest ... with ordinality`,
+/// чтобы получить по строке на каждую пару колонок (корректно для
+/// составных FK). Системные схемы отбрасываем.
+pub async fn load_foreign_keys_postgres(
+    pool: &sqlx::PgPool,
+) -> Result<Vec<TableForeignKey>, DatabaseError> {
+    let rows = sqlx::query(
+        r#"
+        select
+          c.conname as fk_name,
+          n_from.nspname as from_schema,
+          tbl_from.relname as from_table,
+          a_from.attname as from_column,
+          n_to.nspname as to_schema,
+          tbl_to.relname as to_table,
+          a_to.attname as to_column
+        from pg_constraint c
+          join pg_class tbl_from on tbl_from.oid = c.conrelid
+          join pg_namespace n_from on n_from.oid = tbl_from.relnamespace
+          join pg_class tbl_to on tbl_to.oid = c.confrelid
+          join pg_namespace n_to on n_to.oid = tbl_to.relnamespace
+          join lateral unnest(c.conkey) with ordinality as k(attnum, ord) on true
+          join lateral unnest(c.confkey) with ordinality as fk(attnum, ord)
+            on fk.ord = k.ord
+          join pg_attribute a_from
+            on a_from.attrelid = c.conrelid and a_from.attnum = k.attnum
+          join pg_attribute a_to
+            on a_to.attrelid = c.confrelid and a_to.attnum = fk.attnum
+        where c.contype = 'f'
+          and n_from.nspname not in ('pg_catalog', 'information_schema')
+          and n_to.nspname not in ('pg_catalog', 'information_schema')
+        order by n_from.nspname, tbl_from.relname, k.ord
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(DatabaseError::Postgres)?;
+
+    let mut foreign_keys = Vec::new();
+    for row in rows {
+        foreign_keys.push(TableForeignKey {
+            name: row.try_get::<String, _>("fk_name").unwrap_or_default(),
+            from_schema: row.try_get::<String, _>("from_schema").unwrap_or_default(),
+            from_table: row.try_get::<String, _>("from_table").unwrap_or_default(),
+            from_column: row.try_get::<String, _>("from_column").unwrap_or_default(),
+            to_schema: row.try_get::<String, _>("to_schema").unwrap_or_default(),
+            to_table: row.try_get::<String, _>("to_table").unwrap_or_default(),
+            to_column: row.try_get::<String, _>("to_column").unwrap_or_default(),
+        });
+    }
+    Ok(foreign_keys)
 }
 
 pub async fn load_table_columns_postgres(
