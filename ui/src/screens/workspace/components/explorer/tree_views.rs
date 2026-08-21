@@ -656,7 +656,47 @@ fn build_explorer_context_menu(
         );
     }
 
-    // 6. Refresh — always available.
+    // 6. Copy DDL — исходный CREATE для таблицы/представления.
+    if matches!(kind, ExplorerNodeKind::Table | ExplorerNodeKind::View) {
+        let source = preview_source.clone();
+        let node_kind = kind;
+        items.push(
+            ContextMenuItem::new("Copy DDL", move || {
+                let source = source.clone();
+                let Some(connection) = crate::app_state::session_connection(session_id) else {
+                    crate::app_state::toast_error("Active connection not available");
+                    return;
+                };
+                spawn(async move {
+                    match services::load_object_ddl(
+                        connection,
+                        source.schema.clone(),
+                        source.table_name.clone(),
+                        node_kind,
+                    )
+                    .await
+                    {
+                        Ok(Some(ddl)) => {
+                            let _ = copy_to_clipboard(ddl.clone());
+                            crate::app_state::toast_success(format!(
+                                "DDL copied ({} chars)",
+                                ddl.chars().count()
+                            ));
+                        }
+                        Ok(None) => {
+                            crate::app_state::toast_error("DDL not found for this object");
+                        }
+                        Err(err) => {
+                            crate::app_state::toast_error(format!("Failed to load DDL: {err}"));
+                        }
+                    }
+                });
+            })
+            .with_icon(ActionIcon::ExportSql),
+        );
+    }
+
+    // 7. Refresh — always available.
     items.push(
         ContextMenuItem::new("Refresh", move || {
             tree_reload += 1;
@@ -665,10 +705,7 @@ fn build_explorer_context_menu(
         .separator(),
     );
 
-    // 7. Duplicate — only for tables. Disables in read-only mode.
-    //    For views, surface a "View DDL" placeholder for symmetry —
-    //    the actual DDL extraction lives in the DescribeTable pipeline
-    //    and is left for a follow-up.
+    // 8. Duplicate — only for tables. Disables in read-only mode.
     if kind == ExplorerNodeKind::Table {
         let mut item = ContextMenuItem::new("Duplicate table…", move || {
             show_duplicate_table.set(true);
@@ -680,7 +717,7 @@ fn build_explorer_context_menu(
         items.push(item);
     }
 
-    // 8. Truncate / Drop — only for tables. Disabled in read-only mode.
+    // 9. Truncate / Drop — only for tables. Disabled in read-only mode.
     //    Both reuse the same async helpers as the inline IconButton
     //    onclick handlers above, so the rfd confirmation flow, the
     //    mark_table_* signal updates, and the error handling all stay

@@ -363,6 +363,10 @@ pub fn toast_error(message: impl Into<String>) {
     show_toast(message, ToastKind::Error);
 }
 
+pub fn toast_success(message: impl Into<String>) {
+    show_toast(message, ToastKind::Success);
+}
+
 pub fn open_connection_screen() {
     APP_STATE.with_mut(|state| {
         state.show_connection_screen = true;

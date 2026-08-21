@@ -234,6 +234,161 @@ pub async fn load_foreign_keys_postgres(
     Ok(foreign_keys)
 }
 
+/// Возвращает DDL объекта PostgreSQL. Для представлений — `pg_get_viewdef`
+/// (точный текст). Для таблиц — реконструкция из `information_schema.columns`,
+/// `pg_constraint` и `pg_indexes`, т.к. у PG нет встроенного `SHOW CREATE`.
+/// Возвращает `None`, если объект не найден.
+pub async fn load_object_ddl_postgres(
+    pool: &sqlx::PgPool,
+    schema: Option<String>,
+    object: String,
+    kind: ExplorerNodeKind,
+) -> Result<Option<String>, DatabaseError> {
+    let schema_name = schema.unwrap_or_else(|| "public".to_string());
+
+    if kind == ExplorerNodeKind::View {
+        let ddl = sqlx::query_scalar::<_, Option<String>>(
+            r#"
+            select pg_get_viewdef(c.oid, true)
+            from pg_class c
+            join pg_namespace n on n.oid = c.relnamespace
+            where n.nspname = $1 and c.relname = $2
+            "#,
+        )
+        .bind(&schema_name)
+        .bind(&object)
+        .fetch_optional(pool)
+        .await
+        .map_err(DatabaseError::Postgres)?
+        .flatten();
+        return Ok(ddl.filter(|s| !s.trim().is_empty()));
+    }
+
+    reconstruct_postgres_table_ddl(pool, &schema_name, &object)
+        .await
+        .map(Some)
+}
+
+/// Реконструирует `CREATE TABLE` для PostgreSQL: колонки, первичный ключ,
+/// внешние ключи, уникальные и check-ограничения (через `pg_get_constraintdef`)
+/// и неуникальные индексы отдельными операторами (`pg_get_indexdef`).
+/// Уникальные/первичные индексы не дублируются — они покрыты ограничениями.
+async fn reconstruct_postgres_table_ddl(
+    pool: &sqlx::PgPool,
+    schema_name: &str,
+    table: &str,
+) -> Result<String, DatabaseError> {
+    let qualified = format!(
+        "{}.{}",
+        super::quote_identifier(schema_name),
+        super::quote_identifier(table)
+    );
+
+    let mut lines: Vec<String> = Vec::new();
+    lines.push(format!("CREATE TABLE {qualified} ("));
+
+    // Колонки
+    let column_rows = sqlx::query(
+        r#"
+        select column_name, data_type, is_nullable, column_default
+        from information_schema.columns
+        where table_schema = $1 and table_name = $2
+        order by ordinal_position
+        "#,
+    )
+    .bind(schema_name)
+    .bind(table)
+    .fetch_all(pool)
+    .await
+    .map_err(DatabaseError::Postgres)?;
+
+    let mut column_lines: Vec<String> = Vec::new();
+    for row in column_rows {
+        let name = row
+            .try_get::<String, _>("column_name")
+            .map_err(DatabaseError::Postgres)?;
+        let data_type = row
+            .try_get::<String, _>("data_type")
+            .unwrap_or_else(|_| "text".to_string());
+        let is_nullable = row
+            .try_get::<String, _>("is_nullable")
+            .unwrap_or_else(|_| "YES".to_string());
+        let default = row
+            .try_get::<Option<String>, _>("column_default")
+            .ok()
+            .flatten();
+
+        let mut col = format!("    {} {}", super::quote_identifier(&name), data_type);
+        if is_nullable.eq_ignore_ascii_case("NO") {
+            col.push_str(" NOT NULL");
+        }
+        if let Some(default) = default {
+            col.push_str(&format!(" DEFAULT {default}"));
+        }
+        column_lines.push(col);
+    }
+
+    // Ограничения (PK / FK / UNIQUE / CHECK) — текст из pg_get_constraintdef
+    let constraint_rows = sqlx::query(
+        r#"
+        select pg_get_constraintdef(c.oid, true) as definition
+        from pg_constraint c
+        join pg_class t on t.oid = c.conrelid
+        join pg_namespace n on n.oid = t.relnamespace
+        where n.nspname = $1 and t.relname = $2
+        order by c.contype, c.conname
+        "#,
+    )
+    .bind(schema_name)
+    .bind(table)
+    .fetch_all(pool)
+    .await
+    .map_err(DatabaseError::Postgres)?;
+    for row in constraint_rows {
+        if let Some(def) = row
+            .try_get::<Option<String>, _>("definition")
+            .ok()
+            .flatten()
+            .filter(|d| !d.trim().is_empty())
+        {
+            column_lines.push(format!("    {def}"));
+        }
+    }
+
+    lines.push(column_lines.join(",\n"));
+    lines.push(");".to_string());
+
+    // Неуникальные индексы отдельными операторами.
+    let index_rows = sqlx::query(
+        r#"
+        select pg_get_indexdef(i.indexrelid) as indexdef
+        from pg_index i
+        join pg_class c on c.oid = i.indrelid
+        join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = $1 and c.relname = $2
+          and not i.indisunique and not i.indisprimary
+        "#,
+    )
+    .bind(schema_name)
+    .bind(table)
+    .fetch_all(pool)
+    .await
+    .map_err(DatabaseError::Postgres)?;
+    for row in index_rows {
+        if let Some(def) = row
+            .try_get::<Option<String>, _>("indexdef")
+            .ok()
+            .flatten()
+            .filter(|d| !d.trim().is_empty())
+        {
+            lines.push(String::new());
+            lines.push(format!("{def};"));
+        }
+    }
+
+    Ok(lines.join("\n"))
+}
+
 pub async fn load_table_columns_postgres(
     pool: &sqlx::PgPool,
     schema: Option<String>,

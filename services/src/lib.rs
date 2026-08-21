@@ -23,7 +23,9 @@ pub use connection::{connect_to_db, release_ssh_tunnel, test_connection};
 
 // --- Schema exploration ---
 
-pub use explorer::{describe_table, load_connection_tree, load_foreign_keys, load_table_columns};
+pub use explorer::{
+    describe_table, load_connection_tree, load_foreign_keys, load_object_ddl, load_table_columns,
+};
 
 // --- Query execution and table editing ---
 

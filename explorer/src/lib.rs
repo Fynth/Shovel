@@ -9,15 +9,15 @@ mod sqlite;
 
 pub use mysql::{
     describe_table_mysql, load_connection_tree_mysql, load_foreign_keys_mysql,
-    load_table_columns_mysql,
+    load_object_ddl_mysql, load_table_columns_mysql,
 };
 pub use postgres::{
     describe_table_postgres, load_connection_tree_postgres, load_foreign_keys_postgres,
-    load_table_columns_postgres,
+    load_object_ddl_postgres, load_table_columns_postgres,
 };
 pub use sqlite::{
     describe_table_sqlite, load_connection_tree_sqlite, load_foreign_keys_sqlite,
-    load_table_columns_sqlite,
+    load_object_ddl_sqlite, load_table_columns_sqlite,
 };
 
 pub async fn describe_table(
@@ -256,6 +256,39 @@ pub async fn load_foreign_keys(
         DatabaseConnection::Postgres(pool) => load_foreign_keys_postgres(&pool).await,
         DatabaseConnection::MySql(pool) => load_foreign_keys_mysql(&pool).await,
         DatabaseConnection::ClickHouse(_) => Ok(Vec::new()),
+    }
+}
+
+/// Возвращает DDL объекта (таблицы/представления) или `None`, если объект
+/// не найден. Для PG таблиц DDL реконструируется, для остальных — точный
+/// текст из системного каталога.
+pub async fn load_object_ddl(
+    connection: DatabaseConnection,
+    schema: Option<String>,
+    object: String,
+    kind: models::ExplorerNodeKind,
+) -> Result<Option<String>, DatabaseError> {
+    match connection {
+        DatabaseConnection::Sqlite(pool) => load_object_ddl_sqlite(&pool, schema, object).await,
+        DatabaseConnection::Postgres(pool) => {
+            load_object_ddl_postgres(&pool, schema, object, kind).await
+        }
+        DatabaseConnection::MySql(pool) => load_object_ddl_mysql(&pool, schema, object).await,
+        DatabaseConnection::ClickHouse(config) => {
+            let schema_name = schema.unwrap_or_else(|| config.database.clone());
+            let sql = format!(
+                "select create_table_query from system.tables where database = {} and name = {}",
+                clickhouse_string_literal(&schema_name),
+                clickhouse_string_literal(&object)
+            );
+            let response = ClickHouseDriver.execute_json_query(&config, &sql).await?;
+            Ok(response
+                .data
+                .into_iter()
+                .next()
+                .and_then(|row| row.first().map(clickhouse_json_value_to_string))
+                .filter(|s| !s.trim().is_empty()))
+        }
     }
 }
 

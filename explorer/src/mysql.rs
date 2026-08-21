@@ -342,6 +342,34 @@ pub async fn load_foreign_keys_mysql(
     Ok(foreign_keys)
 }
 
+/// Возвращает DDL объекта через `SHOW CREATE TABLE` (работает и для таблиц,
+/// и для представлений — колонка результата `Create Table`/`Create View`).
+/// `None`, если объект не найден.
+pub async fn load_object_ddl_mysql(
+    pool: &sqlx::MySqlPool,
+    schema: Option<String>,
+    object: String,
+) -> Result<Option<String>, DatabaseError> {
+    let schema_name = mysql_effective_schema_name(pool, schema.as_deref()).await?;
+    let sql = format!(
+        "show create table {}",
+        qualified_mysql_table_name(&schema_name, &object)
+    );
+    let Some(row) = sqlx::query(&sql)
+        .fetch_optional(pool)
+        .await
+        .map_err(DatabaseError::MySql)?
+    else {
+        return Ok(None);
+    };
+    let ddl = row
+        .try_get::<String, _>(1)
+        .or_else(|_| row.try_get::<String, _>("Create Table"))
+        .or_else(|_| row.try_get::<String, _>("Create View"))
+        .unwrap_or_default();
+    Ok(if ddl.trim().is_empty() { None } else { Some(ddl) })
+}
+
 pub async fn load_table_columns_mysql(
     pool: &sqlx::MySqlPool,
     schema: Option<String>,

@@ -360,3 +360,24 @@ fn sqlite_column_details(not_null: bool, default_value: Option<String>) -> Strin
         default_value.map(|value| format!("default {value}")),
     ])
 }
+
+/// Возвращает исходный DDL объекта (таблицы или представления) из `sqlite_master`.
+/// `None`, если объект не найден или у него нет SQL (например, auto-index).
+pub async fn load_object_ddl_sqlite(
+    pool: &sqlx::SqlitePool,
+    schema: Option<String>,
+    object: String,
+) -> Result<Option<String>, DatabaseError> {
+    let schema_name = schema.unwrap_or_else(|| "main".to_string());
+    let sql = format!(
+        "select sql from {}.sqlite_master where type in ('table', 'view') and name = ?1",
+        super::quote_identifier(&schema_name)
+    );
+    let ddl = sqlx::query_scalar::<_, Option<String>>(&sql)
+        .bind(&object)
+        .fetch_optional(pool)
+        .await
+        .map_err(DatabaseError::Sqlite)?
+        .flatten();
+    Ok(ddl.filter(|s| !s.trim().is_empty()))
+}
