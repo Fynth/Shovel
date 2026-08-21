@@ -234,10 +234,12 @@ pub async fn load_foreign_keys_postgres(
     Ok(foreign_keys)
 }
 
-/// Возвращает DDL объекта PostgreSQL. Для представлений — `pg_get_viewdef`
-/// (точный текст). Для таблиц — реконструкция из `information_schema.columns`,
-/// `pg_constraint` и `pg_indexes`, т.к. у PG нет встроенного `SHOW CREATE`.
-/// Возвращает `None`, если объект не найден.
+/// Возвращает DDL объекта PostgreSQL. Для представлений и MV —
+/// `pg_get_viewdef` (точный текст). Для таблиц — реконструкция из
+/// `information_schema.columns`, `pg_constraint` и `pg_indexes`, т.к. у PG
+/// нет встроенного `SHOW CREATE`. Для последовательностей, функций,
+/// процедур и триггеров — соответствующие `pg_get_*def`. Возвращает
+/// `None`, если объект не найден.
 pub async fn load_object_ddl_postgres(
     pool: &sqlx::PgPool,
     schema: Option<String>,
@@ -246,27 +248,86 @@ pub async fn load_object_ddl_postgres(
 ) -> Result<Option<String>, DatabaseError> {
     let schema_name = schema.unwrap_or_else(|| "public".to_string());
 
-    if kind == ExplorerNodeKind::View {
-        let ddl = sqlx::query_scalar::<_, Option<String>>(
-            r#"
-            select pg_get_viewdef(c.oid, true)
-            from pg_class c
-            join pg_namespace n on n.oid = c.relnamespace
-            where n.nspname = $1 and c.relname = $2
-            "#,
-        )
-        .bind(&schema_name)
-        .bind(&object)
-        .fetch_optional(pool)
-        .await
-        .map_err(DatabaseError::Postgres)?
-        .flatten();
-        return Ok(ddl.filter(|s| !s.trim().is_empty()));
+    match kind {
+        ExplorerNodeKind::View | ExplorerNodeKind::MaterializedView => {
+            let ddl = sqlx::query_scalar::<_, Option<String>>(
+                r#"
+                select pg_get_viewdef(c.oid, true)
+                from pg_class c
+                join pg_namespace n on n.oid = c.relnamespace
+                where n.nspname = $1 and c.relname = $2
+                "#,
+            )
+            .bind(&schema_name)
+            .bind(&object)
+            .fetch_optional(pool)
+            .await
+            .map_err(DatabaseError::Postgres)?
+            .flatten();
+            Ok(ddl.filter(|s| !s.trim().is_empty()))
+        }
+        ExplorerNodeKind::Sequence => {
+            let ddl = sqlx::query_scalar::<_, Option<String>>(
+                r#"
+                select pg_get_sequencedef(c.oid)
+                from pg_class c
+                join pg_namespace n on n.oid = c.relnamespace
+                where n.nspname = $1 and c.relname = $2
+                "#,
+            )
+            .bind(&schema_name)
+            .bind(&object)
+            .fetch_optional(pool)
+            .await
+            .map_err(DatabaseError::Postgres)?
+            .flatten();
+            Ok(ddl.filter(|s| !s.trim().is_empty()))
+        }
+        ExplorerNodeKind::Function | ExplorerNodeKind::Procedure => {
+            // pg_get_functiondef работает и для функций, и для процедур.
+            // Если несколько перегрузок с одним именем — берём первую.
+            let ddl = sqlx::query_scalar::<_, Option<String>>(
+                r#"
+                select pg_get_functiondef(p.oid)
+                from pg_proc p
+                join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = $1 and p.proname = $2
+                order by p.oid
+                limit 1
+                "#,
+            )
+            .bind(&schema_name)
+            .bind(&object)
+            .fetch_optional(pool)
+            .await
+            .map_err(DatabaseError::Postgres)?
+            .flatten();
+            Ok(ddl.filter(|s| !s.trim().is_empty()))
+        }
+        ExplorerNodeKind::Trigger => {
+            let ddl = sqlx::query_scalar::<_, Option<String>>(
+                r#"
+                select pg_get_triggerdef(t.oid)
+                from pg_trigger t
+                join pg_class c on c.oid = t.tgrelid
+                join pg_namespace n on n.oid = c.relnamespace
+                where n.nspname = $1 and t.tgname = $2
+                "#,
+            )
+            .bind(&schema_name)
+            .bind(&object)
+            .fetch_optional(pool)
+            .await
+            .map_err(DatabaseError::Postgres)?
+            .flatten();
+            Ok(ddl.filter(|s| !s.trim().is_empty()))
+        }
+        ExplorerNodeKind::Table | ExplorerNodeKind::Schema => {
+            reconstruct_postgres_table_ddl(pool, &schema_name, &object)
+                .await
+                .map(Some)
+        }
     }
-
-    reconstruct_postgres_table_ddl(pool, &schema_name, &object)
-        .await
-        .map(Some)
 }
 
 /// Реконструирует `CREATE TABLE` для PostgreSQL: колонки, первичный ключ,
@@ -421,6 +482,31 @@ pub async fn load_table_columns_postgres(
 pub async fn load_connection_tree_postgres(
     pool: &sqlx::PgPool,
 ) -> Result<Vec<ExplorerNode>, DatabaseError> {
+    let mut grouped: std::collections::BTreeMap<String, Vec<ExplorerNode>> =
+        std::collections::BTreeMap::new();
+
+    let push_node = |grouped: &mut std::collections::BTreeMap<String, Vec<ExplorerNode>>,
+                     schema: String,
+                     name: String,
+                     kind: ExplorerNodeKind| {
+        let qualified_name = format!(
+            "{}.{}",
+            super::quote_identifier(&schema),
+            super::quote_identifier(&name)
+        );
+        grouped
+            .entry(schema.clone())
+            .or_default()
+            .push(ExplorerNode {
+                qualified_name,
+                schema: Some(schema),
+                name,
+                kind,
+                children: Vec::new(),
+            });
+    };
+
+    // Таблицы и представления.
     let rows = sqlx::query(
         r#"
         select table_schema, table_name, table_type
@@ -432,10 +518,6 @@ pub async fn load_connection_tree_postgres(
     .fetch_all(pool)
     .await
     .map_err(DatabaseError::Postgres)?;
-
-    let mut grouped: std::collections::BTreeMap<String, Vec<ExplorerNode>> =
-        std::collections::BTreeMap::new();
-
     for row in rows {
         let schema = row
             .try_get::<String, _>("table_schema")
@@ -446,28 +528,97 @@ pub async fn load_connection_tree_postgres(
         let table_type = row
             .try_get::<String, _>("table_type")
             .map_err(DatabaseError::Postgres)?;
-
         let kind = if table_type.eq_ignore_ascii_case("view") {
             ExplorerNodeKind::View
         } else {
             ExplorerNodeKind::Table
         };
-        let qualified_name = format!(
-            "{}.{}",
-            super::quote_identifier(&schema),
-            super::quote_identifier(&name)
-        );
+        push_node(&mut grouped, schema, name, kind);
+    }
 
-        grouped
-            .entry(schema.clone())
-            .or_default()
-            .push(ExplorerNode {
-                qualified_name,
-                schema: Some(schema.clone()),
-                name,
-                kind,
-                children: Vec::new(),
-            });
+    // Материализованные представления и последовательности (relkind).
+    let rows = sqlx::query(
+        r#"
+        select n.nspname as schema, c.relname as name, c.relkind
+        from pg_class c
+        join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname not in ('pg_catalog', 'information_schema')
+          and c.relkind in ('m', 'S')
+        order by n.nspname, c.relname
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(DatabaseError::Postgres)?;
+    for row in rows {
+        let schema = row
+            .try_get::<String, _>("schema")
+            .map_err(DatabaseError::Postgres)?;
+        let name = row
+            .try_get::<String, _>("name")
+            .map_err(DatabaseError::Postgres)?;
+        let relkind = row.try_get::<String, _>("relkind").unwrap_or_default();
+        let kind = match relkind.as_str() {
+            "m" => ExplorerNodeKind::MaterializedView,
+            "S" => ExplorerNodeKind::Sequence,
+            _ => continue,
+        };
+        push_node(&mut grouped, schema, name, kind);
+    }
+
+    // Функции и процедуры (pg_proc, prokind; отбрасываем агрегаты и
+    // встроенные пакеты). prokind: 'f'=function, 'p'=procedure.
+    let rows = sqlx::query(
+        r#"
+        select n.nspname as schema, p.proname as name, p.prokind
+        from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname not in ('pg_catalog', 'information_schema')
+          and p.prokind in ('f', 'p')
+        order by n.nspname, p.proname
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(DatabaseError::Postgres)?;
+    for row in rows {
+        let schema = row
+            .try_get::<String, _>("schema")
+            .map_err(DatabaseError::Postgres)?;
+        let name = row
+            .try_get::<String, _>("name")
+            .map_err(DatabaseError::Postgres)?;
+        let prokind = row.try_get::<String, _>("prokind").unwrap_or_default();
+        let kind = match prokind.as_str() {
+            "p" => ExplorerNodeKind::Procedure,
+            _ => ExplorerNodeKind::Function,
+        };
+        push_node(&mut grouped, schema, name, kind);
+    }
+
+    // Триггеры (отбрасываем внутренние trigger-функции pg_trigger.tgisinternal).
+    let rows = sqlx::query(
+        r#"
+        select n.nspname as schema, t.tgname as name
+        from pg_trigger t
+        join pg_class c on c.oid = t.tgrelid
+        join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname not in ('pg_catalog', 'information_schema')
+          and not t.tgisinternal
+        order by n.nspname, t.tgname
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(DatabaseError::Postgres)?;
+    for row in rows {
+        let schema = row
+            .try_get::<String, _>("schema")
+            .map_err(DatabaseError::Postgres)?;
+        let name = row
+            .try_get::<String, _>("name")
+            .map_err(DatabaseError::Postgres)?;
+        push_node(&mut grouped, schema, name, ExplorerNodeKind::Trigger);
     }
 
     Ok(grouped

@@ -149,22 +149,94 @@ pub(super) fn count_objects(nodes: &[ExplorerNode]) -> usize {
     nodes.iter().map(|node| node.children.len()).sum()
 }
 
-pub(super) fn split_children(children: &[ExplorerNode]) -> (Vec<ExplorerNode>, Vec<ExplorerNode>) {
-    let mut tables = Vec::new();
-    let mut views = Vec::new();
+/// Сгруппированные дочерние объекты схемы для дерева (как в DBeaver):
+/// каждая группа отображается отдельной секцией. Порядок групп
+/// фиксирован и соответствует значимости.
+pub(super) struct ExplorerChildGroups {
+    pub tables: Vec<ExplorerNode>,
+    pub views: Vec<ExplorerNode>,
+    pub materialized_views: Vec<ExplorerNode>,
+    pub sequences: Vec<ExplorerNode>,
+    pub functions: Vec<ExplorerNode>,
+    pub procedures: Vec<ExplorerNode>,
+    pub triggers: Vec<ExplorerNode>,
+}
+
+impl ExplorerChildGroups {
+    /// Группы в порядке отображения, пропуская пустые. Возвращает
+    /// (заголовок группы, узлы) для рендера.
+    pub fn non_empty(&self) -> Vec<(&'static str, &Vec<ExplorerNode>)> {
+        let mut out = Vec::new();
+        if !self.tables.is_empty() {
+            out.push(("Tables", &self.tables));
+        }
+        if !self.views.is_empty() {
+            out.push(("Views", &self.views));
+        }
+        if !self.materialized_views.is_empty() {
+            out.push(("Materialized Views", &self.materialized_views));
+        }
+        if !self.sequences.is_empty() {
+            out.push(("Sequences", &self.sequences));
+        }
+        if !self.functions.is_empty() {
+            out.push(("Functions", &self.functions));
+        }
+        if !self.procedures.is_empty() {
+            out.push(("Procedures", &self.procedures));
+        }
+        if !self.triggers.is_empty() {
+            out.push(("Triggers", &self.triggers));
+        }
+        out
+    }
+
+    pub fn total(&self) -> usize {
+        self.tables.len()
+            + self.views.len()
+            + self.materialized_views.len()
+            + self.sequences.len()
+            + self.functions.len()
+            + self.procedures.len()
+            + self.triggers.len()
+    }
+}
+
+pub(super) fn split_children(children: &[ExplorerNode]) -> ExplorerChildGroups {
+    let mut groups = ExplorerChildGroups {
+        tables: Vec::new(),
+        views: Vec::new(),
+        materialized_views: Vec::new(),
+        sequences: Vec::new(),
+        functions: Vec::new(),
+        procedures: Vec::new(),
+        triggers: Vec::new(),
+    };
 
     for child in children {
         match child.kind {
-            ExplorerNodeKind::Table => tables.push(child.clone()),
-            ExplorerNodeKind::View => views.push(child.clone()),
+            ExplorerNodeKind::Table => groups.tables.push(child.clone()),
+            ExplorerNodeKind::View => groups.views.push(child.clone()),
+            ExplorerNodeKind::MaterializedView => groups.materialized_views.push(child.clone()),
+            ExplorerNodeKind::Sequence => groups.sequences.push(child.clone()),
+            ExplorerNodeKind::Function => groups.functions.push(child.clone()),
+            ExplorerNodeKind::Procedure => groups.procedures.push(child.clone()),
+            ExplorerNodeKind::Trigger => groups.triggers.push(child.clone()),
             ExplorerNodeKind::Schema => {}
         }
     }
 
-    tables.sort_by(|left, right| left.name.cmp(&right.name));
-    views.sort_by(|left, right| left.name.cmp(&right.name));
+    let sort_group =
+        |vec: &mut Vec<ExplorerNode>| vec.sort_by(|left, right| left.name.cmp(&right.name));
+    sort_group(&mut groups.tables);
+    sort_group(&mut groups.views);
+    sort_group(&mut groups.materialized_views);
+    sort_group(&mut groups.sequences);
+    sort_group(&mut groups.functions);
+    sort_group(&mut groups.procedures);
+    sort_group(&mut groups.triggers);
 
-    (tables, views)
+    groups
 }
 
 pub(super) fn disconnect_session(
@@ -292,7 +364,13 @@ fn filter_node(node: &ExplorerNode, query: &str) -> Option<ExplorerNode> {
                 None
             }
         }
-        ExplorerNodeKind::Table | ExplorerNodeKind::View => {
+        ExplorerNodeKind::Table
+        | ExplorerNodeKind::View
+        | ExplorerNodeKind::MaterializedView
+        | ExplorerNodeKind::Sequence
+        | ExplorerNodeKind::Function
+        | ExplorerNodeKind::Procedure
+        | ExplorerNodeKind::Trigger => {
             if matches_query(&node.name, query) || matches_query(&node.qualified_name, query) {
                 Some(node.clone())
             } else {

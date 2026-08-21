@@ -209,7 +209,7 @@ pub async fn load_connection_tree_sqlite(
         r#"
         select name, type
         from sqlite_master
-        where type in ('table', 'view')
+        where type in ('table', 'view', 'trigger')
           and name not like 'sqlite_%'
         order by type, name
         "#,
@@ -220,6 +220,7 @@ pub async fn load_connection_tree_sqlite(
 
     let mut tables = Vec::new();
     let mut views = Vec::new();
+    let mut triggers = Vec::new();
 
     for row in rows {
         let name = row
@@ -229,21 +230,22 @@ pub async fn load_connection_tree_sqlite(
             .try_get::<String, _>("type")
             .map_err(DatabaseError::Sqlite)?;
 
-        match kind.as_str() {
-            "table" => tables.push(ExplorerNode {
-                qualified_name: super::quote_identifier(&name),
-                schema: Some("main".to_string()),
-                name,
-                kind: ExplorerNodeKind::Table,
-                children: Vec::new(),
-            }),
-            "view" => views.push(ExplorerNode {
-                qualified_name: super::quote_identifier(&name),
-                schema: Some("main".to_string()),
-                name,
-                kind: ExplorerNodeKind::View,
-                children: Vec::new(),
-            }),
+        let node = ExplorerNode {
+            qualified_name: super::quote_identifier(&name),
+            schema: Some("main".to_string()),
+            name,
+            kind: match kind.as_str() {
+                "table" => ExplorerNodeKind::Table,
+                "view" => ExplorerNodeKind::View,
+                "trigger" => ExplorerNodeKind::Trigger,
+                _ => continue,
+            },
+            children: Vec::new(),
+        };
+        match node.kind {
+            ExplorerNodeKind::Table => tables.push(node),
+            ExplorerNodeKind::View => views.push(node),
+            ExplorerNodeKind::Trigger => triggers.push(node),
             _ => {}
         }
     }
@@ -253,7 +255,7 @@ pub async fn load_connection_tree_sqlite(
         kind: ExplorerNodeKind::Schema,
         schema: Some("main".to_string()),
         qualified_name: "main".to_string(),
-        children: tables.into_iter().chain(views).collect(),
+        children: tables.into_iter().chain(views).chain(triggers).collect(),
     }])
 }
 
@@ -367,10 +369,18 @@ pub async fn load_object_ddl_sqlite(
     pool: &sqlx::SqlitePool,
     schema: Option<String>,
     object: String,
+    kind: ExplorerNodeKind,
 ) -> Result<Option<String>, DatabaseError> {
+    // SQLite хранит DDL для таблиц, представлений и триггеров в sqlite_master.
+    // Прочие типы объектов (последовательности, функции и т.п.) в SQLite отсутствуют.
+    let type_filter = match kind {
+        ExplorerNodeKind::Table | ExplorerNodeKind::View => "('table', 'view')",
+        ExplorerNodeKind::Trigger => "('trigger')",
+        _ => return Ok(None),
+    };
     let schema_name = schema.unwrap_or_else(|| "main".to_string());
     let sql = format!(
-        "select sql from {}.sqlite_master where type in ('table', 'view') and name = ?1",
+        "select sql from {}.sqlite_master where type in {type_filter} and name = ?1",
         super::quote_identifier(&schema_name)
     );
     let ddl = sqlx::query_scalar::<_, Option<String>>(&sql)

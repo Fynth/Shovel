@@ -349,24 +349,72 @@ pub async fn load_object_ddl_mysql(
     pool: &sqlx::MySqlPool,
     schema: Option<String>,
     object: String,
+    kind: ExplorerNodeKind,
 ) -> Result<Option<String>, DatabaseError> {
     let schema_name = mysql_effective_schema_name(pool, schema.as_deref()).await?;
-    let sql = format!(
-        "show create table {}",
-        qualified_mysql_table_name(&schema_name, &object)
-    );
-    let Some(row) = sqlx::query(&sql)
+    match kind {
+        ExplorerNodeKind::Function => {
+            let sql = format!(
+                "show create function {}",
+                qualified_mysql_table_name(&schema_name, &object)
+            );
+            fetch_mysql_create_ddl(pool, &sql, &["Create Function"]).await
+        }
+        ExplorerNodeKind::Procedure => {
+            let sql = format!(
+                "show create procedure {}",
+                qualified_mysql_table_name(&schema_name, &object)
+            );
+            fetch_mysql_create_ddl(pool, &sql, &["Create Procedure"]).await
+        }
+        ExplorerNodeKind::Trigger => {
+            let sql = format!(
+                "show create trigger {}",
+                qualified_mysql_table_name(&schema_name, &object)
+            );
+            fetch_mysql_create_ddl(pool, &sql, &["SQL Original Statement"]).await
+        }
+        // Таблицы, представления и неизвестные типы — SHOW CREATE TABLE.
+        ExplorerNodeKind::Table
+        | ExplorerNodeKind::View
+        | ExplorerNodeKind::MaterializedView
+        | ExplorerNodeKind::Sequence
+        | ExplorerNodeKind::Schema => {
+            let sql = format!(
+                "show create table {}",
+                qualified_mysql_table_name(&schema_name, &object)
+            );
+            fetch_mysql_create_ddl(pool, &sql, &["Create Table", "Create View"]).await
+        }
+    }
+}
+
+/// Выполняет `SHOW CREATE ...` и достаёт тело DDL: сначала пробует
+/// именованные колонки, затем колонку по индексу 2 (типичный layout
+/// `SHOW CREATE` в MySQL). `None`, если строк нет или тело пустое.
+async fn fetch_mysql_create_ddl(
+    pool: &sqlx::MySqlPool,
+    sql: &str,
+    named_columns: &[&str],
+) -> Result<Option<String>, DatabaseError> {
+    let Some(row) = sqlx::query(sql)
         .fetch_optional(pool)
         .await
         .map_err(DatabaseError::MySql)?
     else {
         return Ok(None);
     };
-    let ddl = row
-        .try_get::<String, _>(1)
-        .or_else(|_| row.try_get::<String, _>("Create Table"))
-        .or_else(|_| row.try_get::<String, _>("Create View"))
-        .unwrap_or_default();
+    let mut ddl = String::new();
+    for name in named_columns {
+        if let Ok(value) = row.try_get::<String, _>(name) {
+            ddl = value;
+            break;
+        }
+    }
+    if ddl.trim().is_empty() {
+        // fallback: колонка по индексу 2 (третья), где MySQL кладёт тело.
+        ddl = row.try_get::<String, _>(2usize).unwrap_or_default();
+    }
     Ok(if ddl.trim().is_empty() {
         None
     } else {
@@ -406,21 +454,37 @@ pub async fn load_table_columns_mysql(
 pub async fn load_connection_tree_mysql(
     pool: &sqlx::MySqlPool,
 ) -> Result<Vec<ExplorerNode>, DatabaseError> {
+    let mut grouped: std::collections::BTreeMap<String, Vec<ExplorerNode>> =
+        std::collections::BTreeMap::new();
+
+    let push_node = |grouped: &mut std::collections::BTreeMap<String, Vec<ExplorerNode>>,
+                     schema: String,
+                     name: String,
+                     kind: ExplorerNodeKind| {
+        grouped
+            .entry(schema.clone())
+            .or_default()
+            .push(ExplorerNode {
+                qualified_name: qualified_mysql_table_name(&schema, &name),
+                schema: Some(schema),
+                name,
+                kind,
+                children: Vec::new(),
+            });
+    };
+
+    // Таблицы и представления.
     let rows = sqlx::query(
         r#"
         select table_schema, table_name, table_type
         from information_schema.tables
-        where table_schema not in ('information_schema', 'performance_schema', 'sys')
+        where table_schema not in ('information_schema', 'performance_schema', 'sys', 'mysql')
         order by table_schema, table_type, table_name
         "#,
     )
     .fetch_all(pool)
     .await
     .map_err(DatabaseError::MySql)?;
-
-    let mut grouped: std::collections::BTreeMap<String, Vec<ExplorerNode>> =
-        std::collections::BTreeMap::new();
-
     for row in rows {
         let schema = row
             .try_get::<String, _>("table_schema")
@@ -431,24 +495,62 @@ pub async fn load_connection_tree_mysql(
         let table_type = row
             .try_get::<String, _>("table_type")
             .map_err(DatabaseError::MySql)?;
-
         let kind = if table_type.eq_ignore_ascii_case("view") {
             ExplorerNodeKind::View
         } else {
             ExplorerNodeKind::Table
         };
-        let qualified_name = qualified_mysql_table_name(&schema, &name);
+        push_node(&mut grouped, schema, name, kind);
+    }
 
-        grouped
-            .entry(schema.clone())
-            .or_default()
-            .push(ExplorerNode {
-                qualified_name,
-                schema: Some(schema.clone()),
-                name,
-                kind,
-                children: Vec::new(),
-            });
+    // Функции и процедуры.
+    let rows = sqlx::query(
+        r#"
+        select routine_schema, routine_name, routine_type
+        from information_schema.routines
+        where routine_schema not in ('information_schema', 'performance_schema', 'sys', 'mysql')
+        order by routine_schema, routine_type, routine_name
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(DatabaseError::MySql)?;
+    for row in rows {
+        let schema = row
+            .try_get::<String, _>("routine_schema")
+            .map_err(DatabaseError::MySql)?;
+        let name = row
+            .try_get::<String, _>("routine_name")
+            .map_err(DatabaseError::MySql)?;
+        let routine_type = row.try_get::<String, _>("routine_type").unwrap_or_default();
+        let kind = if routine_type.eq_ignore_ascii_case("procedure") {
+            ExplorerNodeKind::Procedure
+        } else {
+            ExplorerNodeKind::Function
+        };
+        push_node(&mut grouped, schema, name, kind);
+    }
+
+    // Триггеры.
+    let rows = sqlx::query(
+        r#"
+        select trigger_schema, trigger_name
+        from information_schema.triggers
+        where trigger_schema not in ('information_schema', 'performance_schema', 'sys', 'mysql')
+        order by trigger_schema, trigger_name
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(DatabaseError::MySql)?;
+    for row in rows {
+        let schema = row
+            .try_get::<String, _>("trigger_schema")
+            .map_err(DatabaseError::MySql)?;
+        let name = row
+            .try_get::<String, _>("trigger_name")
+            .map_err(DatabaseError::MySql)?;
+        push_node(&mut grouped, schema, name, ExplorerNodeKind::Trigger);
     }
 
     Ok(grouped

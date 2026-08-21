@@ -132,8 +132,9 @@ fn ExplorerSchemaView(
     selected_node: Signal<String>,
 ) -> Element {
     let mut expanded = use_signal(|| true);
-    let (tables, views) = split_children(&node.children);
-    let object_count = tables.len() + views.len();
+    let groups = split_children(&node.children);
+    let object_count = groups.total();
+    let non_empty = groups.non_empty();
 
     rsx! {
         div { class: "tree__schema",
@@ -160,24 +161,13 @@ fn ExplorerSchemaView(
 
             if expanded() {
                 div { class: "tree__schema-body",
-                    if !tables.is_empty() {
+                    for (title, nodes) in non_empty.into_iter() {
                         ExplorerGroupView {
-                            title: "Tables".to_string(),
+                            key: "{title}",
+                            title: title.to_string(),
                             session_id,
                             tree_reload,
-                            nodes: tables,
-                            tabs,
-                            active_tab_id,
-                            next_tab_id,
-                            selected_node,
-                        }
-                    }
-                    if !views.is_empty() {
-                        ExplorerGroupView {
-                            title: "Views".to_string(),
-                            session_id,
-                            tree_reload,
-                            nodes: views,
+                            nodes: nodes.clone(),
                             tabs,
                             active_tab_id,
                             next_tab_id,
@@ -249,16 +239,8 @@ fn ExplorerObjectRow(
     let can_truncate_table = node.kind == ExplorerNodeKind::Table;
     let can_drop_table = node.kind == ExplorerNodeKind::Table;
     let read_only_mode = read_only_mode_enabled();
-    let kind_badge = match node.kind {
-        ExplorerNodeKind::Table => "T",
-        ExplorerNodeKind::View => "V",
-        ExplorerNodeKind::Schema => "",
-    };
-    let kind_label = match node.kind {
-        ExplorerNodeKind::Table => "Table",
-        ExplorerNodeKind::View => "View",
-        ExplorerNodeKind::Schema => "Schema",
-    };
+    let kind_badge = node.kind.tree_badge();
+    let kind_label = node.kind.display_label();
 
     let (_read_only_mode_for_menu, items) = build_explorer_context_menu(
         connection_name.clone(),
@@ -575,8 +557,8 @@ fn build_explorer_context_menu(
 
     let mut items: Vec<ContextMenuItem> = Vec::new();
 
-    // 1. Open in editor (preview) — only for tables and views.
-    if matches!(kind, ExplorerNodeKind::Table | ExplorerNodeKind::View) {
+    // 1. Open in editor (preview) — для объектов, поддерживающих SELECT.
+    if kind.is_queryable() {
         let source = preview_source.clone();
         items.push(
             ContextMenuItem::new("Open in editor", move || {
@@ -607,7 +589,7 @@ fn build_explorer_context_menu(
     }
 
     // 2. Select as query — generate "SELECT * FROM qualified" in the active tab.
-    if matches!(kind, ExplorerNodeKind::Table | ExplorerNodeKind::View) {
+    if kind.is_queryable() {
         let qualified = preview_source.qualified_name.clone();
         items.push(
             ContextMenuItem::new("Select all rows", move || {
@@ -656,8 +638,18 @@ fn build_explorer_context_menu(
         );
     }
 
-    // 6. Copy DDL — исходный CREATE для таблицы/представления.
-    if matches!(kind, ExplorerNodeKind::Table | ExplorerNodeKind::View) {
+    // 6. Copy DDL — исходный CREATE для таблиц/представлений и
+    //    определение функций/процедур/триггеров/последовательностей/MV.
+    if matches!(
+        kind,
+        ExplorerNodeKind::Table
+            | ExplorerNodeKind::View
+            | ExplorerNodeKind::MaterializedView
+            | ExplorerNodeKind::Sequence
+            | ExplorerNodeKind::Function
+            | ExplorerNodeKind::Procedure
+            | ExplorerNodeKind::Trigger
+    ) {
         let source = preview_source.clone();
         let node_kind = kind;
         items.push(

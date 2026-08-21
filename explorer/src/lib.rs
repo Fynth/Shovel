@@ -269,11 +269,13 @@ pub async fn load_object_ddl(
     kind: models::ExplorerNodeKind,
 ) -> Result<Option<String>, DatabaseError> {
     match connection {
-        DatabaseConnection::Sqlite(pool) => load_object_ddl_sqlite(&pool, schema, object).await,
+        DatabaseConnection::Sqlite(pool) => {
+            load_object_ddl_sqlite(&pool, schema, object, kind).await
+        }
         DatabaseConnection::Postgres(pool) => {
             load_object_ddl_postgres(&pool, schema, object, kind).await
         }
-        DatabaseConnection::MySql(pool) => load_object_ddl_mysql(&pool, schema, object).await,
+        DatabaseConnection::MySql(pool) => load_object_ddl_mysql(&pool, schema, object, kind).await,
         DatabaseConnection::ClickHouse(config) => {
             let schema_name = schema.unwrap_or_else(|| config.database.clone());
             let sql = format!(

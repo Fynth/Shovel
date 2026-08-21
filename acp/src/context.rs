@@ -510,6 +510,11 @@ fn append_catalog_signature_parts(nodes: &[ExplorerNode], signature: &mut String
             ExplorerNodeKind::Schema => "schema:",
             ExplorerNodeKind::Table => "table:",
             ExplorerNodeKind::View => "view:",
+            ExplorerNodeKind::MaterializedView => "mview:",
+            ExplorerNodeKind::Sequence => "sequence:",
+            ExplorerNodeKind::Function => "function:",
+            ExplorerNodeKind::Procedure => "procedure:",
+            ExplorerNodeKind::Trigger => "trigger:",
         });
         signature.push_str(&node.qualified_name);
         signature.push('|');
@@ -706,9 +711,22 @@ fn append_catalog_summary(lines: &mut Vec<String>, nodes: &[ExplorerNode]) {
                 let kind = match node.kind {
                     ExplorerNodeKind::Table => "table",
                     ExplorerNodeKind::View => "view",
-                    ExplorerNodeKind::Schema => unreachable!(),
+                    _ => unreachable!(),
                 };
                 lines.push(format!("- {kind}: {}", node.qualified_name));
+            }
+            // Прочие объекты каталога (MV/sequences/functions/...) —
+            // перечисляем по имени, без детализации колонок.
+            ExplorerNodeKind::MaterializedView
+            | ExplorerNodeKind::Sequence
+            | ExplorerNodeKind::Function
+            | ExplorerNodeKind::Procedure
+            | ExplorerNodeKind::Trigger => {
+                lines.push(format!(
+                    "- {}: {}",
+                    node.kind.display_label(),
+                    node.qualified_name
+                ));
             }
         }
     }
@@ -717,7 +735,7 @@ fn append_catalog_summary(lines: &mut Vec<String>, nodes: &[ExplorerNode]) {
 fn count_relations(node: &ExplorerNode) -> usize {
     match node.kind {
         ExplorerNodeKind::Schema => node.children.iter().map(count_relations).sum(),
-        ExplorerNodeKind::Table | ExplorerNodeKind::View => 1,
+        _ => 1,
     }
 }
 
@@ -805,12 +823,20 @@ fn collect_table_sources(nodes: &[ExplorerNode]) -> Vec<TablePreviewSource> {
 fn collect_table_sources_inner(nodes: &[ExplorerNode], sources: &mut Vec<TablePreviewSource>) {
     for node in nodes {
         match node.kind {
-            ExplorerNodeKind::Table | ExplorerNodeKind::View => sources.push(TablePreviewSource {
+            ExplorerNodeKind::Table
+            | ExplorerNodeKind::View
+            | ExplorerNodeKind::MaterializedView => sources.push(TablePreviewSource {
                 schema: node.schema.clone(),
                 table_name: node.name.clone(),
                 qualified_name: node.qualified_name.clone(),
             }),
             ExplorerNodeKind::Schema => collect_table_sources_inner(&node.children, sources),
+            // Sequences/functions/procedures/triggers не являются
+            // табличными источниками для preview.
+            ExplorerNodeKind::Sequence
+            | ExplorerNodeKind::Function
+            | ExplorerNodeKind::Procedure
+            | ExplorerNodeKind::Trigger => {}
         }
     }
 }

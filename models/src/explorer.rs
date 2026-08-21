@@ -3,6 +3,56 @@ pub enum ExplorerNodeKind {
     Schema,
     Table,
     View,
+    /// Materialized view (PostgreSQL `relkind = 'm'`). Queryable like a view.
+    MaterializedView,
+    /// Sequence (PostgreSQL `relkind = 'S'`).
+    Sequence,
+    /// Function (PostgreSQL `pg_proc prokind = 'f'`, MySQL routine type FUNCTION).
+    Function,
+    /// Procedure (PostgreSQL `pg_proc prokind = 'p'`, MySQL routine type PROCEDURE).
+    Procedure,
+    /// Trigger (PostgreSQL/MySQL/SQLite).
+    Trigger,
+}
+
+impl ExplorerNodeKind {
+    /// true, если объект можно открыть как табличный preview
+    /// (SELECT *). Таблицы, представления и материализованные
+    /// представления поддерживают выборку; остальные — нет.
+    pub fn is_queryable(self) -> bool {
+        matches!(
+            self,
+            ExplorerNodeKind::Table | ExplorerNodeKind::View | ExplorerNodeKind::MaterializedView
+        )
+    }
+
+    /// Буква-иконка для строки дерева (как в DBeaver).
+    pub fn tree_badge(self) -> &'static str {
+        match self {
+            ExplorerNodeKind::Schema => "",
+            ExplorerNodeKind::Table => "T",
+            ExplorerNodeKind::View => "V",
+            ExplorerNodeKind::MaterializedView => "M",
+            ExplorerNodeKind::Sequence => "S",
+            ExplorerNodeKind::Function => "F",
+            ExplorerNodeKind::Procedure => "P",
+            ExplorerNodeKind::Trigger => "R",
+        }
+    }
+
+    /// Человеческое название типа объекта.
+    pub fn display_label(self) -> &'static str {
+        match self {
+            ExplorerNodeKind::Schema => "Schema",
+            ExplorerNodeKind::Table => "Table",
+            ExplorerNodeKind::View => "View",
+            ExplorerNodeKind::MaterializedView => "Materialized View",
+            ExplorerNodeKind::Sequence => "Sequence",
+            ExplorerNodeKind::Function => "Function",
+            ExplorerNodeKind::Procedure => "Procedure",
+            ExplorerNodeKind::Trigger => "Trigger",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
