@@ -29,6 +29,16 @@
   white-space: nowrap;
 }
 
+// Сводка последнего запроса, завершившегося ошибкой.
+.statusbar__item--error {
+  color: var(--color-danger, var(--color-text-muted));
+}
+
+// Сводка последнего запроса отжимается к правому краю статус-бара.
+.statusbar__item:last-child {
+  margin-left: auto;
+}
+
 @media (max-width: 760px) {
   .statusbar {
     flex-wrap: wrap;

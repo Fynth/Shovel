@@ -4,35 +4,20 @@ use crate::{
     app_state::context_menu::{ContextMenuItem, open_context_menu},
     screens::workspace::{
         actions::{
-            append_next_tab_page,
-            apply_active_tab_filter,
-            clear_active_tab_filter,
-            load_tab_page,
-            read_only_mode_block_status,
-            read_only_mode_enabled,
-            refresh_tab_result,
-            rows_toolbar_summary,
-            set_active_tab_status,
-            tab_connection_or_error,
+            append_next_tab_page, apply_active_tab_filter, clear_active_tab_filter, load_tab_page,
+            read_only_mode_block_status, read_only_mode_enabled, refresh_tab_result,
+            rows_toolbar_summary, set_active_tab_status, tab_connection_or_error,
             toggle_active_tab_sort,
         },
         components::{ActionIcon, DataDiffViewer, IconButton, ResultChart},
+        helpers::format_duration,
     },
 };
 use dioxus::{html::input_data::MouseButton, prelude::*};
 use models::{
-    EditableTableContext,
-    PendingCellChange,
-    PendingDeleteRow,
-    PendingInsertRow,
-    PendingTableChanges,
-    QueryFilter,
-    QueryFilterMode,
-    QueryFilterOperator,
-    QueryFilterRule,
-    QueryOutput,
-    QuerySort,
-    QueryTabState,
+    EditableTableContext, PendingCellChange, PendingDeleteRow, PendingInsertRow,
+    PendingTableChanges, QueryFilter, QueryFilterMode, QueryFilterOperator, QueryFilterRule,
+    QueryOutput, QuerySort, QueryTabState,
 };
 use serde_json::{Map, Value};
 
@@ -169,12 +154,18 @@ pub fn ResultTable(
 
     rsx! {
         match result {
-            Some(QueryOutput::AffectedRows(rows)) => rsx! {
-                div {
-                    class: "results",
-                    p { class: "results__summary", "Rows affected: {rows}" }
+            Some(QueryOutput::AffectedRows(rows)) => {
+                let summary = match active_tab.as_ref().and_then(|t| t.last_duration_ms) {
+                    Some(ms) => format!("Rows affected: {rows} · {}", format_duration(ms)),
+                    None => format!("Rows affected: {rows}"),
+                };
+                rsx! {
+                    div {
+                        class: "results",
+                        p { class: "results__summary", "{summary}" }
+                    }
                 }
-            },
+            }
             Some(QueryOutput::Table(page)) => {
                 // Проверяем, идёт ли загрузка данных
                 let is_loading = active_tab
@@ -1386,11 +1377,8 @@ fn apply_filter_for_value(
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{
-        filter_panel_should_auto_open,
-        filter_panel_should_collapse_after_clear,
-        format_row_edit_error,
-        result_error_message,
-        result_status_text_for_display,
+        filter_panel_should_auto_open, filter_panel_should_collapse_after_clear,
+        format_row_edit_error, result_error_message, result_status_text_for_display,
         should_render_result_status_chip,
     };
     use crate::screens::workspace::actions::rows_toolbar_summary;
@@ -1552,8 +1540,9 @@ fn is_sortable_sql(sql: &str) -> bool {
 
 fn sort_button_class(active_sort: Option<&QuerySort>, column: &str) -> &'static str {
     match active_sort {
-        Some(sort) if sort.column_name == column =>
-            "results__sort-button results__sort-button--active",
+        Some(sort) if sort.column_name == column => {
+            "results__sort-button results__sort-button--active"
+        }
         _ => "results__sort-button",
     }
 }
@@ -1691,8 +1680,9 @@ fn display_row_key(row: &DisplayRow) -> String {
 
 fn row_class(is_selected: bool, row: &DisplayRow) -> &'static str {
     match (&row.row_ref, is_selected) {
-        (EditableRowRef::PendingInsert(_), true) =>
-            "results__row results__row--draft results__row--selected",
+        (EditableRowRef::PendingInsert(_), true) => {
+            "results__row results__row--draft results__row--selected"
+        }
         (EditableRowRef::PendingInsert(_), false) => "results__row results__row--draft",
         (_, true) => "results__row results__row--selected",
         (_, false) => "results__row",

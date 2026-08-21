@@ -1,22 +1,11 @@
 use crate::app_state::{
-    APP_READ_ONLY_MODE,
-    APP_STATE,
-    APP_UI_SETTINGS,
-    activate_session,
-    session_connection,
+    APP_READ_ONLY_MODE, APP_STATE, APP_UI_SETTINGS, LastQuerySummary, activate_session,
+    session_connection, set_last_query,
 };
 use dioxus::prelude::*;
 use models::{
-    DatabaseConnection,
-    PendingTableChanges,
-    QueryFilter,
-    QueryFilterMode,
-    QueryHistoryItem,
-    QueryOutput,
-    QuerySort,
-    QueryTabState,
-    TablePreviewSource,
-    WorkspaceTabKind,
+    DatabaseConnection, PendingTableChanges, QueryFilter, QueryFilterMode, QueryHistoryItem,
+    QueryOutput, QuerySort, QueryTabState, TablePreviewSource, WorkspaceTabKind,
 };
 use std::time::Instant;
 
@@ -374,6 +363,7 @@ pub fn run_query_for_tab(
             tab.is_loading_more = false;
             tab.pending_table_changes = PendingTableChanges::default();
             tab.show_execution_plan = false;
+            tab.last_duration_ms = None;
         }
     });
 
@@ -385,13 +375,20 @@ pub fn run_query_for_tab(
             .await
         {
             Ok(output) => {
-                let (status, current_offset) = match &output {
+                let duration_ms = start_time.elapsed().as_millis() as u64;
+                let duration_suffix =
+                    format!(" · {}", super::helpers::format_duration(duration_ms));
+                // Подпись результата без суффикса длительности — она хранится
+                // отдельно в LastQuerySummary, чтобы статус-бар мог показывать
+                // результат и тайминг независимо друг от друга.
+                let (status_label, current_offset) = match &output {
                     QueryOutput::Table(page) => (
                         format_loaded_rows_status(page.offset, page.rows.len()),
                         page.offset,
                     ),
                     QueryOutput::AffectedRows(rows) => (format!("Rows affected: {rows}"), 0),
                 };
+                let status = format!("{status_label}{duration_suffix}");
                 let rows_returned = match &output {
                     QueryOutput::Table(page) => Some(page.rows.len()),
                     QueryOutput::AffectedRows(count) => Some(*count as usize),
@@ -407,13 +404,19 @@ pub fn run_query_for_tab(
                         tab.preview_source = None;
                         tab.is_loading_more = false;
                         tab.pending_table_changes = PendingTableChanges::default();
+                        tab.last_duration_ms = Some(duration_ms);
                     }
                 });
+
+                set_last_query(Some(LastQuerySummary {
+                    label: status_label,
+                    duration_ms: Some(duration_ms),
+                    failed: false,
+                }));
 
                 if let Some((mut history, mut next_history_id, tab_title, connection_name)) =
                     history
                 {
-                    let duration_ms = start_time.elapsed().as_millis() as u64;
                     let history_id = next_history_id();
                     next_history_id += 1;
                     let history_item = QueryHistoryItem {
@@ -438,20 +441,29 @@ pub fn run_query_for_tab(
                 }
             }
             Err(err) => {
+                let duration_ms = start_time.elapsed().as_millis() as u64;
+                let duration_suffix =
+                    format!(" · {}", super::helpers::format_duration(duration_ms));
                 tabs.with_mut(|all_tabs| {
                     if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
                         tab.result = None;
-                        tab.status = format!("Error: {err}");
+                        tab.status = format!("Error: {err}{duration_suffix}");
                         tab.preview_source = None;
                         tab.is_loading_more = false;
                         tab.pending_table_changes = PendingTableChanges::default();
+                        tab.last_duration_ms = Some(duration_ms);
                     }
                 });
+
+                set_last_query(Some(LastQuerySummary {
+                    label: "Error".to_string(),
+                    duration_ms: Some(duration_ms),
+                    failed: true,
+                }));
 
                 if let Some((mut history, mut next_history_id, tab_title, connection_name)) =
                     history
                 {
-                    let duration_ms = start_time.elapsed().as_millis() as u64;
                     let history_id = next_history_id();
                     next_history_id += 1;
                     let history_item = QueryHistoryItem {
@@ -1499,27 +1511,14 @@ pub(crate) fn indent_segment(sql: &str, direction: IndentDirection) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        IndentDirection,
-        append_query_page,
-        apply_indent,
-        comment_segment,
-        format_loaded_rows_from_source_status,
-        format_loaded_rows_status,
-        indent_segment,
-        redact_sql,
-        rows_toolbar_summary,
-        strip_line_comment,
-        sync_tab_sql_draft,
-        toggle_cached_execution_plan,
-        uncomment_segment,
+        IndentDirection, append_query_page, apply_indent, comment_segment,
+        format_loaded_rows_from_source_status, format_loaded_rows_status, indent_segment,
+        redact_sql, rows_toolbar_summary, strip_line_comment, sync_tab_sql_draft,
+        toggle_cached_execution_plan, uncomment_segment,
     };
 
     use models::{
-        EditableTableContext,
-        ExecutionPlan,
-        QueryPage,
-        QueryTabState,
-        TablePreviewSource,
+        EditableTableContext, ExecutionPlan, QueryPage, QueryTabState, TablePreviewSource,
         WorkspaceTabKind,
     };
 

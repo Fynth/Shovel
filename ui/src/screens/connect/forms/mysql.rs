@@ -2,7 +2,9 @@ use crate::app_state::add_connection_session;
 use dioxus::prelude::*;
 use models::{ConnectionRequest, MySqlFormData, SshTunnelConfig};
 
-use super::{SshTunnelFields, connection_status_class, format_connection_error};
+use super::{
+    SshTunnelFields, connection_status_class, format_connection_error, validate_required_fields,
+};
 
 #[component]
 pub fn MySqlForm(mut saved_connections_revision: Signal<u64>) -> Element {
@@ -21,31 +23,46 @@ pub fn MySqlForm(mut saved_connections_revision: Signal<u64>) -> Element {
     let status_value = status();
     let status_class = connection_status_class(&status_value);
 
+    // Сборка ConnectionRequest из текущих значений формы. Замыкание
+    // захватывает только Copy-сигналы, поэтому само является Copy и
+    // переиспользуется и обработчиком Connect, и кнопкой Test.
+    let build_request = move || {
+        ConnectionRequest::MySql(MySqlFormData {
+            host: host(),
+            port: port().parse().unwrap_or(3306),
+            username: username(),
+            password: password(),
+            database: database(),
+            ssl_mode: ssl_mode(),
+            ssh_tunnel: if ssh_enabled() {
+                Some(SshTunnelConfig {
+                    host: ssh_host(),
+                    port: ssh_port().parse().unwrap_or(22),
+                    username: ssh_username(),
+                    private_key_path: ssh_private_key_path(),
+                })
+            } else {
+                None
+            },
+        })
+    };
+
     rsx! {
         form {
             class: "connect-form",
             onsubmit: move |event| {
                 event.prevent_default();
 
+                if let Err(err) = validate_required_fields(&[
+                    ("Host", host().as_str()),
+                    ("Username", username().as_str()),
+                ]) {
+                    status.set(err);
+                    return;
+                }
+
                 status.set("Connecting...".to_string());
-                let request = ConnectionRequest::MySql(MySqlFormData {
-                    host: host(),
-                    port: port().parse().unwrap_or(3306),
-                    username: username(),
-                    password: password(),
-                    database: database(),
-                    ssl_mode: ssl_mode(),
-                    ssh_tunnel: if ssh_enabled() {
-                        Some(SshTunnelConfig {
-                            host: ssh_host(),
-                            port: ssh_port().parse().unwrap_or(22),
-                            username: ssh_username(),
-                            private_key_path: ssh_private_key_path(),
-                        })
-                    } else {
-                        None
-                    },
-                });
+                let request = build_request();
 
                 spawn(async move {
                     match services::connect_and_save_request(request.clone()).await {
@@ -157,6 +174,29 @@ pub fn MySqlForm(mut saved_connections_revision: Signal<u64>) -> Element {
                     class: "button button--primary connect-form__submit",
                     r#type: "submit",
                     "Connect"
+                }
+                button {
+                    class: "button button--ghost connect-form__test",
+                    r#type: "button",
+                    onclick: move |_| {
+                        if let Err(err) = validate_required_fields(&[
+                            ("Host", host().as_str()),
+                            ("Username", username().as_str()),
+                        ]) {
+                            status.set(err);
+                            return;
+                        }
+
+                        status.set("Testing...".to_string());
+                        let request = build_request();
+                        spawn(async move {
+                            match services::test_connection(request).await {
+                                Ok(()) => status.set("Connected (test only)".to_string()),
+                                Err(err) => status.set(format_connection_error(err)),
+                            }
+                        });
+                    },
+                    "Test"
                 }
                 if !status_value.is_empty() {
                     p { class: "{status_class}", "{status_value}" }

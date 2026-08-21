@@ -15,7 +15,9 @@ pub(super) fn connection_status_class(status: &str) -> &'static str {
 
     if normalized.starts_with("Error:") {
         "connect-screen__status connect-screen__status--error"
-    } else if normalized.eq_ignore_ascii_case("connecting...") {
+    } else if normalized.eq_ignore_ascii_case("connecting...")
+        || normalized.eq_ignore_ascii_case("testing...")
+    {
         "connect-screen__status connect-screen__status--busy"
     } else if normalized.starts_with("Connected") {
         "connect-screen__status connect-screen__status--success"
@@ -26,6 +28,18 @@ pub(super) fn connection_status_class(status: &str) -> &'static str {
 
 pub(super) fn format_connection_error(err: impl std::fmt::Display) -> String {
     format!("Error: {err}")
+}
+
+/// Проверяет обязательные поля формы подключения. Возвращает ошибку с
+/// названием первого пустого поля, иначе `Ok(())`. Используется и кнопкой
+/// «Connect», и кнопкой «Test», чтобы не отправлять заведомо неполный запрос.
+pub(super) fn validate_required_fields(fields: &[(&str, &str)]) -> Result<(), String> {
+    for (label, value) in fields {
+        if value.trim().is_empty() {
+            return Err(format!("{label} is required"));
+        }
+    }
+    Ok(())
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -69,6 +83,34 @@ mod tests {
             connection_status_class("connecting..."),
             "connect-screen__status connect-screen__status--busy"
         );
+    }
+
+    #[test]
+    fn test_status_class_testing() {
+        assert_eq!(
+            connection_status_class("Testing..."),
+            "connect-screen__status connect-screen__status--busy"
+        );
+        assert_eq!(
+            connection_status_class("testing..."),
+            "connect-screen__status connect-screen__status--busy"
+        );
+    }
+
+    #[test]
+    fn test_validate_required_fields_ok() {
+        assert!(validate_required_fields(&[("Host", "localhost"), ("User", "postgres")]).is_ok());
+    }
+
+    #[test]
+    fn test_validate_required_fields_reports_first_empty() {
+        let err = validate_required_fields(&[("Host", "  "), ("User", "postgres")]).unwrap_err();
+        assert_eq!(err, "Host is required");
+    }
+
+    #[test]
+    fn test_validate_required_fields_empty_slice_ok() {
+        assert!(validate_required_fields(&[]).is_ok());
     }
 
     #[test]

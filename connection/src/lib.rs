@@ -17,11 +17,7 @@ use driver_postgres::{PgConfig, PgDriver};
 #[cfg(feature = "sqlite")]
 use driver_sqlite::SqliteDriver;
 use models::{
-    ClickHouseFormData,
-    ConnectionRequest,
-    DatabaseConnection,
-    DatabaseError,
-    SshTunnelConfig,
+    ClickHouseFormData, ConnectionRequest, DatabaseConnection, DatabaseError, SshTunnelConfig,
 };
 #[cfg(feature = "clickhouse")]
 use reqwest::Url;
@@ -118,6 +114,31 @@ fn finalize_tunnel<T>(
             release_ssh_tunnel(session_key);
         }
     }
+}
+
+/// Проверяет возможность подключения по [`ConnectionRequest`] без сохранения
+/// конфигурации и без создания сессии. Используется кнопкой «Test connection»
+/// в форме подключения.
+///
+/// Повторно использует [`connect_to_db`], поэтому вся маршрутизация драйверов
+/// и логика SSH-туннелей остаётся единой. На успехе немедленно освобождает
+/// возможно открытый SSH-туннель через [`release_ssh_tunnel`], чтобы
+/// тестовое подключение не оставляло висящий ssh-процесс и не засоряло
+/// глобальный реестр туннелей. На неудаче туннель уже освобождается внутри
+/// [`connect_to_db`], поэтому повторно его трогать не нужно.
+///
+/// # Ошибки
+///
+/// Возвращает [`DatabaseError`], если не удалось подключиться — те же случаи,
+/// что и у [`connect_to_db`].
+pub async fn test_connection(request: ConnectionRequest) -> Result<(), DatabaseError> {
+    let session_key = request.identity_key();
+    let connection = connect_to_db(request).await?;
+    // Сначала закрываем пул соединений, иначе активные соединения в пуле
+    // потеряют транспорт при остановке туннеля.
+    drop(connection);
+    release_ssh_tunnel(&session_key);
+    Ok(())
 }
 
 /// Establishes a live database connection for the given

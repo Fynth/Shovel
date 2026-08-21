@@ -2,11 +2,7 @@ use super::components::{ErDiagramState, ErTable, ExplorerConnectionSection, repl
 use crate::app_state::APP_UI_SETTINGS;
 use dioxus::prelude::*;
 use models::{
-    AcpPanelState,
-    AcpUiMessage,
-    ChatThreadSummary,
-    WorkspaceToolDock,
-    WorkspaceToolLayout,
+    AcpPanelState, AcpUiMessage, ChatThreadSummary, WorkspaceToolDock, WorkspaceToolLayout,
     WorkspaceToolPanel,
 };
 
@@ -18,6 +14,16 @@ pub const WORKSPACE_ROOT_ID: &str = "workspace-root";
 
 pub fn format_explorer_error(err: impl std::fmt::Display) -> String {
     format!("Error: {err}")
+}
+
+/// Человекочитаемое форматирование длительности выполнения запроса.
+/// Меньше секунды — в миллисекундах, иначе — в секундах с одним знаком.
+pub fn format_duration(ms: u64) -> String {
+    if ms < 1000 {
+        format!("{ms}ms")
+    } else {
+        format!("{:.1}s", ms as f64 / 1000.0)
+    }
 }
 
 pub fn build_er_diagram_from_sections(
@@ -401,12 +407,8 @@ pub fn tool_panel_class(panel: WorkspaceToolPanel) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        ExplorerConnectionSection,
-        build_er_diagram_from_sections,
-        derive_chat_thread_title,
-        format_explorer_error,
-        is_low_signal_explorer_status,
-        reset_panel_for_thread,
+        ExplorerConnectionSection, build_er_diagram_from_sections, derive_chat_thread_title,
+        format_explorer_error, is_low_signal_explorer_status, reset_panel_for_thread,
         should_render_explorer_status,
     };
     use models::{AcpLaunchRequest, AcpOllamaConfig, AcpPanelState, AcpUiMessage};

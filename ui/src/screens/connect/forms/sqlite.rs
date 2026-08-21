@@ -12,22 +12,28 @@ pub fn SqliteForm(mut saved_connections_revision: Signal<u64>) -> Element {
     let status_value = status();
     let status_class = connection_status_class(&status_value);
 
+    // Сборка ConnectionRequest из текущего пути. Замыкание захватывает
+    // только Copy-сигнал, поэтому само является Copy и переиспользуется
+    // и обработчиком Connect, и кнопкой Test.
+    let build_request = move || {
+        ConnectionRequest::Sqlite(SqliteFormData {
+            path: path().trim().to_string(),
+        })
+    };
+
     rsx! {
         form {
             class: "connect-form",
             onsubmit: move |event| {
                 event.prevent_default();
 
-                let current_path = path().trim().to_string();
-                if current_path.is_empty() {
-                    status.set("Config is empty".to_string());
+                if path().trim().is_empty() {
+                    status.set("SQLite file path is required".to_string());
                     return;
                 }
 
                 status.set("Connecting...".to_string());
-                let request = ConnectionRequest::Sqlite(SqliteFormData {
-                    path: current_path,
-                });
+                let request = build_request();
 
                 spawn(async move {
                     match services::connect_and_save_request(request.clone()).await {
@@ -90,6 +96,26 @@ pub fn SqliteForm(mut saved_connections_revision: Signal<u64>) -> Element {
                     class: "button button--primary connect-form__submit",
                     r#type: "submit",
                     "Connect"
+                }
+                button {
+                    class: "button button--ghost connect-form__test",
+                    r#type: "button",
+                    onclick: move |_| {
+                        if path().trim().is_empty() {
+                            status.set("SQLite file path is required".to_string());
+                            return;
+                        }
+
+                        status.set("Testing...".to_string());
+                        let request = build_request();
+                        spawn(async move {
+                            match services::test_connection(request).await {
+                                Ok(()) => status.set("Connected (test only)".to_string()),
+                                Err(err) => status.set(format_connection_error(err)),
+                            }
+                        });
+                    },
+                    "Test"
                 }
                 if !status_value.is_empty() {
                     p { class: "{status_class}", "{status_value}" }

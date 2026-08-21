@@ -231,6 +231,10 @@ pub struct QueryTabState {
     ///
     /// UI uses this to render a tab strip of per-statement results.
     pub batch_results: Option<BatchRunState>,
+    /// Длительность последнего выполнения запроса (мс). None, если запрос
+    /// ещё не выполнялся. Используется для индикации тайминга в области
+    /// результатов и статусе вкладки.
+    pub last_duration_ms: Option<u64>,
 }
 
 /// In-progress or completed multi-statement batch run.
@@ -282,6 +286,7 @@ impl Default for QueryTabState {
             execution_plan: None,
             show_execution_plan: false,
             batch_results: None,
+            last_duration_ms: None,
         }
     }
 }

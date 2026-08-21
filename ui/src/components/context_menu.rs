@@ -25,11 +25,7 @@ const TEXT_INPUT_MENU_SCRIPT: &str = include_str!("../../../app/assets/text-inpu
 
 use crate::{
     app_state::context_menu::{
-        CONTEXT_MENU,
-        ContextMenuState,
-        clamp_to_viewport,
-        close_context_menu,
-        invoke_callback,
+        CONTEXT_MENU, ContextMenuState, clamp_to_viewport, close_context_menu, invoke_callback,
     },
     screens::workspace::ActionIcon,
 };
@@ -146,11 +142,7 @@ const CLOSE_TEXT_MENU_SCRIPT: &str = r#"
 pub fn ContextMenu() -> Element {
     let state = CONTEXT_MENU();
 
-    if state.is_none() {
-        return rsx! {};
-    }
-
-    let state = state.expect("checked above");
+    let Some(state) = state else { return rsx! {} };
 
     // The text-input JS listener is installed once at app start by
     // `TextInputMenuInit` (rendered in `App`), so the right-click
@@ -316,8 +308,9 @@ pub fn ContextMenu() -> Element {
 #[component]
 fn IconGlyph(icon: ActionIcon) -> Element {
     match icon {
-        ActionIcon::Run =>
-            rsx! { path { d: "M8 6v12l10-6z", fill: "currentColor", stroke: "none" } },
+        ActionIcon::Run => {
+            rsx! { path { d: "M8 6v12l10-6z", fill: "currentColor", stroke: "none" } }
+        }
         ActionIcon::Duplicate => rsx! {
             rect { x: "8", y: "8", width: "10", height: "10", rx: "2" }
             path { d: "M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" }

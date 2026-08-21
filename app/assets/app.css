@@ -938,6 +938,14 @@ textarea {
   white-space: nowrap;
 }
 
+.statusbar__item--error {
+  color: var(--color-danger, var(--color-text-muted));
+}
+
+.statusbar__item:last-child {
+  margin-left: auto;
+}
+
 @media (max-width: 760px) {
   .statusbar {
     flex-wrap: wrap;
@@ -1546,13 +1554,17 @@ select.input:focus-visible {
 .connect-form__actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 6px;
   flex-wrap: wrap;
 }
 
 .connect-form__submit {
   min-width: 132px;
+  justify-content: center;
+}
+
+.connect-form__test {
   justify-content: center;
 }
 
@@ -1676,6 +1688,9 @@ select.input:focus-visible {
     align-items: stretch;
   }
   .connect-form__submit {
+    width: 100%;
+  }
+  .connect-form__test {
     width: 100%;
   }
   .connect-form__path-row {

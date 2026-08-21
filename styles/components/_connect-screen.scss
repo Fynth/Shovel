@@ -151,13 +151,17 @@
 .connect-form__actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: $spacing-sm;
   flex-wrap: wrap;
 }
 
 .connect-form__submit {
   min-width: 132px;
+  justify-content: center;
+}
+
+.connect-form__test {
   justify-content: center;
 }
 
@@ -302,6 +306,10 @@
   }
 
   .connect-form__submit {
+    width: 100%;
+  }
+
+  .connect-form__test {
     width: 100%;
   }
 

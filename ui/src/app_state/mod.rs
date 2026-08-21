@@ -29,13 +29,8 @@
 
 use dioxus::prelude::*;
 use models::{
-    AppState,
-    AppThemePreference,
-    AppUiSettings,
-    ConnectionRequest,
-    ConnectionSession,
-    DatabaseConnection,
-    SqlFormatSettings,
+    AppState, AppThemePreference, AppUiSettings, ConnectionRequest, ConnectionSession,
+    DatabaseConnection, SqlFormatSettings,
 };
 use std::{
     collections::HashMap,
@@ -81,6 +76,21 @@ pub struct AppToast {
     pub kind: ToastKind,
 }
 
+/// Краткая сводка о последнем выполненном запросе для статус-бара.
+/// Хранится в глобальном сигнале [`APP_LAST_QUERY`], чтобы статус-бар
+/// (компонент верхнего уровня) мог отображать тайминг и результат
+/// запроса без доступа к локальным сигналам вкладок рабочего пространства.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LastQuerySummary {
+    /// Краткая подпись результата, например "Loaded rows 1-50",
+    /// "Rows affected: 3" или "Error".
+    pub label: String,
+    /// Длительность последнего запроса (мс), если известна.
+    pub duration_ms: Option<u64>,
+    /// true, если запрос завершился ошибкой.
+    pub failed: bool,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 #[allow(dead_code)]
 pub enum ToastKind {
@@ -115,6 +125,7 @@ pub static APP_SHOW_SETTINGS_MODAL: GlobalSignal<bool> = Signal::global(|| false
 pub static APP_TOOLTIP: GlobalSignal<Option<AppTooltip>> = Signal::global(|| None);
 pub static APP_TOAST: GlobalSignal<Vec<AppToast>> = Signal::global(Vec::new);
 pub static APP_TAB_DRAFTS: GlobalSignal<Vec<models::TabDraft>> = Signal::global(Vec::new);
+pub static APP_LAST_QUERY: GlobalSignal<Option<LastQuerySummary>> = Signal::global(|| None);
 static NEXT_TOAST_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 static TOAST_CANCEL_TOKENS: std::sync::LazyLock<Mutex<HashMap<u64, CancellationToken>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -294,6 +305,12 @@ pub fn close_settings_modal() {
     *APP_SHOW_SETTINGS_MODAL.write() = false;
 }
 
+/// Записывает сводку последнего запроса в глобальный сигнал статус-бара.
+/// `None` сбрасывает запись (например, при отсутствии выполненных запросов).
+pub fn set_last_query(summary: Option<LastQuerySummary>) {
+    *APP_LAST_QUERY.write() = summary;
+}
+
 pub fn show_tooltip(label: String, x: f64, y: f64) {
     *APP_TOOLTIP.write() = Some(AppTooltip { label, x, y });
 }
@@ -314,10 +331,10 @@ pub fn show_toast(message: impl Into<String>, kind: ToastKind) {
     });
     let toast_id = id;
     let cancel_token = CancellationToken::new();
-    {
-        let mut tokens = TOAST_CANCEL_TOKENS
-            .lock()
-            .expect("TOAST_CANCEL_TOKENS lock poisoned");
+    // Отравленная блокировка не должна ронять приложение — просто
+    // пропускаем регистрацию токена, авто-скрытие тоста по таймеру
+    // всё равно сработает. Симметрично с обработкой в `dismiss_toast`.
+    if let Ok(mut tokens) = TOAST_CANCEL_TOKENS.lock() {
         tokens.insert(toast_id, cancel_token.clone());
     }
     spawn(async move {
@@ -526,10 +543,11 @@ fn persist_session_state() {
         .await;
 
         match result {
-            Ok(Ok(())) =>
+            Ok(Ok(())) => {
                 if let Ok(mut last_error) = LAST_SESSION_PERSIST_ERROR.lock() {
                     *last_error = None;
-                },
+                }
+            }
             Ok(Err(err)) => {
                 eprintln!("Failed to persist session state: {}", err);
                 let should_toast = if let Ok(mut last_error) = LAST_SESSION_PERSIST_ERROR.lock() {
