@@ -1,4 +1,5 @@
 pub(crate) mod agent_panel;
+mod batch_results;
 mod blob_viewer;
 mod chart;
 mod data_diff;
@@ -21,6 +22,7 @@ pub(crate) use agent_panel::{
     preferred_sql_target_tab_id, replace_messages, send_describe_object_request,
     send_sql_generation_request,
 };
+pub(crate) use batch_results::BatchResultsView;
 pub(crate) use blob_viewer::{BlobData, BlobViewer};
 pub use chart::ResultChart;
 pub(crate) use data_diff::DataDiffViewer;

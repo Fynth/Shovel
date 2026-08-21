@@ -4,8 +4,9 @@ use crate::app_state::{
 };
 use dioxus::prelude::*;
 use models::{
-    DatabaseConnection, PendingTableChanges, QueryFilter, QueryFilterMode, QueryHistoryItem,
-    QueryOutput, QuerySort, QueryTabState, TablePreviewSource, WorkspaceTabKind,
+    BatchOutcome, BatchResult, BatchRunState, BatchTransactionState, DatabaseConnection,
+    PendingTableChanges, QueryFilter, QueryFilterMode, QueryHistoryItem, QueryOutput, QuerySort,
+    QueryTabState, TablePreviewSource, WorkspaceTabKind,
 };
 use std::time::Instant;
 
@@ -47,6 +48,31 @@ fn get_connection_type(connection: &DatabaseConnection) -> String {
         DatabaseConnection::MySql(_) => "mysql".to_string(),
         DatabaseConnection::ClickHouse(_) => "clickhouse".to_string(),
     }
+}
+
+/// Возвращает семейство БД для планирования пакетного выполнения.
+fn connection_family(connection: &DatabaseConnection) -> services::DatabaseFamily {
+    match connection {
+        DatabaseConnection::Sqlite(_) => services::DatabaseFamily::Sqlite,
+        DatabaseConnection::Postgres(_) => services::DatabaseFamily::Postgres,
+        DatabaseConnection::MySql(_) => services::DatabaseFamily::MySql,
+        DatabaseConnection::ClickHouse(_) => services::DatabaseFamily::ClickHouse,
+    }
+}
+
+/// Краткое превью оператора для вкладки пакетного результата: первая
+/// непустая строка, обрезанная до 80 символов.
+fn preview_statement(sql: &str) -> String {
+    let first = sql
+        .lines()
+        .map(|l| l.trim())
+        .find(|l| !l.is_empty())
+        .unwrap_or("");
+    let mut out = first.to_string();
+    if out.chars().count() > 80 {
+        out = out.chars().take(77).collect::<String>() + "…";
+    }
+    out
 }
 
 fn unix_timestamp() -> i64 {
@@ -340,6 +366,18 @@ pub fn run_query_for_tab(
     page_size: u32,
     history: Option<QueryHistorySignals>,
 ) {
+    // Многооператорные скрипты уходят в пакетный исполнитель, который
+    // показывает пооператорные результаты. Однооператорные запросы
+    // остаются на существующем пути с пагинацией/фильтрами.
+    let non_empty_count = services::split_sql(&sql)
+        .into_iter()
+        .filter(|stmt| !stmt.is_empty())
+        .count();
+    if non_empty_count > 1 {
+        run_batch_for_tab(tabs, current_id, connection, sql, page_size, history);
+        return;
+    }
+
     if read_only_mode_blocks_sql(&sql) {
         set_active_tab_status(tabs, current_id, read_only_mode_block_status("write SQL"));
         return;
@@ -364,6 +402,8 @@ pub fn run_query_for_tab(
             tab.pending_table_changes = PendingTableChanges::default();
             tab.show_execution_plan = false;
             tab.last_duration_ms = None;
+            tab.batch_results = None;
+            tab.batch_outputs.clear();
         }
     });
 
@@ -487,6 +527,247 @@ pub fn run_query_for_tab(
                     let _ = services::append_query_history(history_item).await;
                 }
             }
+        }
+    });
+}
+
+/// Выполняет многооператорный скрипт пооператорно и собирает результаты
+/// в `tab.batch_results` / `tab.batch_outputs` для отображения вкладками.
+///
+/// Транзакция на стороне сервера НЕ оборачивается: пул соединений выдаёт
+/// разные подключения на каждый `execute_query_page`, поэтому `BEGIN`/
+/// `COMMIT` через пул не образуют атомарную транзакцию. Каждый оператор
+/// выполняется в auto-commit (как в DBeaver с auto-commit). Ручное
+/// управление транзакцией — отдельная задача (#10).
+///
+/// На первой ошибке выполнение останавливается, оставшиеся операторы
+/// помечаются `Skipped`.
+fn run_batch_for_tab(
+    mut tabs: Signal<Vec<QueryTabState>>,
+    current_id: u64,
+    connection: DatabaseConnection,
+    sql: String,
+    page_size: u32,
+    history: Option<QueryHistorySignals>,
+) {
+    let family = connection_family(&connection);
+    let plan = services::plan_batch(&sql, family);
+
+    if APP_READ_ONLY_MODE() && plan.has_writes {
+        set_active_tab_status(tabs, current_id, read_only_mode_block_status("write SQL"));
+        return;
+    }
+    if plan.executable_count == 0 {
+        set_active_tab_status(tabs, current_id, "Query is empty".to_string());
+        return;
+    }
+
+    let results: Vec<BatchResult> = plan
+        .statements
+        .iter()
+        .filter(|stmt| !stmt.is_empty())
+        .map(|stmt| BatchResult {
+            index: stmt.index,
+            line: stmt.line,
+            preview: preview_statement(&stmt.sql),
+            outcome: BatchOutcome::Running,
+            duration_ms: None,
+            rows: None,
+            error_message: None,
+        })
+        .collect();
+    let statement_count = results.len();
+    let connection_type = get_connection_type(&connection);
+
+    tabs.with_mut(|all_tabs| {
+        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
+            tab.status = format!("Running batch: {statement_count} statements...");
+            tab.result = None;
+            tab.preview_source = None;
+            tab.is_loading_more = false;
+            tab.pending_table_changes = PendingTableChanges::default();
+            tab.show_execution_plan = false;
+            tab.last_duration_ms = None;
+            tab.batch_results = Some(BatchRunState {
+                results,
+                active_index: 0,
+                tx_state: BatchTransactionState::None,
+                total_duration_ms: 0,
+            });
+            tab.batch_outputs = vec![None; statement_count];
+        }
+    });
+
+    spawn(async move {
+        let batch_start = Instant::now();
+        let mut total_ms = 0u64;
+        let mut error_pos: Option<usize> = None;
+        let mut first_output_pos: Option<usize> = None;
+
+        let mut pos = 0usize;
+        for stmt in &plan.statements {
+            if stmt.is_empty() {
+                continue;
+            }
+            let stmt_start = Instant::now();
+            let executed = services::execute_query_page(
+                connection.clone(),
+                stmt.sql.clone(),
+                page_size,
+                0,
+                None,
+                None,
+            )
+            .await;
+            let duration_ms = stmt_start.elapsed().as_millis() as u64;
+            total_ms += duration_ms;
+
+            match executed {
+                Ok(output) => {
+                    let rows = match &output {
+                        QueryOutput::Table(page) => Some(page.rows.len()),
+                        QueryOutput::AffectedRows(count) => Some(*count as usize),
+                    };
+                    // Первый успешный оператор становится активным по умолчанию.
+                    first_output_pos.get_or_insert(pos);
+                    let output_for_slot = Some(output.clone());
+                    tabs.with_mut(|all_tabs| {
+                        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
+                            if let Some(batch) = tab.batch_results.as_mut() {
+                                if let Some(result) = batch.results.get_mut(pos) {
+                                    result.outcome = BatchOutcome::Ok;
+                                    result.duration_ms = Some(duration_ms);
+                                    result.rows = rows;
+                                }
+                                batch.total_duration_ms = total_ms;
+                            }
+                            if let Some(slot) = tab.batch_outputs.get_mut(pos) {
+                                *slot = output_for_slot;
+                            }
+                        }
+                    });
+                }
+                Err(err) => {
+                    let message = err.to_string();
+                    tabs.with_mut(|all_tabs| {
+                        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id)
+                            && let Some(batch) = tab.batch_results.as_mut()
+                        {
+                            if let Some(result) = batch.results.get_mut(pos) {
+                                result.outcome = BatchOutcome::Error;
+                                result.duration_ms = Some(duration_ms);
+                                result.error_message = Some(message.clone());
+                            }
+                            batch.total_duration_ms = total_ms;
+                        }
+                    });
+                    error_pos = Some(pos);
+                    break;
+                }
+            }
+            pos += 1;
+        }
+
+        // Оставшиеся после ошибки операторы — пропущены.
+        if let Some(failed_pos) = error_pos {
+            tabs.with_mut(|all_tabs| {
+                if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id)
+                    && let Some(batch) = tab.batch_results.as_mut()
+                {
+                    for result in batch.results.iter_mut().skip(failed_pos + 1) {
+                        result.outcome = BatchOutcome::Skipped;
+                    }
+                }
+            });
+        }
+
+        let total_duration_ms = batch_start.elapsed().as_millis() as u64;
+        let duration_suffix = format!(" · {}", super::helpers::format_duration(total_duration_ms));
+
+        // Финальный статус и синхронизация tab.result с первым табличным
+        // результатом (чтобы экспорт/статус-бар работали как обычно).
+        let (status_label, failed) = match error_pos {
+            Some(failed_pos) => (
+                format!(
+                    "Batch failed at statement {}/{statement_count}{duration_suffix}",
+                    failed_pos + 1
+                ),
+                true,
+            ),
+            None => (
+                format!("Batch complete: {statement_count} statements{duration_suffix}"),
+                false,
+            ),
+        };
+
+        let active_index = first_output_pos.unwrap_or(0);
+        tabs.with_mut(|all_tabs| {
+            if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
+                tab.status = status_label.clone();
+                tab.last_duration_ms = Some(total_duration_ms);
+                tab.result = tab
+                    .batch_outputs
+                    .get(active_index)
+                    .and_then(|slot| slot.clone());
+                if let Some(batch) = tab.batch_results.as_mut() {
+                    batch.total_duration_ms = total_duration_ms;
+                    batch.active_index = active_index;
+                }
+            }
+        });
+
+        set_last_query(Some(LastQuerySummary {
+            label: status_label,
+            duration_ms: Some(total_duration_ms),
+            failed,
+        }));
+
+        if let Some((mut history, mut next_history_id, tab_title, connection_name)) = history {
+            let history_id = next_history_id();
+            next_history_id += 1;
+            let rows_returned = {
+                let total: usize = tabs
+                    .read()
+                    .iter()
+                    .find(|tab| tab.id == current_id)
+                    .and_then(|tab| tab.batch_results.as_ref())
+                    .map(|batch| batch.results.iter().filter_map(|r| r.rows).sum())
+                    .unwrap_or(0);
+                if total > 0 { Some(total) } else { None }
+            };
+            let outcome = if failed {
+                "Error".to_string()
+            } else {
+                "Success".to_string()
+            };
+            let error_message = if failed {
+                tabs.read()
+                    .iter()
+                    .find(|tab| tab.id == current_id)
+                    .and_then(|tab| tab.batch_results.as_ref())
+                    .and_then(|batch| batch.results.iter().find_map(|r| r.error_message.clone()))
+            } else {
+                None
+            };
+            let history_item = QueryHistoryItem {
+                id: history_id,
+                tab_title,
+                connection_name,
+                sql: redact_sql(&sql),
+                duration_ms: total_duration_ms,
+                rows_returned,
+                executed_at: unix_timestamp(),
+                connection_type,
+                outcome,
+                error_message,
+            };
+            history.with_mut(|items| {
+                items.insert(0, history_item.clone());
+                if items.len() > 20 {
+                    items.truncate(20);
+                }
+            });
+            let _ = services::append_query_history(history_item).await;
         }
     });
 }
@@ -1513,8 +1794,8 @@ mod tests {
     use super::{
         IndentDirection, append_query_page, apply_indent, comment_segment,
         format_loaded_rows_from_source_status, format_loaded_rows_status, indent_segment,
-        redact_sql, rows_toolbar_summary, strip_line_comment, sync_tab_sql_draft,
-        toggle_cached_execution_plan, uncomment_segment,
+        preview_statement, redact_sql, rows_toolbar_summary, strip_line_comment,
+        sync_tab_sql_draft, toggle_cached_execution_plan, uncomment_segment,
     };
 
     use models::{
@@ -1741,5 +2022,22 @@ mod tests {
         let sql = "select 1\nfrom users";
         let new_sql = indent_segment(sql, IndentDirection::Out);
         assert_eq!(new_sql, "select 1\nfrom users");
+    }
+
+    #[test]
+    fn preview_statement_takes_first_non_empty_line() {
+        assert_eq!(preview_statement("  \nSELECT 1\nFROM t"), "SELECT 1");
+        assert_eq!(
+            preview_statement("INSERT INTO t VALUES (1)"),
+            "INSERT INTO t VALUES (1)"
+        );
+    }
+
+    #[test]
+    fn preview_statement_truncates_long_lines() {
+        let long = "select ".to_string() + &"x".repeat(120);
+        let preview = preview_statement(&long);
+        assert!(preview.chars().count() <= 80);
+        assert!(preview.ends_with('…'));
     }
 }

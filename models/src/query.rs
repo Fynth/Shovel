@@ -231,6 +231,13 @@ pub struct QueryTabState {
     ///
     /// UI uses this to render a tab strip of per-statement results.
     pub batch_results: Option<BatchRunState>,
+    /// Per-statement результаты пакетного выполнения, параллельно
+    /// `batch_results.results` по индексу. Хранит полный `QueryOutput`
+    /// каждого оператора, чтобы панель результатов могла показать grid
+    /// выбранного оператора. `QueryTabState` не сериализуется (на диск
+    /// пишется только `TabDraft`), поэтому несериализуемый `QueryOutput`
+    /// здесь допустим.
+    pub batch_outputs: Vec<Option<QueryOutput>>,
     /// Длительность последнего выполнения запроса (мс). None, если запрос
     /// ещё не выполнялся. Используется для индикации тайминга в области
     /// результатов и статусе вкладки.
@@ -286,6 +293,7 @@ impl Default for QueryTabState {
             execution_plan: None,
             show_execution_plan: false,
             batch_results: None,
+            batch_outputs: Vec::new(),
             last_duration_ms: None,
         }
     }

@@ -17,8 +17,8 @@ use models::{
 use rfd::AsyncFileDialog;
 
 use super::{
-    ActionIcon, ExecutionPlanView, ExplorerConnectionSection, IconButton, ResultTable, SqlEditor,
-    ensure_default_sql_agent_connected, send_sql_generation_request,
+    ActionIcon, BatchResultsView, ExecutionPlanView, ExplorerConnectionSection, IconButton,
+    ResultTable, SqlEditor, ensure_default_sql_agent_connected, send_sql_generation_request,
 };
 
 const EDITOR_MIN_HEIGHT: f64 = 160.0;
@@ -597,6 +597,11 @@ pub fn TabsManager(
                                     }
                                 }
                             }
+                        }
+                    } else if tab.batch_results.is_some() {
+                        BatchResultsView {
+                            tabs,
+                            active_tab_id,
                         }
                     } else if tab.show_execution_plan {
                         if let Some(plan) = tab.execution_plan.clone() {

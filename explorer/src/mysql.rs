@@ -367,7 +367,11 @@ pub async fn load_object_ddl_mysql(
         .or_else(|_| row.try_get::<String, _>("Create Table"))
         .or_else(|_| row.try_get::<String, _>("Create View"))
         .unwrap_or_default();
-    Ok(if ddl.trim().is_empty() { None } else { Some(ddl) })
+    Ok(if ddl.trim().is_empty() {
+        None
+    } else {
+        Some(ddl)
+    })
 }
 
 pub async fn load_table_columns_mysql(
