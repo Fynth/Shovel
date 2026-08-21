@@ -41,6 +41,7 @@ use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
 pub mod context_menu;
+pub mod keyboard;
 
 // Explorer cache: session_id -> sections (valid for 5 minutes)
 const EXPLORER_CACHE_TTL: Duration = Duration::from_secs(300);
@@ -126,6 +127,18 @@ pub static APP_TOOLTIP: GlobalSignal<Option<AppTooltip>> = Signal::global(|| Non
 pub static APP_TOAST: GlobalSignal<Vec<AppToast>> = Signal::global(Vec::new);
 pub static APP_TAB_DRAFTS: GlobalSignal<Vec<models::TabDraft>> = Signal::global(Vec::new);
 pub static APP_LAST_QUERY: GlobalSignal<Option<LastQuerySummary>> = Signal::global(|| None);
+pub static APP_FOCUS_EDITOR_REQUEST: GlobalSignal<u64> = Signal::global(|| 0);
+pub static APP_FOCUS_FILTER_PANEL_REQUEST: GlobalSignal<u64> = Signal::global(|| 0);
+
+pub fn request_focus_editor() {
+    let mut counter = APP_FOCUS_EDITOR_REQUEST.write();
+    *counter = counter.wrapping_add(1);
+}
+
+pub fn request_focus_filter_panel() {
+    let mut counter = APP_FOCUS_FILTER_PANEL_REQUEST.write();
+    *counter = counter.wrapping_add(1);
+}
 static NEXT_TOAST_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 static TOAST_CANCEL_TOKENS: std::sync::LazyLock<Mutex<HashMap<u64, CancellationToken>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));

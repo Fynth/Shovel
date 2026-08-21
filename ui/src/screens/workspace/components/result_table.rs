@@ -9,7 +9,7 @@ use crate::{
             rows_toolbar_summary, set_active_tab_status, tab_connection_or_error,
             toggle_active_tab_sort,
         },
-        components::{ActionIcon, DataDiffViewer, IconButton, ResultChart},
+        components::{ActionIcon, DataDiffViewer, IconButton, IconGlyph, ResultChart},
         helpers::format_duration,
     },
 };
@@ -56,6 +56,108 @@ enum EditableRowRef {
 struct DisplayRow {
     row_ref: EditableRowRef,
     values: Vec<String>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ResultsStateVariant {
+    Empty,
+    Error,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ResultsStateAction {
+    None,
+    RunAgain,
+    Retry,
+}
+
+/// Coherent empty/error state block for the result grid. Renders an icon + title + body and, when applicable, a Retry action that calls `refresh_tab_result`.
+#[component]
+fn ResultsStateBlock(
+    variant: ResultsStateVariant,
+    title: String,
+    body: Option<String>,
+    action: ResultsStateAction,
+    tabs: Signal<Vec<QueryTabState>>,
+    active_tab_id: Signal<u64>,
+) -> Element {
+    let mut class_name = match variant {
+        ResultsStateVariant::Empty => "results__state results__state--empty".to_string(),
+        ResultsStateVariant::Error => "results__state results__state--error".to_string(),
+    };
+    let outer_class = match variant {
+        ResultsStateVariant::Empty => "results".to_string(),
+        ResultsStateVariant::Error => "results results--error".to_string(),
+    };
+    let icon = match variant {
+        ResultsStateVariant::Empty => ActionIcon::Details,
+        ResultsStateVariant::Error => ActionIcon::Delete,
+    };
+
+    let can_retry = can_retry_active_tab(tabs, active_tab_id());
+    let show_retry_button = match action {
+        ResultsStateAction::None => false,
+        ResultsStateAction::RunAgain | ResultsStateAction::Retry => can_retry,
+    };
+    let retry_label = match action {
+        ResultsStateAction::RunAgain => "Run again",
+        ResultsStateAction::Retry => "Retry",
+        ResultsStateAction::None => "Run again",
+    };
+    let retry_aria = match action {
+        ResultsStateAction::RunAgain => "Run the query again".to_string(),
+        ResultsStateAction::Retry => "Retry the query".to_string(),
+        ResultsStateAction::None => String::new(),
+    };
+    if show_retry_button {
+        class_name.push_str(" results__state--actionable");
+    }
+
+    rsx! {
+        div { class: "{outer_class}",
+            div { class: "{class_name}",
+                div { class: "results__state-inner",
+                    div { class: "results__state-icon",
+                        IconGlyph { icon }
+                    }
+                    p { class: "results__state-title", "{title}" }
+                    if let Some(body_text) = body.as_ref() {
+                        p { class: "results__state-body", "{body_text}" }
+                    }
+                    if show_retry_button {
+                        button {
+                            class: "button button--primary button--small",
+                            "aria-label": retry_aria,
+                            onclick: move |_| {
+                                let Some(current_tab) = tabs
+                                    .read()
+                                    .iter()
+                                    .find(|tab| tab.id == active_tab_id())
+                                    .cloned()
+                                else {
+                                    return;
+                                };
+                                refresh_tab_result(tabs, current_tab, None);
+                            },
+                            "{retry_label}"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// True when the active tab has a SQL preview or a last-run query — i.e. the standard `refresh_tab_result` entry point has work to do.
+fn can_retry_active_tab(tabs: Signal<Vec<QueryTabState>>, active_tab_id: u64) -> bool {
+    tabs.read()
+        .iter()
+        .find(|tab| tab.id == active_tab_id)
+        .is_some_and(|tab| tab.preview_source.is_some() || tab.last_run_sql.is_some())
+}
+
+fn is_empty_table_result(page: &models::QueryPage, display_rows: &[DisplayRow]) -> bool {
+    page.columns.is_empty() && page.rows.is_empty() && display_rows.is_empty()
 }
 
 #[component]
@@ -135,6 +237,13 @@ pub fn ResultTable(
     });
 
     use_effect(move || {
+        let _ = crate::app_state::APP_FOCUS_FILTER_PANEL_REQUEST();
+        if filter_enabled {
+            filter_panel_open.set(true);
+        }
+    });
+
+    use_effect(move || {
         let tab = tabs
             .read()
             .iter()
@@ -167,7 +276,6 @@ pub fn ResultTable(
                 }
             }
             Some(QueryOutput::Table(page)) => {
-                // Проверяем, идёт ли загрузка данных
                 let is_loading = active_tab
                     .as_ref()
                     .map(|tab| {
@@ -178,17 +286,24 @@ pub fn ResultTable(
                     .unwrap_or(false);
 
                 if is_loading && page.columns.is_empty() && page.rows.is_empty() {
-                    // Показываем skeleton пока данные загружаются
                     return rsx! {
                         div {
                             class: "results",
-                            div { class: "results__skeleton",
-                                div { class: "skeleton skeleton-bar" }
-                                div { class: "skeleton skeleton-table-header" }
-                                for _ in 0..6 {
-                                    div { class: "skeleton skeleton-row" }
+                            div {
+                                class: "results__state results__state--loading",
+                                div {
+                                    class: "results__state-skeleton",
+                                    div { class: "skeleton skeleton-bar" }
+                                    div { class: "skeleton skeleton-table-header" }
+                                    for _ in 0..6 {
+                                        div { class: "skeleton skeleton-row" }
+                                    }
                                 }
-                                div { class: "results__skeleton-text", "Загрузка данных..." }
+                                p { class: "results__state-title", "Loading data..." }
+                                p {
+                                    class: "results__state-body",
+                                    "Running the query and materializing the result page."
+                                }
                             }
                         }
                     };
@@ -241,8 +356,15 @@ pub fn ResultTable(
                 let table_cells_editable = page.editable.is_some() && !read_only_mode;
 
                 rsx! {
-                    if page.columns.is_empty() && display_rows.is_empty() {
-                        p { class: "empty-state", "Query returned no rows." }
+                    if is_empty_table_result(&page, &display_rows) {
+                        ResultsStateBlock {
+                            variant: ResultsStateVariant::Empty,
+                            title: "Query returned no rows.".to_string(),
+                            body: None,
+                            action: ResultsStateAction::RunAgain,
+                            tabs,
+                            active_tab_id,
+                        }
                     } else {
                         div {
                             class: "results",
@@ -949,16 +1071,26 @@ pub fn ResultTable(
             }
             None => rsx! {
                 if let Some(error) = active_error {
-                    div {
-                        class: "results results--error",
-                        div {
-                            class: "results__error",
-                            p { class: "results__error-title", "Query failed" }
-                            pre { class: "results__error-body", "{error}" }
-                        }
+                    ResultsStateBlock {
+                        variant: ResultsStateVariant::Error,
+                        title: "Query failed".to_string(),
+                        body: Some(error),
+                        action: ResultsStateAction::Retry,
+                        tabs,
+                        active_tab_id,
                     }
                 } else {
-                    p { class: "empty-state", "Double-click a table in Explorer or run SQL to see rows here." }
+                    ResultsStateBlock {
+                        variant: ResultsStateVariant::Empty,
+                        title: "No results yet".to_string(),
+                        body: Some(
+                            "Double-click a table in Explorer or run SQL to see rows here."
+                                .to_string(),
+                        ),
+                        action: ResultsStateAction::None,
+                        tabs,
+                        active_tab_id,
+                    }
                 }
             },
         }
@@ -1378,8 +1510,8 @@ fn apply_filter_for_value(
 mod tests {
     use super::{
         filter_panel_should_auto_open, filter_panel_should_collapse_after_clear,
-        format_row_edit_error, result_error_message, result_status_text_for_display,
-        should_render_result_status_chip,
+        format_row_edit_error, result_error_message,
+        result_status_text_for_display, should_render_result_status_chip,
     };
     use crate::screens::workspace::actions::rows_toolbar_summary;
     use models::{QueryFilter, QueryFilterMode, QueryFilterOperator, QueryFilterRule};

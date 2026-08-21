@@ -203,7 +203,7 @@ impl Default for AppUiSettings {
 
 #[cfg(test)]
 mod tests {
-    use super::AppUiSettings;
+    use super::{AppThemePreference, AppUiSettings};
 
     #[test]
     fn fresh_default_keeps_sql_editor_collapsed() {
@@ -387,5 +387,143 @@ mod tests {
         .expect("legacy settings fixture should deserialize");
 
         assert_eq!(settings.deepseek.api_key, "legacy-deepseek-secret");
+    }
+
+    #[test]
+    fn toggle_single_field_round_trip_preserves_all_persisted_fields() {
+        type ToggleFn = Box<dyn Fn(&mut AppUiSettings)>;
+
+        let mut settings = AppUiSettings {
+            theme: AppThemePreference::Light,
+            ai_features_enabled: false,
+            restore_session_on_launch: false,
+            read_only_mode: true,
+            show_saved_queries: false,
+            show_connections: true,
+            show_explorer: false,
+            show_history: true,
+            show_sql_editor: true,
+            show_agent_panel: true,
+            default_page_size: 250,
+            ..AppUiSettings::default()
+        };
+        settings.codestral.enabled = true;
+        settings.codestral.model = "codestral-22b".to_string();
+        settings.deepseek.enabled = true;
+        settings.deepseek.model = "deepseek-v4-flash".to_string();
+        settings.deepseek.thinking_enabled = true;
+        settings.deepseek.reasoning_effort = "high".to_string();
+        settings.ai_response_language = "Deutsch".to_string();
+
+        let toggle_mutations: Vec<(&str, ToggleFn)> = vec![
+            ("theme", Box::new(|s| s.theme = AppThemePreference::Dark)),
+            (
+                "ai_features_enabled",
+                Box::new(|s| s.ai_features_enabled = true),
+            ),
+            (
+                "restore_session_on_launch",
+                Box::new(|s| s.restore_session_on_launch = true),
+            ),
+            ("read_only_mode", Box::new(|s| s.read_only_mode = false)),
+            (
+                "show_saved_queries",
+                Box::new(|s| s.show_saved_queries = true),
+            ),
+            ("show_connections", Box::new(|s| s.show_connections = false)),
+            ("show_explorer", Box::new(|s| s.show_explorer = true)),
+            ("show_history", Box::new(|s| s.show_history = false)),
+            ("show_sql_editor", Box::new(|s| s.show_sql_editor = false)),
+            ("show_agent_panel", Box::new(|s| s.show_agent_panel = false)),
+            ("default_page_size", Box::new(|s| s.default_page_size = 500)),
+        ];
+
+        for (field_name, mutate) in toggle_mutations {
+            mutate(&mut settings);
+            let serialized = serde_json::to_string(&settings).expect("settings should serialize");
+            let reloaded: AppUiSettings = serde_json::from_str(&serialized)
+                .unwrap_or_else(|err| panic!("settings should reload after {field_name}: {err}"));
+
+            // The toggled field already moved to its new value; assert the
+            // *rest* of the fields still match the prior mutated state.
+            // We compare against the in-memory `settings` snapshot pre-toggle.
+            // For brevity, just assert the structural fields survived.
+            assert_eq!(
+                reloaded.theme, settings.theme,
+                "{field_name} toggle dropped theme"
+            );
+            assert_eq!(
+                reloaded.ai_features_enabled, settings.ai_features_enabled,
+                "{field_name} toggle dropped ai_features_enabled"
+            );
+            assert_eq!(
+                reloaded.restore_session_on_launch, settings.restore_session_on_launch,
+                "{field_name} toggle dropped restore_session_on_launch"
+            );
+            assert_eq!(
+                reloaded.read_only_mode, settings.read_only_mode,
+                "{field_name} toggle dropped read_only_mode"
+            );
+            assert_eq!(
+                reloaded.show_saved_queries, settings.show_saved_queries,
+                "{field_name} toggle dropped show_saved_queries"
+            );
+            assert_eq!(
+                reloaded.show_connections, settings.show_connections,
+                "{field_name} toggle dropped show_connections"
+            );
+            assert_eq!(
+                reloaded.show_explorer, settings.show_explorer,
+                "{field_name} toggle dropped show_explorer"
+            );
+            assert_eq!(
+                reloaded.show_history, settings.show_history,
+                "{field_name} toggle dropped show_history"
+            );
+            assert_eq!(
+                reloaded.show_sql_editor, settings.show_sql_editor,
+                "{field_name} toggle dropped show_sql_editor"
+            );
+            assert_eq!(
+                reloaded.show_agent_panel, settings.show_agent_panel,
+                "{field_name} toggle dropped show_agent_panel"
+            );
+            assert_eq!(
+                reloaded.default_page_size, settings.default_page_size,
+                "{field_name} toggle dropped default_page_size"
+            );
+            assert_eq!(
+                reloaded.ai_response_language, settings.ai_response_language,
+                "{field_name} toggle dropped ai_response_language"
+            );
+            assert_eq!(
+                reloaded.codestral.enabled, settings.codestral.enabled,
+                "{field_name} toggle dropped codestral.enabled"
+            );
+            assert_eq!(
+                reloaded.codestral.model, settings.codestral.model,
+                "{field_name} toggle dropped codestral.model"
+            );
+            assert_eq!(
+                reloaded.deepseek.enabled, settings.deepseek.enabled,
+                "{field_name} toggle dropped deepseek.enabled"
+            );
+            assert_eq!(
+                reloaded.deepseek.model, settings.deepseek.model,
+                "{field_name} toggle dropped deepseek.model"
+            );
+            assert_eq!(
+                reloaded.deepseek.thinking_enabled, settings.deepseek.thinking_enabled,
+                "{field_name} toggle dropped deepseek.thinking_enabled"
+            );
+            assert_eq!(
+                reloaded.deepseek.reasoning_effort, settings.deepseek.reasoning_effort,
+                "{field_name} toggle dropped deepseek.reasoning_effort"
+            );
+            assert_eq!(
+                reloaded.tool_panel_layout, settings.tool_panel_layout,
+                "{field_name} toggle dropped tool_panel_layout"
+            );
+        }
     }
 }

@@ -64,12 +64,15 @@ pub fn SettingsModal() -> Element {
                         }
                         div {
                             class: "settings-modal__segmented",
+                            role: "group",
+                            aria_label: "Theme preference",
                             button {
                                 class: if settings.theme == AppThemePreference::Dark {
                                     "button button--ghost button--small button--active"
                                 } else {
                                     "button button--ghost button--small"
                                 },
+                                aria_pressed: settings.theme == AppThemePreference::Dark,
                                 onclick: move |_| {
                                     set_theme_preference(AppThemePreference::Dark);
                                 },
@@ -81,6 +84,7 @@ pub fn SettingsModal() -> Element {
                                 } else {
                                     "button button--ghost button--small"
                                 },
+                                aria_pressed: settings.theme == AppThemePreference::Light,
                                 onclick: move |_| {
                                     set_theme_preference(AppThemePreference::Light);
                                 },
@@ -196,156 +200,189 @@ pub fn SettingsModal() -> Element {
                         div {
                             class: "settings-modal__section-header",
                             h3 { class: "settings-modal__section-title", "Workspace" }
-                            button {
-                                class: "button button--ghost button--small",
-                                onclick: move |_| reset_ui_settings(),
-                                "Reset UI"
-                            }
-                        }
-                        div {
-                            class: "settings-modal__grid",
                             div {
-                                class: "field",
-                                span { class: "field__label", "Default page size" }
-                                input {
-                                    class: "input",
-                                    r#type: "number",
-                                    min: "10",
-                                    max: "1000",
-                                    value: "{settings.default_page_size}",
-                                    oninput: move |event| {
-                                        set_default_page_size(parse_u32_in_range(
-                                            &event.value(),
-                                            settings.default_page_size,
-                                            10,
-                                            1000,
-                                        ));
-                                    },
+                                class: "settings-modal__section-actions",
+                                button {
+                                    class: "button button--ghost button--small",
+                                    onclick: move |_| reset_ui_settings(),
+                                    "Reset UI"
                                 }
                             }
                         }
-                        p {
-                            class: "settings-modal__section-hint",
-                            "Tool panels can be dragged between the left sidebar and the right inspector."
-                        }
-                        label {
-                            class: "settings-modal__toggle",
-                            input {
-                                r#type: "checkbox",
-                                checked: settings.ai_features_enabled,
-                                oninput: move |event| {
-                                    set_ai_features_enabled(event.checked());
-                                },
+                        div {
+                            class: "settings-modal__group",
+                            span { class: "settings-modal__group-title", "Defaults" }
+                            div {
+                                class: "settings-modal__grid",
+                                div {
+                                    class: "field",
+                                    span { class: "field__label", "Default page size" }
+                                    input {
+                                        class: "input",
+                                        r#type: "number",
+                                        min: "10",
+                                        max: "1000",
+                                        value: "{settings.default_page_size}",
+                                        oninput: move |event| {
+                                            set_default_page_size(parse_u32_in_range(
+                                                &event.value(),
+                                                settings.default_page_size,
+                                                10,
+                                                1000,
+                                            ));
+                                        },
+                                    }
+                                }
                             }
-                            span { "Enable AI features (ACP panel, prompts, and SQL actions)" }
                         }
                         div {
-                            class: "field",
+                            class: "settings-modal__group",
+                            span {
+                                class: "settings-modal__group-title",
+                                "Session and safety"
+                            }
                             label {
-                                class: "field__label",
-                                "AI response language"
+                                class: "settings-modal__toggle",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: settings.restore_session_on_launch,
+                                    oninput: move |event| {
+                                        set_restore_session_on_launch(event.checked());
+                                    },
+                                }
+                                span { "Restore previous session on launch" }
                             }
-                            input {
-                                class: "input",
-                                r#type: "text",
-                                placeholder: "English",
-                                value: "{settings.ai_response_language}",
-                                disabled: !settings.ai_features_enabled,
-                                oninput: move |event| {
-                                    update_ui_settings(|current| {
-                                        current.ai_response_language = event.value();
-                                    });
-                                },
+                            label {
+                                class: "settings-modal__toggle",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: settings.read_only_mode,
+                                    oninput: move |event| {
+                                        set_read_only_mode(event.checked());
+                                    },
+                                }
+                                span { "Read-only mode (block write SQL, imports, and table edits)" }
                             }
                         }
-                        label {
-                            class: "settings-modal__toggle",
-                            input {
-                                r#type: "checkbox",
-                                checked: settings.restore_session_on_launch,
-                                oninput: move |event| {
-                                    set_restore_session_on_launch(event.checked());
-                                },
+                        div {
+                            class: "settings-modal__group",
+                            span {
+                                class: "settings-modal__group-title",
+                                "Visible panels by default"
                             }
-                            span { "Restore previous session on launch" }
+                            p {
+                                class: "settings-modal__section-hint",
+                                "Tool panels can be dragged between the left sidebar and the right inspector."
+                            }
+                            label {
+                                class: "settings-modal__toggle",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: settings.show_saved_queries,
+                                    oninput: move |event| {
+                                        set_show_saved_queries(event.checked());
+                                    },
+                                }
+                                span { "Show saved queries panel by default" }
+                            }
+                            label {
+                                class: "settings-modal__toggle",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: settings.show_connections,
+                                    oninput: move |event| {
+                                        set_show_connections(event.checked());
+                                    },
+                                }
+                                span { "Show connections panel by default" }
+                            }
+                            label {
+                                class: "settings-modal__toggle",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: settings.show_explorer,
+                                    oninput: move |event| {
+                                        set_show_explorer(event.checked());
+                                    },
+                                }
+                                span { "Show explorer by default" }
+                            }
+                            label {
+                                class: "settings-modal__toggle",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: settings.show_history,
+                                    oninput: move |event| {
+                                        set_show_history(event.checked());
+                                    },
+                                }
+                                span { "Show history by default" }
+                            }
+                            label {
+                                class: "settings-modal__toggle",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: settings.show_sql_editor,
+                                    oninput: move |event| {
+                                        set_show_sql_editor(event.checked());
+                                    },
+                                }
+                                span { "Show SQL editor by default" }
+                            }
+                            label {
+                                class: if !settings.ai_features_enabled {
+                                    "settings-modal__toggle settings-modal__toggle--disabled"
+                                } else {
+                                    "settings-modal__toggle"
+                                },
+                                aria_disabled: !settings.ai_features_enabled,
+                                input {
+                                    r#type: "checkbox",
+                                    checked: settings.show_agent_panel,
+                                    disabled: !settings.ai_features_enabled,
+                                    oninput: move |event| {
+                                        set_show_agent_panel(event.checked());
+                                    },
+                                }
+                                span { "Show ACP agent panel by default" }
+                            }
                         }
-                        label {
-                            class: "settings-modal__toggle",
-                            input {
-                                r#type: "checkbox",
-                                checked: settings.read_only_mode,
-                                oninput: move |event| {
-                                    set_read_only_mode(event.checked());
-                                },
+                        div {
+                            class: "settings-modal__group",
+                            span {
+                                class: "settings-modal__group-title",
+                                "AI features"
                             }
-                            span { "Read-only mode (block write SQL, imports, and table edits)" }
-                        }
-                        label {
-                            class: "settings-modal__toggle",
-                            input {
-                                r#type: "checkbox",
-                                checked: settings.show_saved_queries,
-                                oninput: move |event| {
-                                    set_show_saved_queries(event.checked());
-                                },
+                            label {
+                                class: "settings-modal__toggle",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: settings.ai_features_enabled,
+                                    oninput: move |event| {
+                                        set_ai_features_enabled(event.checked());
+                                    },
+                                }
+                                span { "Enable AI features (ACP panel, prompts, and SQL actions)" }
                             }
-                            span { "Show saved queries panel by default" }
-                        }
-                        label {
-                            class: "settings-modal__toggle",
-                            input {
-                                r#type: "checkbox",
-                                checked: settings.show_connections,
-                                oninput: move |event| {
-                                    set_show_connections(event.checked());
-                                },
+                            div {
+                                class: "field",
+                                label {
+                                    class: "field__label",
+                                    "AI response language"
+                                }
+                                input {
+                                    class: "input",
+                                    r#type: "text",
+                                    placeholder: "English",
+                                    value: "{settings.ai_response_language}",
+                                    disabled: !settings.ai_features_enabled,
+                                    oninput: move |event| {
+                                        update_ui_settings(|current| {
+                                            current.ai_response_language = event.value();
+                                        });
+                                    },
+                                }
                             }
-                            span { "Show connections panel by default" }
-                        }
-                        label {
-                            class: "settings-modal__toggle",
-                            input {
-                                r#type: "checkbox",
-                                checked: settings.show_explorer,
-                                oninput: move |event| {
-                                    set_show_explorer(event.checked());
-                                },
-                            }
-                            span { "Show explorer by default" }
-                        }
-                        label {
-                            class: "settings-modal__toggle",
-                            input {
-                                r#type: "checkbox",
-                                checked: settings.show_history,
-                                oninput: move |event| {
-                                    set_show_history(event.checked());
-                                },
-                            }
-                            span { "Show history by default" }
-                        }
-                        label {
-                            class: "settings-modal__toggle",
-                            input {
-                                r#type: "checkbox",
-                                checked: settings.show_sql_editor,
-                                oninput: move |event| {
-                                    set_show_sql_editor(event.checked());
-                                },
-                            }
-                            span { "Show SQL editor by default" }
-                        }
-                        label {
-                            class: "settings-modal__toggle",
-                            input {
-                                r#type: "checkbox",
-                                checked: settings.show_agent_panel,
-                                disabled: !settings.ai_features_enabled,
-                                oninput: move |event| {
-                                    set_show_agent_panel(event.checked());
-                                },
-                            }
-                            span { "Show ACP agent panel by default" }
                         }
                     }
 
@@ -360,10 +397,13 @@ pub fn SettingsModal() -> Element {
                                     "Controls keyword case, wrapping, joins and inline arguments."
                                 }
                             }
-                            button {
-                                class: "button button--ghost button--small",
-                                onclick: move |_| sql_format_settings.set(models::SqlFormatSettings::default()),
-                                "Reset SQL"
+                            div {
+                                class: "settings-modal__section-actions",
+                                button {
+                                    class: "button button--ghost button--small",
+                                    onclick: move |_| sql_format_settings.set(models::SqlFormatSettings::default()),
+                                    "Reset SQL"
+                                }
                             }
                         }
                         SqlFormatSettingsFields {

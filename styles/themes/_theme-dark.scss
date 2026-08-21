@@ -30,6 +30,9 @@
   --color-hover: rgba(255, 255, 255, 0.07);
   --color-active: rgba(94, 177, 255, 0.18);
   --color-backdrop: rgba(3, 5, 10, 0.76);
+  --color-error: #ff5c6c;
+  --color-error-hover: #ff7d8a;
+  --focus-ring: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-focus);
 
   --glass-tint: rgba(255, 255, 255, 0.065);
   --glass-tint-strong: rgba(255, 255, 255, 0.105);

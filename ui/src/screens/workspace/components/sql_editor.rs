@@ -711,6 +711,21 @@ pub fn SqlEditor(
     });
 
     use_effect(move || {
+        let _ = crate::app_state::APP_FOCUS_EDITOR_REQUEST();
+        let _ = document::eval(&format!(
+            r#"
+            (() => {{
+                const editor = document.getElementById({id:?});
+                if (editor) {{
+                    editor.focus();
+                }}
+            }})()
+            "#,
+            id = SQL_EDITOR_TEXTAREA_ID
+        ));
+    });
+
+    use_effect(move || {
         let revision = editor_revision();
 
         spawn(async move {

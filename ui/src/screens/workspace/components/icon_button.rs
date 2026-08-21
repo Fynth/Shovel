@@ -94,7 +94,7 @@ pub fn IconButton(
 }
 
 #[component]
-fn IconGlyph(icon: ActionIcon) -> Element {
+pub fn IconGlyph(icon: ActionIcon) -> Element {
     let icon_class = match icon {
         ActionIcon::Close => "button__icon button__icon--close",
         _ => "button__icon",

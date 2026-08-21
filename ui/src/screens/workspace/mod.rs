@@ -5,11 +5,14 @@ mod context;
 pub mod helpers;
 mod hooks;
 
+use crate::app_state::keyboard::{ShortcutAction, match_key_combination};
 use crate::app_state::{
     APP_AI_FEATURES_ENABLED, APP_SHOW_AGENT_PANEL, APP_SHOW_CONNECTIONS, APP_SHOW_EXPLORER,
-    APP_SHOW_HISTORY, APP_SHOW_SAVED_QUERIES, APP_SHOW_SQL_EDITOR, APP_STATE, APP_UI_SETTINGS,
-    open_connection_screen, set_show_agent_panel, set_show_connections, set_show_explorer,
-    set_show_history, set_show_saved_queries, set_show_sql_editor, update_ui_settings,
+    APP_SHOW_HISTORY, APP_SHOW_SAVED_QUERIES, APP_SHOW_SETTINGS_MODAL, APP_SHOW_SQL_EDITOR,
+    APP_SQL_FORMAT_SETTINGS, APP_STATE, APP_UI_SETTINGS, ToastKind, close_settings_modal,
+    context_menu, open_connection_screen, request_focus_editor, request_focus_filter_panel,
+    set_show_agent_panel, set_show_connections, set_show_explorer, set_show_history,
+    set_show_saved_queries, set_show_sql_editor, show_toast, update_ui_settings,
 };
 use dioxus::{html::input_data::MouseButton, prelude::*};
 use models::{
@@ -911,67 +914,85 @@ pub fn Workspace() -> Element {
                 }
             },
             onkeydown: move |event: dioxus::prelude::KeyboardEvent| {
-                use dioxus::prelude::{Key, Modifiers};
+                use dioxus::prelude::Modifiers;
                 let key = event.key();
                 let mods = event.modifiers();
                 let ctrl = mods.contains(Modifiers::CONTROL)
                     || mods.contains(Modifiers::META);
 
-                // Ctrl/Cmd+T или Ctrl/Cmd+N — новая вкладка запроса
-                if ctrl
-                    && matches!(key, Key::Character(ref c) if c == "t" || c == "T" || c == "n" || c == "N")
-                {
-                    event.prevent_default();
-                    if let Some(session) = APP_STATE.read().active_session().cloned() {
-                        let tab_id = next_tab_id();
-                        next_tab_id += 1;
-                        let tab = actions::new_query_tab(
-                            tab_id,
-                            session.id,
-                            format!("Query {}", tabs.read().len() + 1),
-                            String::new(),
+                let Some(action) = match_key_combination(&key, mods) else {
+                    return;
+                };
+                event.prevent_default();
+
+                match action {
+                    ShortcutAction::NewTab => {
+                        if let Some(session) = APP_STATE.read().active_session().cloned() {
+                            let tab_id = next_tab_id();
+                            next_tab_id += 1;
+                            let tab = actions::new_query_tab(
+                                tab_id,
+                                session.id,
+                                format!("Query {}", tabs.read().len() + 1),
+                                String::new(),
+                            );
+                            tabs.with_mut(|all_tabs| all_tabs.push(tab));
+                            active_tab_id.set(tab_id);
+                        }
+                    }
+                    ShortcutAction::CloseTab => {
+                        if tabs.read().len() > 1 {
+                            let current_id = active_tab_id();
+                            tabs.with_mut(|all_tabs| all_tabs.retain(|t| t.id != current_id));
+                            if let Some(first) = tabs.read().first() {
+                                active_tab_id.set(first.id);
+                                crate::app_state::activate_session(first.session_id);
+                            }
+                        }
+                    }
+                    ShortcutAction::NextTab => {
+                        let all_tabs = tabs.read();
+                        if all_tabs.len() > 1 {
+                            let current_idx =
+                                all_tabs.iter().position(|t| t.id == active_tab_id());
+                            if let Some(idx) = current_idx {
+                                let next_idx = (idx + 1) % all_tabs.len();
+                                let next_tab = &all_tabs[next_idx];
+                                active_tab_id.set(next_tab.id);
+                                crate::app_state::activate_session(next_tab.session_id);
+                            }
+                        }
+                    }
+                    ShortcutAction::RefreshExplorer => {
+                        tree_reload += 1;
+                    }
+                    ShortcutAction::SaveQuery => {
+                        let status = actions::save_active_tab_as_saved_query(
+                            tabs,
+                            active_tab_id(),
+                            saved_queries,
+                            next_saved_query_id,
                         );
-                        tabs.with_mut(|all_tabs| all_tabs.push(tab));
-                        active_tab_id.set(tab_id);
+                        show_save_status_toast(&status);
                     }
-                    return;
-                }
-
-                // Ctrl/Cmd+W — close active tab (keep at least one)
-                if ctrl && matches!(key, Key::Character(ref c) if c == "w" || c == "W") {
-                    event.prevent_default();
-                    if tabs.read().len() > 1 {
-                        let current_id = active_tab_id();
-                        tabs.with_mut(|all_tabs| all_tabs.retain(|t| t.id != current_id));
-                        if let Some(first) = tabs.read().first() {
-                            active_tab_id.set(first.id);
-                            crate::app_state::activate_session(first.session_id);
-                        }
+                    ShortcutAction::FocusFilterPanel => {
+                        request_focus_filter_panel();
                     }
-                    return;
-                }
-
-                // F5 — refresh explorer tree
-                if key == Key::F5 {
-                    event.prevent_default();
-                    tree_reload += 1;
-                    return;
-                }
-
-                // Ctrl/Cmd+Tab — switch to next tab
-                if ctrl && key == Key::Tab {
-                    event.prevent_default();
-                    let all_tabs = tabs.read();
-                    if all_tabs.len() > 1 {
-                        let current_idx = all_tabs.iter().position(|t| t.id == active_tab_id());
-                        if let Some(idx) = current_idx {
-                            let next_idx = (idx + 1) % all_tabs.len();
-                            let next_tab = &all_tabs[next_idx];
-                            active_tab_id.set(next_tab.id);
-                            crate::app_state::activate_session(next_tab.session_id);
-                        }
+                    ShortcutAction::FocusEditor => {
+                        request_focus_editor();
+                    }
+                    ShortcutAction::FormatSql => {
+                        actions::format_active_tab(
+                            tabs,
+                            active_tab_id(),
+                            APP_SQL_FORMAT_SETTINGS(),
+                        );
+                    }
+                    ShortcutAction::CloseOverlay => {
+                        close_topmost_overlay();
                     }
                 }
+                let _ = ctrl;
             },
             WorkspaceBody {
                 show_sidebar,
@@ -1036,3 +1057,24 @@ pub fn Workspace() -> Element {
 }
 
 pub(crate) use self::components::SqlFormatSettingsFields;
+
+fn close_topmost_overlay() {
+    if APP_SHOW_SETTINGS_MODAL() {
+        close_settings_modal();
+        return;
+    }
+    if context_menu::CONTEXT_MENU().is_some() {
+        context_menu::close_context_menu();
+    }
+}
+
+fn show_save_status_toast(status: &str) {
+    if let Some(title) = status
+        .strip_prefix("Saved ")
+        .and_then(|s| s.strip_suffix('.'))
+    {
+        show_toast(title.to_string(), ToastKind::Success);
+    } else if !status.is_empty() {
+        show_toast(status.to_string(), ToastKind::Warning);
+    }
+}
