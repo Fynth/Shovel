@@ -488,7 +488,8 @@ pub async fn load_connection_tree_postgres(
     let push_node = |grouped: &mut std::collections::BTreeMap<String, Vec<ExplorerNode>>,
                      schema: String,
                      name: String,
-                     kind: ExplorerNodeKind| {
+                     kind: ExplorerNodeKind,
+                     row_count: Option<u64>| {
         let qualified_name = format!(
             "{}.{}",
             super::quote_identifier(&schema),
@@ -502,6 +503,7 @@ pub async fn load_connection_tree_postgres(
                 schema: Some(schema),
                 name,
                 kind,
+                row_count,
                 children: Vec::new(),
             });
     };
@@ -518,6 +520,11 @@ pub async fn load_connection_tree_postgres(
     .fetch_all(pool)
     .await
     .map_err(DatabaseError::Postgres)?;
+
+    // Cheap per-relation row estimates from pg_class.reltuples (statistics,
+    // NOT a full COUNT). Keyed by (schema, name).
+    let reltuples = load_pg_row_estimates(pool).await;
+
     for row in rows {
         let schema = row
             .try_get::<String, _>("table_schema")
@@ -533,13 +540,17 @@ pub async fn load_connection_tree_postgres(
         } else {
             ExplorerNodeKind::Table
         };
-        push_node(&mut grouped, schema, name, kind);
+        let row_count = match kind {
+            ExplorerNodeKind::Table => reltuples.get(&(schema.clone(), name.clone())).copied(),
+            _ => None,
+        };
+        push_node(&mut grouped, schema, name, kind, row_count);
     }
 
     // Материализованные представления и последовательности (relkind).
     let rows = sqlx::query(
         r#"
-        select n.nspname as schema, c.relname as name, c.relkind
+        select n.nspname as schema, c.relname as name, c.relkind, c.reltuples::bigint as reltuples
         from pg_class c
         join pg_namespace n on n.oid = c.relnamespace
         where n.nspname not in ('pg_catalog', 'information_schema')
@@ -558,12 +569,17 @@ pub async fn load_connection_tree_postgres(
             .try_get::<String, _>("name")
             .map_err(DatabaseError::Postgres)?;
         let relkind = row.try_get::<String, _>("relkind").unwrap_or_default();
+        let reltuples = row.try_get::<i64, _>("reltuples").ok();
         let kind = match relkind.as_str() {
             "m" => ExplorerNodeKind::MaterializedView,
             "S" => ExplorerNodeKind::Sequence,
             _ => continue,
         };
-        push_node(&mut grouped, schema, name, kind);
+        let row_count = match kind {
+            ExplorerNodeKind::MaterializedView => reltuples_to_count(reltuples),
+            _ => None,
+        };
+        push_node(&mut grouped, schema, name, kind, row_count);
     }
 
     // Функции и процедуры (pg_proc, prokind; отбрасываем агрегаты и
@@ -593,7 +609,7 @@ pub async fn load_connection_tree_postgres(
             "p" => ExplorerNodeKind::Procedure,
             _ => ExplorerNodeKind::Function,
         };
-        push_node(&mut grouped, schema, name, kind);
+        push_node(&mut grouped, schema, name, kind, None);
     }
 
     // Триггеры (отбрасываем внутренние trigger-функции pg_trigger.tgisinternal).
@@ -618,7 +634,7 @@ pub async fn load_connection_tree_postgres(
         let name = row
             .try_get::<String, _>("name")
             .map_err(DatabaseError::Postgres)?;
-        push_node(&mut grouped, schema, name, ExplorerNodeKind::Trigger);
+        push_node(&mut grouped, schema, name, ExplorerNodeKind::Trigger, None);
     }
 
     Ok(grouped
@@ -628,9 +644,52 @@ pub async fn load_connection_tree_postgres(
             schema: Some(schema.clone()),
             name: schema,
             kind: ExplorerNodeKind::Schema,
+            row_count: None,
             children,
         })
         .collect())
+}
+
+/// Загружает оценки числа строк для всех обычных таблиц пользовательских
+/// схем из `pg_class.reltuples` (статистика планировщика, дёшево — без
+/// блокирующего `COUNT(*)`). Возвращает `HashMap<(schema, name), rows>`.
+/// Любая ошибка запроса → пустая карта (никогда не ломает дерево).
+async fn load_pg_row_estimates(
+    pool: &sqlx::PgPool,
+) -> std::collections::HashMap<(String, String), u64> {
+    let Ok(rows) = sqlx::query(
+        r#"
+        select n.nspname as schema, c.relname as name, c.reltuples::bigint as reltuples
+        from pg_class c
+        join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname not in ('pg_catalog', 'information_schema')
+          and c.relkind = 'r'
+        order by n.nspname, c.relname
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    else {
+        return std::collections::HashMap::new();
+    };
+
+    rows.into_iter()
+        .filter_map(|row| {
+            let schema = row.try_get::<String, _>("schema").ok()?;
+            let name = row.try_get::<String, _>("name").ok()?;
+            let count = reltuples_to_count(row.try_get::<i64, _>("reltuples").ok())?;
+            Some(((schema, name), count))
+        })
+        .collect()
+}
+
+/// Преобразует сырое значение `pg_class.reltuples` в неотрицательную оценку
+/// числа строк. Отрицательные значения (статистика ещё не собрана) и ошибки
+/// типов дают `None`.
+fn reltuples_to_count(reltuples: Option<i64>) -> Option<u64> {
+    reltuples
+        .filter(|count| *count >= 0)
+        .and_then(|count| u64::try_from(count).ok())
 }
 
 fn structure_row(
@@ -674,4 +733,21 @@ fn postgres_column_details(is_nullable: &str, default_value: Option<String>) -> 
             .then(|| "NOT NULL".to_string()),
         default_value.map(|value| format!("default {value}")),
     ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reltuples_to_count;
+
+    #[test]
+    fn reltuples_negative_or_unknown_yields_none() {
+        assert_eq!(reltuples_to_count(None), None);
+        assert_eq!(reltuples_to_count(Some(-1)), None);
+    }
+
+    #[test]
+    fn reltuples_non_negative_becomes_row_count() {
+        assert_eq!(reltuples_to_count(Some(0)), Some(0));
+        assert_eq!(reltuples_to_count(Some(42)), Some(42));
+    }
 }

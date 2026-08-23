@@ -548,12 +548,14 @@ mod tests {
                 kind: ExplorerNodeKind::Schema,
                 schema: None,
                 qualified_name: "main".to_string(),
+                row_count: None,
                 children: vec![
                     models::ExplorerNode {
                         name: "users".to_string(),
                         kind: ExplorerNodeKind::Table,
                         schema: Some("main".to_string()),
                         qualified_name: "main.users".to_string(),
+                        row_count: None,
                         children: Vec::new(),
                     },
                     models::ExplorerNode {
@@ -561,6 +563,7 @@ mod tests {
                         kind: ExplorerNodeKind::Table,
                         schema: Some("main".to_string()),
                         qualified_name: "main.orders".to_string(),
+                        row_count: None,
                         children: Vec::new(),
                     },
                     models::ExplorerNode {
@@ -568,6 +571,7 @@ mod tests {
                         kind: ExplorerNodeKind::View,
                         schema: Some("main".to_string()),
                         qualified_name: "main.v_users".to_string(),
+                        row_count: None,
                         children: Vec::new(),
                     },
                 ],

@@ -964,12 +964,14 @@ mod tests {
             kind: ExplorerNodeKind::Schema,
             schema: Some("main".to_string()),
             qualified_name: "main".to_string(),
+            row_count: None,
             children: (1..=10)
                 .map(|index| ExplorerNode {
                     name: format!("table_{index}"),
                     kind: ExplorerNodeKind::Table,
                     schema: Some("main".to_string()),
                     qualified_name: format!("main.table_{index}"),
+                    row_count: None,
                     children: Vec::new(),
                 })
                 .collect(),
@@ -1048,11 +1050,13 @@ mod tests {
             kind: ExplorerNodeKind::Schema,
             schema: Some("main".to_string()),
             qualified_name: "main".to_string(),
+            row_count: None,
             children: vec![ExplorerNode {
                 name: "products".to_string(),
                 kind: ExplorerNodeKind::Table,
                 schema: Some("main".to_string()),
                 qualified_name: "main.products".to_string(),
+                row_count: None,
                 children: Vec::new(),
             }],
         }];

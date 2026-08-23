@@ -2302,6 +2302,14 @@ select.input:focus-visible {
   font-size: 10px;
 }
 
+.tree__row-count {
+  flex-shrink: 0;
+  color: var(--color-text-dim);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .tree__match {
   border-radius: 4px;
   padding: 0 2px;

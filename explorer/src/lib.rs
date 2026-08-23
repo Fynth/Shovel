@@ -190,7 +190,7 @@ pub async fn load_connection_tree(
                 .execute_json_query(
                     &config,
                     r#"
-                select database, name, engine, create_table_query
+                select database, name, engine, create_table_query, total_rows
                 from system.tables
                 where database not in ('system', 'INFORMATION_SCHEMA', 'information_schema')
                 order by database, name
@@ -206,6 +206,7 @@ pub async fn load_connection_tree(
                 let name = clickhouse_value_to_string(row.get(1));
                 let engine = clickhouse_value_to_string(row.get(2));
                 let create_table_query = clickhouse_value_to_string(row.get(3));
+                let total_rows = row.get(4).and_then(|value| value.as_u64());
                 if !clickhouse_relation_supports_preview(&engine, &create_table_query) {
                     continue;
                 }
@@ -228,6 +229,10 @@ pub async fn load_connection_tree(
                         schema: Some(schema.clone()),
                         name,
                         kind,
+                        row_count: match kind {
+                            ExplorerNodeKind::Table => total_rows.filter(|count| *count > 0),
+                            _ => None,
+                        },
                         children: Vec::new(),
                     });
             }
@@ -239,6 +244,7 @@ pub async fn load_connection_tree(
                     schema: Some(schema.clone()),
                     name: schema,
                     kind: ExplorerNodeKind::Schema,
+                    row_count: None,
                     children,
                 })
                 .collect())

@@ -460,7 +460,8 @@ pub async fn load_connection_tree_mysql(
     let push_node = |grouped: &mut std::collections::BTreeMap<String, Vec<ExplorerNode>>,
                      schema: String,
                      name: String,
-                     kind: ExplorerNodeKind| {
+                     kind: ExplorerNodeKind,
+                     row_count: Option<u64>| {
         grouped
             .entry(schema.clone())
             .or_default()
@@ -469,14 +470,17 @@ pub async fn load_connection_tree_mysql(
                 schema: Some(schema),
                 name,
                 kind,
+                row_count,
                 children: Vec::new(),
             });
     };
 
-    // Таблицы и представления.
+    // Таблицы и представления. Для таблиц дополнительно достаём оценку
+    // числа строк из `information_schema.tables.TABLE_ROWS` (статистика,
+    // дешевле полного `COUNT(*)`).
     let rows = sqlx::query(
         r#"
-        select table_schema, table_name, table_type
+        select table_schema, table_name, table_type, table_rows
         from information_schema.tables
         where table_schema not in ('information_schema', 'performance_schema', 'sys', 'mysql')
         order by table_schema, table_type, table_name
@@ -500,7 +504,15 @@ pub async fn load_connection_tree_mysql(
         } else {
             ExplorerNodeKind::Table
         };
-        push_node(&mut grouped, schema, name, kind);
+        let row_count = match kind {
+            ExplorerNodeKind::Table => row
+                .try_get::<i64, _>("table_rows")
+                .ok()
+                .filter(|count| *count >= 0)
+                .and_then(|count| u64::try_from(count).ok()),
+            _ => None,
+        };
+        push_node(&mut grouped, schema, name, kind, row_count);
     }
 
     // Функции и процедуры.
@@ -528,7 +540,7 @@ pub async fn load_connection_tree_mysql(
         } else {
             ExplorerNodeKind::Function
         };
-        push_node(&mut grouped, schema, name, kind);
+        push_node(&mut grouped, schema, name, kind, None);
     }
 
     // Триггеры.
@@ -550,7 +562,7 @@ pub async fn load_connection_tree_mysql(
         let name = row
             .try_get::<String, _>("trigger_name")
             .map_err(DatabaseError::MySql)?;
-        push_node(&mut grouped, schema, name, ExplorerNodeKind::Trigger);
+        push_node(&mut grouped, schema, name, ExplorerNodeKind::Trigger, None);
     }
 
     Ok(grouped
@@ -560,6 +572,7 @@ pub async fn load_connection_tree_mysql(
             schema: Some(schema.clone()),
             name: schema,
             kind: ExplorerNodeKind::Schema,
+            row_count: None,
             children,
         })
         .collect())

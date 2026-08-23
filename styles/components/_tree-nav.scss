@@ -401,6 +401,14 @@
   font-size: $font-size-xs;
 }
 
+.tree__row-count {
+  flex-shrink: 0;
+  color: var(--color-text-dim);
+  font-size: $font-size-xs;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .tree__match {
   border-radius: 4px;
   padding: 0 2px;

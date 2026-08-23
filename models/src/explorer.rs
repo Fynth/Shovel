@@ -61,6 +61,11 @@ pub struct ExplorerNode {
     pub kind: ExplorerNodeKind,
     pub schema: Option<String>,
     pub qualified_name: String,
+    /// Best-effort row-count estimate from DB statistics (e.g. `pg_class.reltuples`,
+    /// `information_schema.TABLES.TABLE_ROWS`, ClickHouse `system.tables.total_rows`,
+    /// SQLite `count(*)`). `None` when unknown or not cheaply available. Never
+    /// blocks tree loading — a failed or expensive lookup yields `None`.
+    pub row_count: Option<u64>,
     pub children: Vec<ExplorerNode>,
 }
 

@@ -240,7 +240,17 @@ pub async fn load_connection_tree_sqlite(
                 "trigger" => ExplorerNodeKind::Trigger,
                 _ => continue,
             },
+            row_count: None,
             children: Vec::new(),
+        };
+        let node = match node.kind {
+            ExplorerNodeKind::Table => ExplorerNode {
+                row_count: sqlite_table_row_count(pool, &node.name).await,
+                ..node
+            },
+            ExplorerNodeKind::View => node,
+            ExplorerNodeKind::Trigger => node,
+            _ => node,
         };
         match node.kind {
             ExplorerNodeKind::Table => tables.push(node),
@@ -255,8 +265,21 @@ pub async fn load_connection_tree_sqlite(
         kind: ExplorerNodeKind::Schema,
         schema: Some("main".to_string()),
         qualified_name: "main".to_string(),
+        row_count: None,
         children: tables.into_iter().chain(views).chain(triggers).collect(),
     }])
+}
+
+/// Best-effort row count for a SQLite table. SQLite is a local DB, so a full
+/// `count(*)` is acceptable. Any error (including views/triggers being asked
+/// for a count) yields `None` — never fails the tree.
+async fn sqlite_table_row_count(pool: &sqlx::SqlitePool, table: &str) -> Option<u64> {
+    let sql = format!("select count(*) from {}", super::quote_identifier(table));
+    sqlx::query_scalar::<_, i64>(&sql)
+        .fetch_one(pool)
+        .await
+        .ok()
+        .and_then(|count| u64::try_from(count).ok())
 }
 
 /// Загружает все внешние ключи базы SQLite. У SQLite нет единого каталога

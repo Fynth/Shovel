@@ -357,6 +357,17 @@ fn ExplorerObjectRow(
                         title: "{node.qualified_name}",
                         {highlight_match_segments(&node.name, &query)}
                     }
+                    if matches!(
+                        node.kind,
+                        ExplorerNodeKind::Table | ExplorerNodeKind::MaterializedView
+                    ) && let Some(row_count) = node.row_count
+                    {
+                        span {
+                            class: "tree__row-count",
+                            title: "≈ {row_count} rows (estimated)",
+                            "({row_count})"
+                        }
+                    }
                     div { class: "tree__object-kind", "{kind_label}" }
                 }
             }

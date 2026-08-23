@@ -509,6 +509,7 @@ mod tests {
             kind,
             schema,
             qualified_name,
+            row_count: None,
             children,
         }
     }

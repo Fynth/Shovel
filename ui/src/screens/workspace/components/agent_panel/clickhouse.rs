@@ -237,11 +237,13 @@ mod tests {
             kind: ExplorerNodeKind::Schema,
             schema: Some("dwh_ogs".to_string()),
             qualified_name: "`dwh_ogs`".to_string(),
+            row_count: None,
             children: vec![ExplorerNode {
                 name: "source_statistics".to_string(),
                 kind: ExplorerNodeKind::Table,
                 schema: Some("dwh_ogs".to_string()),
                 qualified_name: "`dwh_ogs`.`source_statistics`".to_string(),
+                row_count: None,
                 children: Vec::new(),
             }],
         }];
@@ -267,11 +269,13 @@ mod tests {
             kind: ExplorerNodeKind::Schema,
             schema: Some("dwh_ogs".to_string()),
             qualified_name: "`dwh_ogs`".to_string(),
+            row_count: None,
             children: vec![ExplorerNode {
                 name: "dag_source_statistics".to_string(),
                 kind: ExplorerNodeKind::Table,
                 schema: Some("dwh_ogs".to_string()),
                 qualified_name: "`dwh_ogs`.`dag_source_statistics`".to_string(),
+                row_count: None,
                 children: Vec::new(),
             }],
         }];
@@ -293,12 +297,14 @@ mod tests {
             kind: ExplorerNodeKind::Schema,
             schema: Some("dwh_ogs".to_string()),
             qualified_name: "`dwh_ogs`".to_string(),
+            row_count: None,
             children: vec![
                 ExplorerNode {
                     name: "dag_source_statistics".to_string(),
                     kind: ExplorerNodeKind::Table,
                     schema: Some("dwh_ogs".to_string()),
                     qualified_name: "`dwh_ogs`.`dag_source_statistics`".to_string(),
+                    row_count: None,
                     children: Vec::new(),
                 },
                 ExplorerNode {
@@ -306,6 +312,7 @@ mod tests {
                     kind: ExplorerNodeKind::Table,
                     schema: Some("dwh_ogs".to_string()),
                     qualified_name: "`dwh_ogs`.`source_statistics_test_debug_buffer`".to_string(),
+                    row_count: None,
                     children: Vec::new(),
                 },
             ],
