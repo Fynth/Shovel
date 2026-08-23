@@ -1360,6 +1360,16 @@ fn build_row_context_menu(
             .with_icon(ActionIcon::ExportJson),
         );
     }
+    {
+        let columns = columns.clone();
+        let rows = all_rows.clone();
+        bulk_items.push(
+            ContextMenuItem::new("Copy all rows as Markdown", move || {
+                let _ = copy_to_clipboard(format_all_rows_markdown(&columns, &rows));
+            })
+            .with_icon(ActionIcon::ExportHtml),
+        );
+    }
     if all_rows.len() > 1 {
         if let Some(last) = bulk_items.pop() {
             items.push(last.separator());
@@ -1592,9 +1602,9 @@ fn apply_filter_for_value(
 mod tests {
     use super::{
         csv_quote, filter_panel_should_auto_open, filter_panel_should_collapse_after_clear,
-        format_all_rows_csv, format_all_rows_json, format_row_csv, format_row_edit_error,
-        result_error_message, result_status_text_for_display, should_render_result_status_chip,
-        should_show_cell_filter,
+        format_all_rows_csv, format_all_rows_json, format_all_rows_markdown, format_row_csv,
+        format_row_edit_error, result_error_message, result_status_text_for_display,
+        should_render_result_status_chip, should_show_cell_filter,
     };
     use crate::screens::workspace::actions::rows_toolbar_summary;
     use models::{QueryFilter, QueryFilterMode, QueryFilterOperator, QueryFilterRule};
@@ -1848,6 +1858,135 @@ mod tests {
         // Compact: no internal newlines or excessive whitespace.
         assert!(!output.contains('\n'));
         assert_eq!(output, r#"[{"a":"x"},{"a":"y"}]"#);
+    }
+
+    #[test]
+    fn format_all_rows_markdown_emits_header_separator_and_data_rows() {
+        let columns = vec!["name".to_string(), "age".to_string()];
+        let rows = vec![
+            vec!["Ada".to_string(), "36".to_string()],
+            vec!["Bob".to_string(), "40".to_string()],
+        ];
+        assert_eq!(
+            format_all_rows_markdown(&columns, &rows),
+            "| name | age |\n| --- | --- |\n| Ada | 36 |\n| Bob | 40 |"
+        );
+    }
+
+    #[test]
+    fn format_all_rows_markdown_emits_header_and_separator_only_when_no_rows() {
+        let columns = vec!["id".to_string(), "name".to_string()];
+        let rows: Vec<Vec<String>> = Vec::new();
+        assert_eq!(
+            format_all_rows_markdown(&columns, &rows),
+            "| id | name |\n| --- | --- |"
+        );
+    }
+
+    #[test]
+    fn format_all_rows_markdown_escapes_pipe_characters_in_cells() {
+        let columns = vec!["value".to_string()];
+        let rows = vec![vec!["a|b|c".to_string()]];
+        assert_eq!(
+            format_all_rows_markdown(&columns, &rows),
+            "| value |\n| --- |\n| a\\|b\\|c |"
+        );
+    }
+
+    #[test]
+    fn format_all_rows_markdown_escapes_pipe_characters_in_headers() {
+        let columns = vec!["col|name".to_string(), "ok".to_string()];
+        let rows = vec![vec!["v".to_string(), "w".to_string()]];
+        assert_eq!(
+            format_all_rows_markdown(&columns, &rows),
+            "| col\\|name | ok |\n| --- | --- |\n| v | w |"
+        );
+    }
+
+    #[test]
+    fn format_all_rows_markdown_replaces_newlines_with_br_tags() {
+        let columns = vec!["note".to_string()];
+        let rows = vec![vec!["line1\nline2\r\nline3".to_string()]];
+        // `\r` collapses to a space and `\n` becomes `<br>`, so the
+        // `\r\n` sequence in the middle renders as `<space><br>`.
+        assert_eq!(
+            format_all_rows_markdown(&columns, &rows),
+            "| note |\n| --- |\n| line1<br>line2 <br>line3 |"
+        );
+    }
+
+    #[test]
+    fn format_all_rows_markdown_replaces_lone_newlines_with_br_tags() {
+        let columns = vec!["note".to_string()];
+        let rows = vec![vec!["line1\nline2".to_string()]];
+        assert_eq!(
+            format_all_rows_markdown(&columns, &rows),
+            "| note |\n| --- |\n| line1<br>line2 |"
+        );
+    }
+
+    #[test]
+    fn format_all_rows_markdown_handles_single_column() {
+        let columns = vec!["only".to_string()];
+        let rows = vec![vec!["x".to_string()], vec!["y".to_string()]];
+        assert_eq!(
+            format_all_rows_markdown(&columns, &rows),
+            "| only |\n| --- |\n| x |\n| y |"
+        );
+    }
+
+    #[test]
+    fn format_all_rows_markdown_handles_empty_columns() {
+        let columns: Vec<String> = Vec::new();
+        let rows: Vec<Vec<String>> = Vec::new();
+        // Zero-column tables still render with the surrounding pipes —
+        // the cells just collapse to an empty join, which leaves the
+        // separator/row pipes intact.
+        assert_eq!(format_all_rows_markdown(&columns, &rows), "|  |\n|  |");
+    }
+
+    #[test]
+    fn format_all_rows_markdown_handles_empty_columns_with_rows() {
+        let columns: Vec<String> = Vec::new();
+        let rows = vec![vec![], vec![]];
+        assert_eq!(
+            format_all_rows_markdown(&columns, &rows),
+            "|  |\n|  |\n|  |\n|  |"
+        );
+    }
+
+    #[test]
+    fn format_all_rows_markdown_renders_cleanly_into_gfm_table() {
+        let columns = vec!["id".to_string(), "name".to_string(), "note".to_string()];
+        let rows = vec![
+            vec!["1".to_string(), "Ada".to_string(), "hello".to_string()],
+            vec![
+                "2".to_string(),
+                "Bob".to_string(),
+                "with | pipe".to_string(),
+            ],
+        ];
+        let output = format_all_rows_markdown(&columns, &rows);
+
+        let lines: Vec<&str> = output.split('\n').collect();
+        assert_eq!(lines.len(), 4);
+        assert_eq!(lines[0], "| id | name | note |");
+        assert_eq!(lines[1], "| --- | --- | --- |");
+        assert_eq!(lines[2], "| 1 | Ada | hello |");
+        assert_eq!(lines[3], "| 2 | Bob | with \\| pipe |");
+
+        for line in &lines {
+            assert!(line.starts_with('|'), "line {line:?} missing leading pipe");
+            assert!(line.ends_with('|'), "line {line:?} missing trailing pipe");
+            // GFM separator must contain exactly `---` cells.
+            if line.contains("---") {
+                let cells: Vec<&str> = line.trim_matches('|').split("|").collect();
+                assert_eq!(cells.len(), 3);
+                for cell in cells {
+                    assert_eq!(cell.trim(), "---");
+                }
+            }
+        }
     }
 }
 
@@ -2371,6 +2510,62 @@ fn format_all_rows_json(columns: &[String], rows: &[Vec<String>]) -> String {
         array.push(Value::Object(object));
     }
     serde_json::to_string(&Value::Array(array)).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// Escape a single Markdown table cell. The pipe `|` is the column
+/// separator, so any literal one has to be escaped to `\|` to keep the
+/// row shape intact. Embedded newlines are replaced with `<br>` so a
+/// multi-line value stays in a single row when rendered by GitHub or
+/// other GFM viewers; carriage returns collapse to a space because they
+/// have no Markdown equivalent and would otherwise produce an empty cell
+/// artifact.
+fn markdown_escape_cell(field: &str) -> String {
+    let mut escaped = String::with_capacity(field.len());
+    for character in field.chars() {
+        match character {
+            '|' => escaped.push_str(r"\|"),
+            '\n' => escaped.push_str("<br>"),
+            '\r' => escaped.push(' '),
+            other => escaped.push(other),
+        }
+    }
+    escaped
+}
+
+/// Serialize a full result page as a GitHub-flavored Markdown table:
+/// header row, separator row (`---` per column), and one row per record.
+/// Every cell is wrapped between pipes; embedded `|` characters are
+/// escaped to `\|` and embedded newlines to `<br>` so the row structure
+/// survives copy-paste into READMEs and other Markdown renderers. Empty
+/// input produces just the header and separator — same convention used
+/// by the CSV/JSON helpers.
+fn format_all_rows_markdown(columns: &[String], rows: &[Vec<String>]) -> String {
+    let header_cells = columns
+        .iter()
+        .map(|column| markdown_escape_cell(column))
+        .collect::<Vec<_>>();
+    let header = format!("| {} |", header_cells.join(" | "));
+
+    let separator_cells = vec!["---".to_string(); columns.len()];
+    let separator = format!("| {} |", separator_cells.join(" | "));
+
+    let body = rows
+        .iter()
+        .map(|row| {
+            let cells = row
+                .iter()
+                .map(|value| markdown_escape_cell(value))
+                .collect::<Vec<_>>();
+            format!("| {} |", cells.join(" | "))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    if body.is_empty() {
+        format!("{header}\n{separator}")
+    } else {
+        format!("{header}\n{separator}\n{body}")
+    }
 }
 
 fn detail_json_value(value: &str) -> Value {
