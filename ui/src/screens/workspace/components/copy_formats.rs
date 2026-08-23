@@ -9,8 +9,7 @@ pub fn format_row_json(columns: &[String], row: &[String]) -> String {
     serde_json::to_string_pretty(&Value::Object(object)).unwrap_or_else(|_| "{}".to_string())
 }
 
-/// Serialize a row as tab-separated values with a header line.
-/// The output is suitable for pasting into spreadsheets.
+/// Serialize a row as TSV (header + body), suitable for pasting into spreadsheets.
 pub fn format_row_tsv(columns: &[String], row: &[String]) -> String {
     let header = columns.join("\t");
     let body = row
@@ -21,11 +20,8 @@ pub fn format_row_tsv(columns: &[String], row: &[String]) -> String {
     format!("{header}\n{body}")
 }
 
-/// Quote a single CSV field per RFC 4180. The field is left bare when it
-/// contains none of the special characters; otherwise the field is wrapped
-/// in double quotes and any internal `"` is doubled. A trailing CR/LF is
-/// preserved inside the quoted form so that multi-line cells survive the
-/// round-trip.
+/// Quote a single CSV field per RFC 4180. A trailing CR/LF is preserved
+/// inside the quoted form so that multi-line cells survive the round-trip.
 pub fn csv_quote(field: &str) -> String {
     let needs_quote = field
         .as_bytes()
@@ -39,8 +35,7 @@ pub fn csv_quote(field: &str) -> String {
 }
 
 /// Serialize a row as a single CSV line. The header row is intentionally
-/// omitted — the single-row context menu item copies just the values so
-/// that a single copy-paste into a spreadsheet fills one cell range.
+/// omitted so a single copy-paste fills one cell range.
 pub fn format_row_csv(_columns: &[String], row: &[String]) -> String {
     row.iter()
         .map(|value| csv_quote(value))
@@ -48,10 +43,9 @@ pub fn format_row_csv(_columns: &[String], row: &[String]) -> String {
         .join(",")
 }
 
-/// Serialize a full result page as CSV: header row + one data row per
-/// record, with every field quoted per RFC 4180. Empty input produces a
-/// header line and nothing else, matching the convention used by the
-/// existing export pipeline.
+/// Serialize a full result page as CSV: header row + one data row per record,
+/// with every field quoted per RFC 4180. Empty input produces a header line
+/// and nothing else.
 pub fn format_all_rows_csv(columns: &[String], rows: &[Vec<String>]) -> String {
     let header = columns
         .iter()
@@ -75,8 +69,7 @@ pub fn format_all_rows_csv(columns: &[String], rows: &[Vec<String>]) -> String {
 }
 
 /// Serialize a full result page as a compact JSON array of objects.
-/// Empty input serializes to `[]`; the per-cell value coercion matches
-/// `format_row_json` so null/JSON-looking/strings stay consistent.
+/// Empty input serializes to `[]`; per-cell coercion matches `format_row_json`.
 pub fn format_all_rows_json(columns: &[String], rows: &[Vec<String>]) -> String {
     let mut array = Vec::with_capacity(rows.len());
     for row in rows {
@@ -111,11 +104,7 @@ pub fn markdown_escape_cell(field: &str) -> String {
 
 /// Serialize a full result page as a GitHub-flavored Markdown table:
 /// header row, separator row (`---` per column), and one row per record.
-/// Every cell is wrapped between pipes; embedded `|` characters are
-/// escaped to `\|` and embedded newlines to `<br>` so the row structure
-/// survives copy-paste into READMEs and other Markdown renderers. Empty
-/// input produces just the header and separator — same convention used
-/// by the CSV/JSON helpers.
+/// Empty input produces just the header and separator.
 pub fn format_all_rows_markdown(columns: &[String], rows: &[Vec<String>]) -> String {
     let header_cells = columns
         .iter()

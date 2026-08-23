@@ -11,8 +11,6 @@ pub fn status_bar_session_label(session_name: Option<&str>) -> String {
     }
 }
 
-/// Подпись активного подключения с типом БД, например "MyDB · PostgreSQL".
-/// Если сессии нет — "No connection".
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn status_bar_connection_label(name: Option<&str>, kind: Option<DatabaseKind>) -> String {
     match (name, kind) {
@@ -26,9 +24,6 @@ pub fn status_bar_session_count(count: usize) -> String {
     format!("Sessions {count}")
 }
 
-/// Текст сводки последнего запроса для статус-бара, например
-/// "Last: Loaded rows 1-50 · 12ms" или "Last: Error · 8ms".
-/// `None`, если запросов ещё не было.
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn status_bar_last_query(summary: Option<&LastQuerySummary>) -> Option<String> {
     let summary = summary?;

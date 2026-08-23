@@ -111,11 +111,8 @@ impl<T: Send + 'static> DialogBridge<T> {
     }
 }
 
-/// A snapshot of the settings the dialog window writes back to the main window.
-///
-/// `ui` covers the user-facing toggles (`AppUiSettings`) and `sql` covers the
-/// SQL formatter knobs (`SqlFormatSettings`). The main window receives one of
-/// these and applies it via the same setters used by the in-app modal.
+/// Snapshot of UI + SQL settings the settings dialog writes back to the main
+/// window.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SettingsSnapshot {
     pub ui: models::AppUiSettings,
@@ -124,10 +121,6 @@ pub struct SettingsSnapshot {
 
 /// Build a fresh `(DialogBridge<SettingsSnapshot>, Receiver<SettingsSnapshot>)`
 /// pair.
-///
-/// The main window passes the sender half (as a [`DialogBridge`]) to the
-/// dialog window via props, and keeps the receiver to apply incoming snapshots
-/// to its real global state.
 pub fn create_settings_bridge() -> (
     DialogBridge<SettingsSnapshot>,
     tokio::sync::mpsc::UnboundedReceiver<SettingsSnapshot>,
@@ -137,11 +130,6 @@ pub fn create_settings_bridge() -> (
 }
 
 /// Props for [`SettingsWindowRoot`].
-///
-/// The window mirrors the latest snapshot the user has committed into the
-/// bridge, but it needs an initial value to render before any edit happens —
-/// `initial_ui` / `initial_sql` are that seed. `bridge` carries every user
-/// edit back to the main window, which owns the real globals + persistence.
 #[derive(Props, Clone, PartialEq)]
 pub struct SettingsWindowRootProps {
     pub bridge: DialogBridge<SettingsSnapshot>,
@@ -149,17 +137,8 @@ pub struct SettingsWindowRootProps {
     pub initial_sql: models::SqlFormatSettings,
 }
 
-/// Open the settings window as a separate native OS window.
-///
-/// `bridge` is the sender half created by [`create_settings_bridge`] — the
-/// main window keeps the matching receiver and applies incoming snapshots to
-/// its real global state. `initial_ui` / `initial_sql` are the snapshots the
-/// main window currently holds; the new window uses them as its seed values
-/// so the user sees the current settings the moment the window opens.
-///
-/// Spawns a non-blocking task that builds a new [`VirtualDom`], configures a
-/// [`WindowBuilder`] with decorations enabled, and hands it to Dioxus via
-/// `DesktopContext::new_window`. The future resolves once the window is ready.
+/// Open the settings window as a separate native OS window, seeded from the
+/// main window's current settings and streaming edits back over `bridge`.
 pub fn open_settings_window(
     bridge: DialogBridge<SettingsSnapshot>,
     initial_ui: models::AppUiSettings,
@@ -193,15 +172,6 @@ fn settings_window_config() -> Config {
 }
 
 /// Root component for the settings window.
-///
-/// Mounts the prop-driven [`SettingsModal`] inside a `.settings-window-shell`
-/// wrapper. The shell just centers/fills the window; the modal content reuses
-/// its existing `.settings-modal` styles (already tokenized in
-/// `styles/components/_settings-modal.scss`). Two local signals mirror the
-/// current UI + SQL settings; every edit flows through both the local signal
-/// (so the field re-renders with the new value) and the [`DialogBridge`] (so
-/// the main window's globals stay in sync, triggering its persistence
-/// effects).
 #[component]
 pub fn SettingsWindowRoot(props: SettingsWindowRootProps) -> Element {
     let bridge = props.bridge;
@@ -247,13 +217,6 @@ pub fn SettingsWindowRoot(props: SettingsWindowRootProps) -> Element {
 // ---------------------------------------------------------------------------
 
 /// Snapshot the connection-edit dialog streams back to the main window on save.
-///
-/// The dialog calls `services::replace_connection_request` itself, then sends
-/// the resulting `SavedConnection` back over the bridge. The main window
-/// receives the snapshot in a `spawn`-ed receiver task, bumps the
-/// `saved_connections_revision` signal so the recent-connections list
-/// re-fetches, and writes a status message. The dialog window then closes
-/// itself.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ConnectionEditSnapshot {
     pub connection: models::SavedConnection,
@@ -261,10 +224,6 @@ pub struct ConnectionEditSnapshot {
 
 /// Build a fresh `(DialogBridge<ConnectionEditSnapshot>, Receiver)` pair for a
 /// single edit-window session.
-///
-/// The main window passes the sender half (as a [`DialogBridge`]) to the new
-/// dialog window via [`EditConnectionWindowRoot`] props, and keeps the
-/// receiver so it can apply the resulting snapshot to its local signals.
 pub fn create_connection_edit_bridge() -> (
     DialogBridge<ConnectionEditSnapshot>,
     tokio::sync::mpsc::UnboundedReceiver<ConnectionEditSnapshot>,
@@ -282,19 +241,8 @@ pub struct EditConnectionWindowRootProps {
     pub theme_class: String,
 }
 
-/// Open the connection-edit dialog as a separate native OS window.
-///
-/// `bridge` is the sender half created by [`create_connection_edit_bridge`] —
-/// the main window keeps the matching receiver and applies incoming
-/// snapshots to its `saved_connections_revision` signal + status display.
-/// `saved_connection` is the row the user picked from the recent-connections
-/// list; the dialog seeds its form fields from it. `theme_class` is the
-/// active theme the main window currently uses, so the dialog renders with
-/// matching CSS tokens.
-///
-/// Spawns a non-blocking task that builds a new [`VirtualDom`], configures a
-/// [`WindowBuilder`] with decorations enabled, and hands it to Dioxus via
-/// `DesktopContext::new_window`.
+/// Open the connection-edit dialog as a separate native OS window, seeding the
+/// form from `saved_connection` and streaming the saved result over `bridge`.
 pub fn open_connection_edit_window(
     bridge: DialogBridge<ConnectionEditSnapshot>,
     saved_connection: models::SavedConnection,
@@ -325,16 +273,6 @@ fn connection_edit_window_config() -> Config {
 }
 
 /// Root component for the connection-edit dialog window.
-///
-/// Wraps the prop-driven [`EditConnectionModal`] inside a themed
-/// `.connect-window-shell` so the form fields resolve to the right design
-/// tokens (the modal itself reuses `.settings-modal` / `.connect-form`
-/// styling). The modal is responsible for calling
-/// `services::replace_connection_request`; on success it fires `on_saved`
-/// with the updated `SavedConnection`, which this root forwards over the
-/// bridge and then closes the window. `on_close` covers the user-initiated
-/// dismiss paths (Cancel, X, backdrop click) — they close the window without
-/// sending a snapshot.
 #[component]
 pub fn EditConnectionWindowRoot(props: EditConnectionWindowRootProps) -> Element {
     let bridge = props.bridge;
@@ -363,14 +301,6 @@ pub fn EditConnectionWindowRoot(props: EditConnectionWindowRootProps) -> Element
 // ---------------------------------------------------------------------------
 
 /// Snapshot the create-table dialog streams back to the main window on save.
-///
-/// The dialog calls `services::create_table` itself using the connection the
-/// main window passed in via props. On success it fires `on_saved(())` and
-/// the window root sends an empty `CreateTableResult` over the bridge — the
-/// main window's receiver task uses it as the signal to bump
-/// `tree_reload += 1`. The dialog then closes itself. `on_close` covers the
-/// user-initiated dismiss paths (Close / Cancel / backdrop click) and
-/// closes the window without sending a result.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CreateTableResult {}
 
@@ -447,13 +377,6 @@ fn create_table_window_config() -> Config {
 }
 
 /// Root component for the create-table dialog window.
-///
-/// Wraps the prop-driven [`CreateTableModal`] in a themed shell so the
-/// design tokens resolve correctly. The connection is resolved by the main
-/// window (so this window's isolated globals never need it) and passed via
-/// `connection` prop. On save the root forwards an empty
-/// [`CreateTableResult`] over the bridge — the main window's receiver uses
-/// that to bump `tree_reload` and re-fetch the explorer.
 #[component]
 pub fn CreateTableWindowRoot(props: CreateTableWindowRootProps) -> Element {
     let bridge = props.bridge;
@@ -486,11 +409,6 @@ pub fn CreateTableWindowRoot(props: CreateTableWindowRootProps) -> Element {
 // ---------------------------------------------------------------------------
 
 /// Snapshot the duplicate-table dialog streams back to the main window on save.
-///
-/// Carries the qualified name of the newly created table so the main window
-/// can update its `selected_node` signal to point at the duplicate. The
-/// dialog then closes itself. `on_close` closes the window without
-/// sending a result.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DuplicateTableResult {
     pub new_qualified_name: String,
@@ -598,10 +516,6 @@ pub fn DuplicateTableWindowRoot(props: DuplicateTableWindowRootProps) -> Element
 // ---------------------------------------------------------------------------
 
 /// Props for [`ErDiagramWindowRoot`].
-///
-/// Data flows IN via props only — the window is view-only, so there is no
-/// [`DialogBridge`] to stream anything back. Closing the window calls
-/// `window().close()` directly.
 #[derive(Props, Clone, PartialEq)]
 pub struct ErDiagramWindowRootProps {
     pub diagram: ErDiagramState,
@@ -610,16 +524,6 @@ pub struct ErDiagramWindowRootProps {
 }
 
 /// Open the ER-diagram viewer as a separate native OS window.
-///
-/// The caller (main workspace window) builds the [`ErDiagramState`] from
-/// `tree_sections` + foreign keys, then hands the resolved value to a brand
-/// new [`VirtualDom`] here. The new window has its own globals
-/// ([`Signal::global`] values do not carry across windows), but does not need
-/// any — the diagram is fully encoded in the props.
-///
-/// Spawns a non-blocking task that configures a [`WindowBuilder`] with
-/// decorations enabled and hands it to Dioxus via
-/// `DesktopContext::new_window`.
 pub fn open_er_diagram_window(diagram: ErDiagramState, theme_class: String) {
     spawn(async move {
         let dom = VirtualDom::new_with_props(
@@ -645,12 +549,6 @@ fn er_diagram_window_config() -> Config {
 }
 
 /// Root component for the ER-diagram viewer window.
-///
-/// Mounts the prop-driven [`ErDiagramViewer`] inside a themed
-/// `.er-diagram-window-shell` so design tokens resolve correctly. The
-/// viewer's `on_close` simply calls `window().close()` — the main window no
-/// longer needs to flip a gate signal because the diagram lives in its own
-/// OS window.
 #[component]
 pub fn ErDiagramWindowRoot(props: ErDiagramWindowRootProps) -> Element {
     let diagram = props.diagram;
@@ -675,10 +573,6 @@ pub fn ErDiagramWindowRoot(props: ErDiagramWindowRootProps) -> Element {
 // ---------------------------------------------------------------------------
 
 /// Props for [`BlobWindowRoot`].
-///
-/// Data flows IN via props only — the window is view-only, so there is no
-/// [`DialogBridge`] to stream anything back. Closing the window calls
-/// `window().close()` directly.
 #[derive(Props, Clone, PartialEq)]
 pub struct BlobWindowRootProps {
     pub blob: BlobData,
@@ -687,11 +581,6 @@ pub struct BlobWindowRootProps {
 }
 
 /// Open the BLOB viewer as a separate native OS window.
-///
-/// The caller (main workspace window) builds the [`BlobData`] (raw bytes +
-/// optional MIME type), then hands the resolved value to a brand new
-/// [`VirtualDom`]. The new window does not need any globals — the blob is
-/// fully encoded in the props.
 pub fn open_blob_window(blob: BlobData, theme_class: String) {
     spawn(async move {
         let dom =
@@ -712,10 +601,6 @@ fn blob_window_config() -> Config {
 }
 
 /// Root component for the BLOB viewer window.
-///
-/// Mounts the prop-driven [`BlobViewer`] inside a themed
-/// `.blob-viewer-window-shell` so design tokens resolve correctly. The
-/// viewer's `on_close` simply calls `window().close()`.
 #[component]
 pub fn BlobWindowRoot(props: BlobWindowRootProps) -> Element {
     let blob = props.blob;
@@ -739,11 +624,6 @@ pub fn BlobWindowRoot(props: BlobWindowRootProps) -> Element {
 // ---------------------------------------------------------------------------
 
 /// Props for [`DataDiffWindowRoot`].
-///
-/// Data flows IN via props only — the window is view-only, so there is no
-/// [`DialogBridge`] to stream anything back. The two [`QueryPage`] values
-/// are the pinned result and the currently-displayed result the caller wants
-/// to compare; labels describe each side in the diff header.
 #[derive(Props, Clone, PartialEq)]
 pub struct DataDiffWindowRootProps {
     pub left: Option<QueryPage>,
@@ -755,11 +635,6 @@ pub struct DataDiffWindowRootProps {
 }
 
 /// Open the data-diff viewer as a separate native OS window.
-///
-/// The caller (result table in the main workspace window) hands the
-/// already-resolved left/right [`QueryPage`] values plus their labels to a
-/// brand new [`VirtualDom`]. The diff itself is computed inside the window
-/// via the existing `calculate_diff` helper, so no extra plumbing is needed.
 pub fn open_data_diff_window(
     left: Option<QueryPage>,
     right: Option<QueryPage>,
@@ -794,12 +669,6 @@ fn data_diff_window_config() -> Config {
 }
 
 /// Root component for the data-diff viewer window.
-///
-/// Mounts the prop-driven [`DataDiffViewer`] inside a themed
-/// `.data-diff-window-shell` so design tokens resolve correctly. The
-/// viewer's `on_close` simply calls `window().close()` — the main window no
-/// longer needs to flip a `show_compare` gate signal because the diff lives
-/// in its own OS window.
 #[component]
 pub fn DataDiffWindowRoot(props: DataDiffWindowRootProps) -> Element {
     let left = props.left;

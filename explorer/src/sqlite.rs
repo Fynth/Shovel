@@ -243,14 +243,13 @@ pub async fn load_connection_tree_sqlite(
             row_count: None,
             children: Vec::new(),
         };
-        let node = match node.kind {
-            ExplorerNodeKind::Table => ExplorerNode {
+        let node = if node.kind == ExplorerNodeKind::Table {
+            ExplorerNode {
                 row_count: sqlite_table_row_count(pool, &node.name).await,
                 ..node
-            },
-            ExplorerNodeKind::View => node,
-            ExplorerNodeKind::Trigger => node,
-            _ => node,
+            }
+        } else {
+            node
         };
         match node.kind {
             ExplorerNodeKind::Table => tables.push(node),

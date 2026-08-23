@@ -140,9 +140,6 @@ pub fn Toolbar() -> Element {
 fn open_settings_window() {
     let (bridge, mut rx) = windows::create_settings_bridge();
 
-    // Receiver task: applies incoming snapshots to the real globals on the
-    // main window. The main window's persistence effects (app.rs) will then
-    // write the new values to disk — no extra persistence code needed here.
     spawn(async move {
         while let Some(snapshot) = rx.recv().await {
             replace_ui_settings(snapshot.ui.clone());
