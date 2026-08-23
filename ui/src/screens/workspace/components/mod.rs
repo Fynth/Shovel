@@ -2,6 +2,7 @@ pub(crate) mod agent_panel;
 mod batch_results;
 mod blob_viewer;
 mod chart;
+mod copy_formats;
 mod data_diff;
 mod er_diagram;
 mod execution_plan;

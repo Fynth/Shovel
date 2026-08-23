@@ -407,6 +407,7 @@ fn embedding_to_bytes(embedding: &[f32]) -> Vec<u8> {
 
 /// Convert bytes back to f32 embedding vector
 #[allow(dead_code)]
+#[allow(clippy::chunks_exact_to_as_chunks)]
 fn bytes_to_embedding(bytes: &[u8]) -> Result<Vec<f32>, String> {
     if !bytes.len().is_multiple_of(4) {
         return Err("invalid embedding bytes length".to_string());
