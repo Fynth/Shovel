@@ -179,7 +179,27 @@ pub fn ResultTable(
     let mut row_details_view = use_signal(|| RowDetailsView::Fields);
     let mut editing_row_values = use_signal(Vec::<(usize, String)>::new);
     let mut editing_row_ref = use_signal(|| None::<EditableRowRef>);
-    let mut display_rows_cache = use_signal(Vec::<DisplayRow>::new);
+    // Materialized only when the active tab's result or pending changes change,
+    // not after every render (scroll, selection, hover). `use_memo` auto-tracks
+    // the `tabs`/`active_tab_id()` reads, so this recomputes on dependency change
+    // instead of on every render cycle like a `use_effect` would.
+    let display_rows_cache = use_memo(move || {
+        let tab = tabs
+            .read()
+            .iter()
+            .find(|tab| tab.id == active_tab_id())
+            .cloned();
+        let result = tab.as_ref().and_then(|t| t.result.clone());
+        let pending = tab
+            .as_ref()
+            .map(|t| t.pending_table_changes.clone())
+            .unwrap_or_default();
+
+        match result.as_ref() {
+            Some(QueryOutput::Table(page)) => materialize_display_rows(page, &pending),
+            _ => Vec::new(),
+        }
+    });
     let mut details_width = use_signal(|| 360.0);
     let mut details_resize_active = use_signal(|| false);
     let mut resize_start_x = use_signal(|| 0.0_f64);
@@ -240,24 +260,6 @@ pub fn ResultTable(
         let _ = crate::app_state::APP_FOCUS_FILTER_PANEL_REQUEST();
         if filter_enabled {
             filter_panel_open.set(true);
-        }
-    });
-
-    use_effect(move || {
-        let tab = tabs
-            .read()
-            .iter()
-            .find(|tab| tab.id == active_tab_id())
-            .cloned();
-        let result = tab.as_ref().and_then(|t| t.result.clone());
-        let pending = tab
-            .as_ref()
-            .map(|t| t.pending_table_changes.clone())
-            .unwrap_or_default();
-
-        if let Some(QueryOutput::Table(page)) = result.as_ref() {
-            let rows = materialize_display_rows(page, &pending);
-            display_rows_cache.set(rows);
         }
     });
 
@@ -1510,8 +1512,8 @@ fn apply_filter_for_value(
 mod tests {
     use super::{
         filter_panel_should_auto_open, filter_panel_should_collapse_after_clear,
-        format_row_edit_error, result_error_message,
-        result_status_text_for_display, should_render_result_status_chip,
+        format_row_edit_error, result_error_message, result_status_text_for_display,
+        should_render_result_status_chip,
     };
     use crate::screens::workspace::actions::rows_toolbar_summary;
     use models::{QueryFilter, QueryFilterMode, QueryFilterOperator, QueryFilterRule};

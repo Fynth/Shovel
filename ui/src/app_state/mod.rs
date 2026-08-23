@@ -59,8 +59,21 @@ pub struct ExplorerCacheEntry {
 
 impl ExplorerCacheEntry {
     fn is_expired(&self) -> bool {
-        self.timestamp.elapsed() > EXPLORER_CACHE_TTL
+        self.is_expired_at(std::time::Instant::now())
     }
+
+    fn is_expired_at(&self, now: std::time::Instant) -> bool {
+        now.duration_since(self.timestamp) > EXPLORER_CACHE_TTL
+    }
+}
+
+/// Sweep expired entries in place; returns how many were evicted.
+/// A full sweep on every insert is cheap: the map holds at most one
+/// entry per live session.
+fn prune_expired(cache: &mut HashMap<u64, ExplorerCacheEntry>, now: std::time::Instant) -> usize {
+    let before = cache.len();
+    cache.retain(|_, entry| !entry.is_expired_at(now));
+    before - cache.len()
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -295,16 +308,32 @@ pub fn set_deepseek_reasoning_effort(reasoning_effort: String) {
     });
 }
 
+/// Dioxus 0.7 writes notify subscribers even when the value is unchanged.
+/// Since every `set_*` toggle funnels through `update_ui_settings`, writing
+/// every mirror signal here would re-render the whole `.app` subtree on a
+/// single panel toggle. Guarding equality scopes re-renders to changed panels.
+fn sync_bool(signal: &GlobalSignal<bool>, new: bool) {
+    if *signal.peek() != new {
+        *signal.write() = new;
+    }
+}
+
 fn sync_runtime_ui_settings(settings: &AppUiSettings) {
-    *APP_THEME.write() = settings.theme.css_class().to_string();
-    *APP_AI_FEATURES_ENABLED.write() = settings.ai_features_enabled;
-    *APP_READ_ONLY_MODE.write() = settings.read_only_mode;
-    *APP_SHOW_SAVED_QUERIES.write() = settings.show_saved_queries;
-    *APP_SHOW_CONNECTIONS.write() = settings.show_connections;
-    *APP_SHOW_EXPLORER.write() = settings.show_explorer;
-    *APP_SHOW_HISTORY.write() = settings.show_history;
-    *APP_SHOW_SQL_EDITOR.write() = settings.show_sql_editor;
-    *APP_SHOW_AGENT_PANEL.write() = settings.ai_features_enabled && settings.show_agent_panel;
+    let theme_class = settings.theme.css_class().to_string();
+    if *APP_THEME.peek() != theme_class {
+        *APP_THEME.write() = theme_class;
+    }
+    sync_bool(&APP_AI_FEATURES_ENABLED, settings.ai_features_enabled);
+    sync_bool(&APP_READ_ONLY_MODE, settings.read_only_mode);
+    sync_bool(&APP_SHOW_SAVED_QUERIES, settings.show_saved_queries);
+    sync_bool(&APP_SHOW_CONNECTIONS, settings.show_connections);
+    sync_bool(&APP_SHOW_EXPLORER, settings.show_explorer);
+    sync_bool(&APP_SHOW_HISTORY, settings.show_history);
+    sync_bool(&APP_SHOW_SQL_EDITOR, settings.show_sql_editor);
+    sync_bool(
+        &APP_SHOW_AGENT_PANEL,
+        settings.ai_features_enabled && settings.show_agent_panel,
+    );
     crate::screens::workspace::components::agent_panel::prompt::sync_ai_response_language(
         settings.ai_response_language.clone(),
     );
@@ -615,6 +644,7 @@ pub async fn cache_explorer(
     sections: Vec<crate::screens::workspace::ExplorerConnectionSection>,
 ) {
     let mut cache = EXPLORER_CACHE.write().await;
+    prune_expired(&mut cache, std::time::Instant::now());
     cache.insert(
         session_id,
         ExplorerCacheEntry {
@@ -622,4 +652,60 @@ pub async fn cache_explorer(
             timestamp: std::time::Instant::now(),
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(timestamp: std::time::Instant) -> ExplorerCacheEntry {
+        ExplorerCacheEntry {
+            sections: Vec::new(),
+            timestamp,
+        }
+    }
+
+    #[test]
+    fn is_expired_at_respects_ttl_boundary() {
+        let now = std::time::Instant::now();
+        assert!(!entry(now).is_expired_at(now));
+        let within_ttl = now - (EXPLORER_CACHE_TTL - Duration::from_millis(1));
+        assert!(!entry(within_ttl).is_expired_at(now));
+        let just_past = now - (EXPLORER_CACHE_TTL + Duration::from_millis(1));
+        assert!(entry(just_past).is_expired_at(now));
+    }
+
+    #[test]
+    fn prune_expired_removes_only_stale_entries() {
+        let now = std::time::Instant::now();
+        let mut cache = HashMap::from([
+            (
+                1u64,
+                entry(now - (EXPLORER_CACHE_TTL + Duration::from_secs(1))),
+            ),
+            (2u64, entry(now - Duration::from_secs(1))),
+            (3u64, entry(now)),
+        ]);
+        assert_eq!(prune_expired(&mut cache, now), 1);
+        assert_eq!(cache.len(), 2);
+        assert!(cache.contains_key(&2));
+        assert!(cache.contains_key(&3));
+    }
+
+    #[test]
+    fn prune_expired_evicts_everything_when_all_stale() {
+        let now = std::time::Instant::now();
+        let mut cache = HashMap::from([
+            (
+                1u64,
+                entry(now - (EXPLORER_CACHE_TTL + Duration::from_secs(10))),
+            ),
+            (
+                2u64,
+                entry(now - (EXPLORER_CACHE_TTL + Duration::from_secs(5))),
+            ),
+        ]);
+        assert_eq!(prune_expired(&mut cache, now), 2);
+        assert!(cache.is_empty());
+    }
 }

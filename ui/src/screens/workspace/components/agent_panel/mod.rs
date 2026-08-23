@@ -90,7 +90,8 @@ pub fn AcpAgentPanel(
                 .and_then(|agents| agents.iter().find(|agent| agent.id == agent_id))
                 .cloned()
         });
-    let deepseek_settings = APP_UI_SETTINGS().deepseek;
+    let deepseek_settings = use_memo(move || APP_UI_SETTINGS().deepseek);
+    let deepseek_settings = deepseek_settings();
     let visible_messages = state
         .messages
         .clone()
