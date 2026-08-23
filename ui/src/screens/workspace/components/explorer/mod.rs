@@ -121,6 +121,7 @@ pub fn SidebarConnectionTree(
                                 active_tab_id,
                                 next_tab_id,
                                 selected_node,
+                                query: query.clone(),
                             }
                         }
                     }
@@ -387,7 +388,7 @@ fn filter_node(node: &ExplorerNode, query: &str) -> Option<ExplorerNode> {
         | ExplorerNodeKind::Function
         | ExplorerNodeKind::Procedure
         | ExplorerNodeKind::Trigger => {
-            if matches_query(&node.name, query) || matches_query(&node.qualified_name, query) {
+            if object_matches_query(node, query) {
                 Some(node.clone())
             } else {
                 None
@@ -396,15 +397,99 @@ fn filter_node(node: &ExplorerNode, query: &str) -> Option<ExplorerNode> {
     }
 }
 
+/// True when any of the object's identifiers (short name, schema,
+/// driver-quoted qualified name, or a plain `schema.table` form) contains
+/// the query as a case-insensitive substring. Matches like
+/// `users`, `public`, `public.users`, or `users.id` should all hit a
+/// table named `users` under schema `public`.
+fn object_matches_query(node: &ExplorerNode, query: &str) -> bool {
+    if matches_query(&node.name, query) {
+        return true;
+    }
+    if matches_query(&node.qualified_name, query) {
+        return true;
+    }
+    if let Some(schema) = node.schema.as_deref() {
+        if matches_query(schema, query) {
+            return true;
+        }
+        let dotted = format!("{schema}.{}", node.name);
+        if matches_query(&dotted, query) {
+            return true;
+        }
+    }
+    false
+}
+
 fn matches_query(value: &str, query: &str) -> bool {
     value.to_ascii_lowercase().contains(query)
+}
+
+/// Splits `name` into alternating non-match/match segments so the UI can
+/// render each matched substring inside a highlighted span. Matched
+/// substrings are determined by a case-insensitive `contains` scan, so
+/// the segments preserve the original casing of `name` for display.
+///
+/// Edge cases:
+/// - empty or whitespace-only query returns one segment with `is_match = false`
+/// - query not present returns one segment with `is_match = false`
+/// - all-ASCII query is fine; non-ASCII in either side falls back to the
+///   plain single-segment result (to_ascii_lowercase is byte-orientated).
+pub(super) fn split_match(name: &str, query: &str) -> Vec<(String, bool)> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return vec![(name.to_string(), false)];
+    }
+    let needle = trimmed.to_ascii_lowercase();
+    let haystack = name.to_ascii_lowercase();
+    if needle.is_empty() {
+        return vec![(name.to_string(), false)];
+    }
+
+    let mut out: Vec<(String, bool)> = Vec::new();
+    let mut cursor = 0usize;
+    while let Some(rel) = haystack[cursor..].find(&needle) {
+        let start = cursor + rel;
+        let end = start + needle.len();
+        if start > cursor {
+            out.push((name[cursor..start].to_string(), false));
+        }
+        out.push((name[start..end].to_string(), true));
+        cursor = end;
+    }
+    if cursor < name.len() {
+        out.push((name[cursor..].to_string(), false));
+    }
+    if out.is_empty() {
+        out.push((name.to_string(), false));
+    }
+    out
+}
+
+/// Renders `name` in RSX with each matched segment (per `split_match`)
+/// wrapped in a `.tree__match` span. Returns an empty fragment when no
+/// segments are produced (only happens for an empty `name`).
+pub(super) fn highlight_match_segments(name: &str, query: &str) -> Element {
+    let segments = split_match(name, query);
+    if segments.is_empty() {
+        return rsx! {};
+    }
+    rsx! {
+        for (i, (text, is_match)) in segments.into_iter().enumerate() {
+            if is_match {
+                span { key: "m{i}", class: "tree__match", "{text}" }
+            } else if !text.is_empty() {
+                span { key: "t{i}", "{text}" }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
         ExplorerConnectionSection, ExplorerNodeKind, filter_connection_sections, filter_node,
-        filter_nodes, matches_query,
+        filter_nodes, matches_query, split_match,
     };
     use models::ExplorerNode;
 
@@ -695,5 +780,129 @@ mod tests {
         assert_eq!(result[0].children.len(), 1);
         assert_eq!(result[0].children[0].name, "active_sessions");
         assert_eq!(result[0].children[0].kind, ExplorerNodeKind::View);
+    }
+
+    #[test]
+    fn filter_matches_unquoted_qualified_form() {
+        // Stored qualified_name is driver-quoted ("public"."users");
+        // the unquoted "public.users" should still hit via the
+        // schema.table probe added in object_matches_query.
+        let schema = make_node(
+            "public",
+            ExplorerNodeKind::Schema,
+            vec![make_node("users", ExplorerNodeKind::Table, vec![])],
+        );
+        let sections = vec![make_section("db", vec![schema])];
+
+        let result = filter_connection_sections(&sections, "public.users");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].nodes[0].children.len(), 1);
+        assert_eq!(result[0].nodes[0].children[0].name, "users");
+    }
+
+    #[test]
+    fn filter_matches_schema_alone() {
+        // Typing just the schema name surfaces every object under it
+        // (DBeaver treats schemas as first-class search hits).
+        let analytics = make_node(
+            "analytics",
+            ExplorerNodeKind::Schema,
+            vec![
+                make_node("events", ExplorerNodeKind::Table, vec![]),
+                make_node("sessions", ExplorerNodeKind::Table, vec![]),
+            ],
+        );
+        let public = make_node(
+            "public",
+            ExplorerNodeKind::Schema,
+            vec![make_node("users", ExplorerNodeKind::Table, vec![])],
+        );
+        let sections = vec![make_section("db", vec![analytics, public])];
+
+        let result = filter_connection_sections(&sections, "analytics");
+        assert_eq!(result.len(), 1);
+        let schema = &result[0].nodes[0];
+        assert_eq!(schema.name, "analytics");
+        assert_eq!(schema.children.len(), 2);
+    }
+
+    #[test]
+    fn filter_matches_name_substring_in_qualified_form() {
+        // "public.user" crosses the schema/table boundary, so it only
+        // matches when we also probe the joined "public.users" form
+        // (the bare short-name "user" alone would not match "users").
+        let schema = make_node(
+            "public",
+            ExplorerNodeKind::Schema,
+            vec![
+                make_node("users", ExplorerNodeKind::Table, vec![]),
+                make_node("orders", ExplorerNodeKind::Table, vec![]),
+            ],
+        );
+        let sections = vec![make_section("db", vec![schema])];
+
+        let result = filter_connection_sections(&sections, "public.user");
+        assert_eq!(result.len(), 1);
+        let children = &result[0].nodes[0].children;
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].name, "users");
+    }
+
+    #[test]
+    fn split_match_is_case_insensitive_and_preserves_casing() {
+        // Original-cased "Users" matched against lowercase "user" should
+        // highlight the first 4-char substring, preserving its casing
+        // verbatim, and leave the trailing "s" unmatched.
+        let segments = split_match("Users", "user");
+        assert_eq!(
+            segments,
+            vec![("User".to_string(), true), ("s".to_string(), false)]
+        );
+    }
+
+    #[test]
+    fn split_match_handles_multiple_occurrences() {
+        // Non-overlapping left-to-right scan of "user_users_user" against
+        // the 4-char needle "user" yields 3 matches with the lone "s" of
+        // the middle "users" between match 1 and match 2.
+        let segments = split_match("user_users_user", "user");
+        assert_eq!(
+            segments,
+            vec![
+                ("user".to_string(), true),
+                ("_".to_string(), false),
+                ("user".to_string(), true),
+                ("s_".to_string(), false),
+                ("user".to_string(), true),
+            ]
+        );
+    }
+
+    #[test]
+    fn split_match_returns_single_segment_on_no_match() {
+        let segments = split_match("orders", "user");
+        assert_eq!(segments, vec![("orders".to_string(), false)]);
+    }
+
+    #[test]
+    fn split_match_returns_single_segment_on_empty_query() {
+        let segments = split_match("orders", "");
+        assert_eq!(segments, vec![("orders".to_string(), false)]);
+
+        let whitespace = split_match("orders", "   ");
+        assert_eq!(whitespace, vec![("orders".to_string(), false)]);
+    }
+
+    #[test]
+    fn split_match_splits_inside_name() {
+        let segments = split_match("order_items", "item");
+        assert_eq!(
+            segments,
+            vec![
+                ("order_".to_string(), false),
+                ("item".to_string(), true),
+                ("s".to_string(), false),
+            ]
+        );
     }
 }

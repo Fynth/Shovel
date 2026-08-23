@@ -2302,6 +2302,15 @@ select.input:focus-visible {
   font-size: 10px;
 }
 
+.tree__match {
+  border-radius: 4px;
+  padding: 0 2px;
+  margin: 0 -2px;
+  background: color-mix(in srgb, var(--color-primary) 32%, transparent);
+  color: var(--color-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 42%, transparent);
+}
+
 .session-list {
   min-height: 0;
   height: 100%;

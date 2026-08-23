@@ -1,5 +1,6 @@
 use super::{
-    count_objects, disconnect_session, duplicate_table_modal::DuplicateTableTarget, split_children,
+    count_objects, disconnect_session, duplicate_table_modal::DuplicateTableTarget,
+    highlight_match_segments, split_children,
 };
 use crate::{
     app_state::{
@@ -35,6 +36,7 @@ pub(super) fn ExplorerConnectionView(
     active_tab_id: Signal<u64>,
     next_tab_id: Signal<u64>,
     selected_node: Signal<String>,
+    query: String,
 ) -> Element {
     let mut expanded = use_signal(|| true);
     let object_count = count_objects(&section.nodes);
@@ -110,6 +112,7 @@ pub(super) fn ExplorerConnectionView(
                                 active_tab_id,
                                 next_tab_id,
                                 selected_node,
+                                query: query.clone(),
                             }
                         }
                     }
@@ -128,6 +131,7 @@ fn ExplorerSchemaView(
     active_tab_id: Signal<u64>,
     next_tab_id: Signal<u64>,
     selected_node: Signal<String>,
+    query: String,
 ) -> Element {
     let mut expanded = use_signal(|| true);
     let groups = split_children(&node.children);
@@ -170,6 +174,7 @@ fn ExplorerSchemaView(
                             active_tab_id,
                             next_tab_id,
                             selected_node,
+                            query: query.clone(),
                         }
                     }
                 }
@@ -188,6 +193,7 @@ fn ExplorerGroupView(
     active_tab_id: Signal<u64>,
     next_tab_id: Signal<u64>,
     selected_node: Signal<String>,
+    query: String,
 ) -> Element {
     rsx! {
         div { class: "tree__group",
@@ -202,6 +208,7 @@ fn ExplorerGroupView(
                         active_tab_id,
                         next_tab_id,
                         selected_node,
+                        query: query.clone(),
                     }
                 }
             }
@@ -218,6 +225,7 @@ fn ExplorerObjectRow(
     active_tab_id: Signal<u64>,
     next_tab_id: Signal<u64>,
     mut selected_node: Signal<String>,
+    query: String,
 ) -> Element {
     let table_mutation_inflight = use_signal(|| None::<TableMutationKind>);
     let acp_ctx = use_context::<WorkspaceAcpContext>();
@@ -347,7 +355,7 @@ fn ExplorerObjectRow(
                     div {
                         class: "tree__object-name",
                         title: "{node.qualified_name}",
-                        "{node.name}"
+                        {highlight_match_segments(&node.name, &query)}
                     }
                     div { class: "tree__object-kind", "{kind_label}" }
                 }
