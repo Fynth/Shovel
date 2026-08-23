@@ -7,14 +7,16 @@
   border-radius: 999px;
   cursor: col-resize;
   background: transparent;
-  transition: background 120ms ease;
+  transition:
+    background $motion-fast ease,
+    box-shadow $motion-fast ease;
 }
 
 .workspace__resize-handle::after {
   content: "";
   position: absolute;
-  top: 8px;
-  bottom: 8px;
+  top: $spacing-md;
+  bottom: $spacing-md;
   left: 50%;
   width: 3px;
   transform: translateX(-50%);
@@ -25,11 +27,17 @@
       color-mix(in srgb, var(--color-border-strong) 92%, transparent),
       color-mix(in srgb, var(--color-border) 68%, transparent)
     );
+  transition: background $motion-fast ease;
 }
 
+// Hover + active feedback uses --color-primary (active tint) and a
+// token-driven halo so the resize handle is discoverable without changing
+// the layout grid (the 6px column track stays put).
 .workspace__resize-handle:hover,
 .workspace__resize-handle--active {
   background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 18%, transparent);
 }
 
 .workspace__resize-handle:hover::after,

@@ -240,7 +240,7 @@
   flex-shrink: 0;
   color: var(--color-text-dim);
   transform: rotate(0deg);
-  transition: transform 120ms ease;
+  transition: transform $motion-fast ease;
 }
 
 .tree__chevron--open {
@@ -342,7 +342,7 @@
   display: flex;
   align-items: center;
   opacity: 0;
-  transition: opacity 120ms ease;
+  transition: opacity $motion-fast ease;
 
   .button--icon {
     width: 30px;

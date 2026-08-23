@@ -8,6 +8,10 @@
   cursor: grabbing;
 }
 
+// Panel inner spacing (5px) sits between $spacing-xs (3px) and $spacing-sm
+// (6px) and is intentional — it gives the dock panels a slightly tighter
+// rhythm than the surrounding sidebar/inspector chrome. Kept raw with
+// justification rather than introducing a new token.
 .workspace__panel {
   flex: 0 1 auto;
   display: flex;
@@ -52,7 +56,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: $spacing-sm;
   overflow: hidden;
 }
 
@@ -130,9 +134,10 @@
   border-radius: 999px;
   border: 1px dashed transparent;
   transition:
-    min-height 120ms ease,
-    border-color 120ms ease,
-    background 120ms ease;
+    min-height $motion-fast ease,
+    border-color $motion-fast ease,
+    background $motion-fast ease,
+    box-shadow $motion-fast ease;
 }
 
 .workspace__dock-dropzone--active {
@@ -144,6 +149,11 @@
       color-mix(in srgb, var(--color-primary) 16%, transparent),
       color-mix(in srgb, var(--color-primary) 9%, transparent)
     );
+  // Token-based ring: keeps the drop-zone affordance consistent with the
+  // focus-ring token (var(--color-primary) + soft halo).
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-primary) 36%, transparent),
+    0 0 14px color-mix(in srgb, var(--color-primary) 22%, transparent);
 }
 
 .workspace__dock-dropzone--empty {
@@ -168,12 +178,12 @@
 .workspace__panel-header {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: $spacing-2xs;
 }
 
 .workspace__panel-header-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: $spacing-md;
 }

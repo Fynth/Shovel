@@ -271,6 +271,12 @@ textarea {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.workspace--sidebar-hidden .workspace__sidebar {
+  opacity: 0;
+  transform: translateX(-6px);
+  pointer-events: none;
+}
+
 .workspace__sidebar {
   min-width: 0;
   display: flex;
@@ -281,6 +287,9 @@ textarea {
   box-shadow: inset 0 1px 0 var(--glass-highlight), var(--shadow-panel);
   backdrop-filter: blur(28px) saturate(150%);
   overflow: hidden;
+  opacity: 1;
+  transform: translateX(0);
+  transition: opacity 180ms ease, transform 180ms ease;
 }
 
 .workspace__sidebar-body {
@@ -618,13 +627,14 @@ textarea {
   min-height: 4px;
   border-radius: 999px;
   border: 1px dashed transparent;
-  transition: min-height 120ms ease, border-color 120ms ease, background 120ms ease;
+  transition: min-height 100ms ease, border-color 100ms ease, background 100ms ease, box-shadow 100ms ease;
 }
 
 .workspace__dock-dropzone--active {
   min-height: 16px;
   border-color: color-mix(in srgb, var(--color-primary) 64%, white 8%);
   background: linear-gradient(180deg, color-mix(in srgb, var(--color-primary) 16%, transparent), color-mix(in srgb, var(--color-primary) 9%, transparent));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 36%, transparent), 0 0 14px color-mix(in srgb, var(--color-primary) 22%, transparent);
 }
 
 .workspace__dock-dropzone--empty {
@@ -660,7 +670,7 @@ textarea {
   border-radius: 999px;
   cursor: col-resize;
   background: transparent;
-  transition: background 120ms ease;
+  transition: background 100ms ease, box-shadow 100ms ease;
 }
 
 .workspace__resize-handle::after {
@@ -673,11 +683,13 @@ textarea {
   transform: translateX(-50%);
   border-radius: 999px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--color-border-strong) 92%, transparent), color-mix(in srgb, var(--color-border) 68%, transparent));
+  transition: background 100ms ease;
 }
 
 .workspace__resize-handle:hover,
 .workspace__resize-handle--active {
   background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 18%, transparent);
 }
 
 .workspace__resize-handle:hover::after,
@@ -978,7 +990,7 @@ textarea {
   cursor: pointer;
   box-shadow: inset 0 1px 0 var(--glass-highlight), 0 8px 20px rgba(8, 10, 20, 0.1);
   backdrop-filter: blur(16px) saturate(135%);
-  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  transition: background-color 100ms ease, color 100ms ease, border-color 100ms ease, box-shadow 100ms ease;
 }
 .button:hover:not(:disabled) {
   background: var(--color-hover);
@@ -988,7 +1000,7 @@ textarea {
 }
 .button:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--color-focus);
+  box-shadow: var(--focus-ring);
 }
 .button:disabled {
   cursor: default;
@@ -1099,7 +1111,7 @@ textarea {
   color: var(--color-text);
   box-shadow: inset 0 1px 0 var(--glass-highlight), 0 10px 24px rgba(2, 8, 20, 0.08);
   backdrop-filter: blur(14px) saturate(130%);
-  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+  transition: border-color 100ms ease, box-shadow 100ms ease, background-color 100ms ease;
 }
 .input::placeholder {
   color: var(--color-text-dim);
@@ -1109,7 +1121,8 @@ textarea {
 }
 .input:focus-visible {
   border-color: var(--color-primary);
-  box-shadow: inset 0 1px 0 var(--glass-highlight), 0 0 0 1px color-mix(in srgb, var(--color-primary) 28%, transparent), 0 0 0 5px color-mix(in srgb, var(--color-primary) 15%, transparent), 0 16px 32px rgba(2, 8, 20, 0.1);
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 textarea.input {
@@ -1134,7 +1147,7 @@ select.input:hover {
 
 select.input:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--color-focus);
+  box-shadow: var(--focus-ring);
 }
 
 .settings-modal__backdrop {
@@ -1245,7 +1258,7 @@ select.input:focus-visible {
 }
 .settings-modal__segmented .button:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--color-focus);
+  box-shadow: var(--focus-ring);
 }
 
 .settings-modal__grid {
@@ -1281,7 +1294,7 @@ select.input:focus-visible {
 }
 .settings-modal__toggle:has(input:focus-visible) {
   outline: none;
-  box-shadow: 0 0 0 2px var(--color-focus);
+  box-shadow: var(--focus-ring);
 }
 .settings-modal__toggle--disabled {
   opacity: 0.55;
@@ -1799,7 +1812,7 @@ select.input:focus-visible {
   border-radius: 13px 13px 0 0;
   color: var(--color-text-muted);
   cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  transition: background-color 100ms ease, color 100ms ease, border-color 100ms ease, box-shadow 100ms ease;
   flex: 0 0 auto;
 }
 .tabbar__tab:hover:not(:disabled),
@@ -1813,7 +1826,7 @@ select.input:focus-visible {
 .tabbar__tab:focus-visible,
 .tabbar__add:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--color-focus);
+  box-shadow: var(--focus-ring);
 }
 
 .tabbar__tab--active {
@@ -1866,7 +1879,7 @@ select.input:focus-visible {
   border-radius: 999px;
   color: var(--color-text-dim);
   cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  transition: background-color 100ms ease, color 100ms ease, border-color 100ms ease, box-shadow 100ms ease;
   background: transparent;
   border: none;
 }
@@ -1878,7 +1891,7 @@ select.input:focus-visible {
 }
 .tabbar__close:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--color-focus);
+  box-shadow: var(--focus-ring);
 }
 
 @media (max-width: 760px) {
@@ -1991,7 +2004,7 @@ select.input:focus-visible {
   color: var(--color-text);
   text-align: left;
   cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  transition: background-color 100ms ease, color 100ms ease, border-color 100ms ease, box-shadow 100ms ease;
 }
 .tree__connection-toggle:hover:not(:disabled) {
   background: var(--color-hover);
@@ -2001,7 +2014,7 @@ select.input:focus-visible {
 }
 .tree__connection-toggle:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--color-focus);
+  box-shadow: var(--focus-ring);
 }
 
 .tree__connection-actions {
@@ -2100,7 +2113,7 @@ select.input:focus-visible {
   color: var(--color-text);
   text-align: left;
   cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  transition: background-color 100ms ease, color 100ms ease, border-color 100ms ease, box-shadow 100ms ease;
 }
 .tree__schema-toggle:hover:not(:disabled) {
   background: var(--color-hover);
@@ -2110,14 +2123,14 @@ select.input:focus-visible {
 }
 .tree__schema-toggle:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--color-focus);
+  box-shadow: var(--focus-ring);
 }
 
 .tree__chevron {
   flex-shrink: 0;
   color: var(--color-text-dim);
   transform: rotate(0deg);
-  transition: transform 120ms ease;
+  transition: transform 100ms ease;
 }
 
 .tree__chevron--open {
@@ -2199,7 +2212,7 @@ select.input:focus-visible {
   color: var(--color-text);
   text-align: left;
   cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  transition: background-color 100ms ease, color 100ms ease, border-color 100ms ease, box-shadow 100ms ease;
 }
 .tree__object:hover:not(:disabled) {
   background: var(--color-hover);
@@ -2209,7 +2222,7 @@ select.input:focus-visible {
 }
 .tree__object:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--color-focus);
+  box-shadow: var(--focus-ring);
 }
 
 .tree__object--selected {
@@ -2222,7 +2235,7 @@ select.input:focus-visible {
   display: flex;
   align-items: center;
   opacity: 0;
-  transition: opacity 120ms ease;
+  transition: opacity 100ms ease;
 }
 .tree__object-actions .button--icon {
   width: 30px;
@@ -2332,7 +2345,7 @@ select.input:focus-visible {
   color: var(--color-text);
   text-align: left;
   cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  transition: background-color 100ms ease, color 100ms ease, border-color 100ms ease, box-shadow 100ms ease;
 }
 .session-list__main:hover:not(:disabled) {
   background: var(--color-hover);
@@ -2342,7 +2355,7 @@ select.input:focus-visible {
 }
 .session-list__main:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--color-focus);
+  box-shadow: var(--focus-ring);
 }
 
 .session-list__kind {
@@ -2396,7 +2409,7 @@ select.input:focus-visible {
   cursor: pointer;
   background: transparent;
   border: none;
-  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  transition: background-color 100ms ease, color 100ms ease, border-color 100ms ease, box-shadow 100ms ease;
 }
 .session-list__context-action:hover:not(:disabled) {
   background: var(--color-hover);
@@ -2406,7 +2419,7 @@ select.input:focus-visible {
 }
 .session-list__context-action:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--color-focus);
+  box-shadow: var(--focus-ring);
 }
 
 .session-list__context-action:hover {
@@ -5226,7 +5239,7 @@ select.input:focus-visible {
   line-height: 1;
   cursor: pointer;
   box-shadow: inset 0 1px 0 var(--glass-highlight), 0 6px 16px rgba(2, 8, 20, 0.18);
-  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  transition: background-color 100ms ease, color 100ms ease, border-color 100ms ease, box-shadow 100ms ease;
 }
 .data-diff__close:hover:not(:disabled) {
   background: var(--color-hover);
@@ -5236,7 +5249,7 @@ select.input:focus-visible {
 }
 .data-diff__close:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--color-focus);
+  box-shadow: var(--focus-ring);
 }
 .data-diff__close:hover {
   color: var(--color-text);

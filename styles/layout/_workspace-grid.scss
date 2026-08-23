@@ -8,8 +8,8 @@
     minmax(180px, var(--workspace-sidebar-width, clamp(200px, 19vw, 260px)))
     6px
     minmax(0, 1fr);
-  gap: 8px;
-  padding: 8px;
+  gap: $spacing-md;
+  padding: $spacing-md;
   background:
     radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--color-primary) 12%, transparent), transparent 28%),
     radial-gradient(circle at 92% 4%, color-mix(in srgb, var(--color-info) 10%, transparent), transparent 26%),
@@ -23,6 +23,15 @@
 
 .workspace--sidebar-hidden {
   grid-template-columns: minmax(0, 1fr);
+}
+
+// Smooth collapse: opacity + translate when the sidebar column collapses
+// (grid-template swap itself is not animatable; the sidebar element fades
+// and slides out so the toggle feels intentional rather than abrupt).
+.workspace--sidebar-hidden .workspace__sidebar {
+  opacity: 0;
+  transform: translateX(-6px);
+  pointer-events: none;
 }
 
 .workspace__sidebar {
@@ -42,16 +51,21 @@
     var(--shadow-panel);
   backdrop-filter: blur(28px) saturate(150%);
   overflow: hidden;
+  opacity: 1;
+  transform: translateX(0);
+  transition:
+    opacity $motion-normal ease,
+    transform $motion-normal ease;
 }
 
 .workspace__sidebar-body {
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
-  padding: 6px;
+  padding: $spacing-sm;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: $spacing-sm;
 }
 
 .workspace__title {
@@ -123,8 +137,8 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 6px;
+  gap: $spacing-sm;
+  padding: $spacing-sm;
   border-left: 1px solid color-mix(in srgb, var(--color-border) 68%, transparent);
   background:
     linear-gradient(
@@ -136,11 +150,14 @@
   backdrop-filter: blur(24px) saturate(145%);
 }
 
+// header padding is intentionally asymmetric (7px vertical, 9px horizontal)
+// to keep the toolbar visually centered under the chrome — no token matches
+// this pair, so raw px stays. gap below uses $spacing-sm.
 .workspace__header {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
+  gap: $spacing-sm;
   padding: 7px 9px;
   border-bottom: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
   background:
@@ -167,8 +184,8 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 0 6px 6px;
+  gap: $spacing-sm;
+  padding: 0 $spacing-sm $spacing-sm;
   border-top: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
   background:
     linear-gradient(
@@ -297,6 +314,9 @@
   }
 }
 
+// Compact media-query values (3px/4px) intentionally sit below $spacing-xs
+// (3px) and $spacing-2xs (1px) — they are density overrides for small
+// viewports and don't justify new tokens. Kept raw with justification.
 @media (max-width: 640px) {
   .workspace__toolbar {
     gap: 3px;
@@ -305,8 +325,8 @@
 
 @media (max-height: 860px) {
   .workspace {
-    gap: 6px;
-    padding: 6px;
+    gap: $spacing-sm;
+    padding: $spacing-sm;
   }
 
   .workspace__header {

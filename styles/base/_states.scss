@@ -1,14 +1,16 @@
+@use "../base/tokens" as *;
+
 @mixin focus-ring {
   outline: none;
-  box-shadow: 0 0 0 2px var(--color-focus);
+  box-shadow: var(--focus-ring);
 }
 
 @mixin interactive {
   transition:
-    background-color 120ms ease,
-    color 120ms ease,
-    border-color 120ms ease,
-    box-shadow 120ms ease;
+    background-color $motion-fast ease,
+    color $motion-fast ease,
+    border-color $motion-fast ease,
+    box-shadow $motion-fast ease;
 
   &:hover:not(:disabled) {
     background: var(--color-hover);
