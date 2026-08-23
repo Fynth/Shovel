@@ -3449,6 +3449,83 @@ select.input:focus-visible {
   overflow: auto;
 }
 
+.execution-plan__advice-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.execution-plan__advice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+  border-left-width: 3px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 60%, transparent);
+}
+
+.execution-plan__advice--compact {
+  padding: 5px 8px;
+}
+
+.execution-plan__advice--critical {
+  border-left-color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+}
+
+.execution-plan__advice--warning {
+  border-left-color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+}
+
+.execution-plan__advice--info {
+  border-left-color: var(--color-info);
+  background: color-mix(in srgb, var(--color-info) 8%, transparent);
+}
+
+.execution-plan__advice-badge {
+  flex: 0 0 auto;
+  min-width: 64px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: center;
+}
+
+.execution-plan__advice--critical .execution-plan__advice-badge {
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 16%, transparent);
+}
+
+.execution-plan__advice--warning .execution-plan__advice-badge {
+  color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 16%, transparent);
+}
+
+.execution-plan__advice--info .execution-plan__advice-badge {
+  color: var(--color-info);
+  background: color-mix(in srgb, var(--color-info) 14%, transparent);
+}
+
+.execution-plan__advice-text {
+  color: var(--color-text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.execution-plan__analysis {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+}
+
 @media (max-width: 760px) {
   .execution-plan {
     padding: 10px;

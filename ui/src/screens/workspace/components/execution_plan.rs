@@ -35,6 +35,178 @@ fn classify_operation(op: &str) -> OpCategory {
     }
 }
 
+/// Severity level for a plan analysis suggestion.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AdviceSeverity {
+    Info,
+    Warning,
+    Critical,
+}
+
+impl AdviceSeverity {
+    fn badge_class(self) -> &'static str {
+        match self {
+            AdviceSeverity::Info => "execution-plan__advice--info",
+            AdviceSeverity::Warning => "execution-plan__advice--warning",
+            AdviceSeverity::Critical => "execution-plan__advice--critical",
+        }
+    }
+}
+
+fn severity_label(severity: AdviceSeverity) -> &'static str {
+    match severity {
+        AdviceSeverity::Info => "Info",
+        AdviceSeverity::Warning => "Warning",
+        AdviceSeverity::Critical => "Critical",
+    }
+}
+
+/// A single actionable suggestion produced by `analyze_plan`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlanAdvice {
+    pub severity: AdviceSeverity,
+    pub message: String,
+}
+
+/// Flatten every node in the plan tree (depth-first) for inspection.
+fn collect_all_nodes(plan: &models::ExecutionPlan) -> Vec<&models::ExecutionPlanNode> {
+    fn visit<'a>(
+        nodes: &'a [models::ExecutionPlanNode],
+        result: &mut Vec<&'a models::ExecutionPlanNode>,
+    ) {
+        for node in nodes {
+            result.push(node);
+            visit(&node.children, result);
+        }
+    }
+
+    let mut result = Vec::new();
+    visit(&plan.root_nodes, &mut result);
+    result
+}
+
+/// Find the single node with the highest estimated cost, if any.
+fn highest_cost_node(plan: &models::ExecutionPlan) -> Option<&models::ExecutionPlanNode> {
+    collect_all_nodes(plan)
+        .into_iter()
+        .filter_map(|node| node.estimated_cost.map(|cost| (cost, node)))
+        .max_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, node)| node)
+}
+
+/// True when a node is a Scan-category operation (seq scan / table scan).
+fn is_scan_node(node: &models::ExecutionPlanNode) -> bool {
+    classify_operation(&node.operation) == OpCategory::Scan
+}
+
+/// A leaf (childless) node directly under the given join that is itself a Scan.
+/// Used to detect an unindexed inner relation in a nested loop join.
+fn has_unindexed_scan_child(node: &models::ExecutionPlanNode) -> bool {
+    node.children.iter().any(is_scan_node)
+}
+
+/// A pure, unit-testable analysis of an execution plan.
+///
+/// Returns actionable suggestions ordered Critical first, then Warning, then
+/// Info. Only emits rules for which there is concrete evidence in the plan —
+/// it never invents suggestions.
+pub fn analyze_plan(plan: &models::ExecutionPlan) -> Vec<PlanAdvice> {
+    const LARGE_TABLE_ROWS: u64 = 1000;
+    const HIGH_COST_THRESHOLD: f64 = 1000.0;
+    const ROW_ESTIMATE_MISMATCH_FACTOR: u64 = 5;
+
+    let nodes = collect_all_nodes(plan);
+
+    let mut critical: Vec<PlanAdvice> = Vec::new();
+    let mut warnings: Vec<PlanAdvice> = Vec::new();
+    let mut infos: Vec<PlanAdvice> = Vec::new();
+
+    // Rule 1: Sequential scan on a large-ish table.
+    for node in &nodes {
+        if is_scan_node(node)
+            && let Some(rows) = node.estimated_rows
+            && rows >= LARGE_TABLE_ROWS
+        {
+            let target = node
+                .target
+                .clone()
+                .unwrap_or_else(|| "the table".to_string());
+            warnings.push(PlanAdvice {
+                severity: AdviceSeverity::Warning,
+                message: format!(
+                    "Sequential scan on {target}; consider an index on the filter/join columns if the table is large."
+                ),
+            });
+        }
+    }
+
+    // Rule 2: Nested loop join without an index on the inner side.
+    for node in &nodes {
+        let is_nested_loop = node.operation.to_lowercase().contains("nested loop");
+        if classify_operation(&node.operation) == OpCategory::Join
+            && is_nested_loop
+            && has_unindexed_scan_child(node)
+        {
+            warnings.push(PlanAdvice {
+                severity: AdviceSeverity::Warning,
+                message: "Nested loop join — ensure the inner relation is indexed to avoid O(N\u{00d7}M) scans."
+                    .to_string(),
+            });
+        }
+    }
+
+    // Rule 3: Sort without an index.
+    for node in &nodes {
+        if classify_operation(&node.operation) == OpCategory::Sort {
+            infos.push(PlanAdvice {
+                severity: AdviceSeverity::Info,
+                message: "Sort node — an index on the ORDER BY columns would avoid a full sort."
+                    .to_string(),
+            });
+        }
+    }
+
+    // Rule 4: very high-cost node (highest-cost leaf above threshold).
+    if let Some(node) = highest_cost_node(plan)
+        && let Some(cost) = node.estimated_cost
+        && cost > HIGH_COST_THRESHOLD
+    {
+        let op = node.operation.clone();
+        let target = node
+            .target
+            .clone()
+            .unwrap_or_else(|| "the table".to_string());
+        critical.push(PlanAdvice {
+            severity: AdviceSeverity::Critical,
+            message: format!("Highest-cost operation: {op} on {target} (cost {cost:.2})."),
+        });
+    }
+
+    // Rule 5: ANALYZE row estimate mismatch.
+    for node in &nodes {
+        if let (Some(est), Some(actual)) = (node.estimated_rows, node.actual_rows)
+            && actual > est.saturating_mul(ROW_ESTIMATE_MISMATCH_FACTOR)
+        {
+            critical.push(PlanAdvice {
+                severity: AdviceSeverity::Critical,
+                message: format!(
+                    "Estimate mismatch: expected ~{est} rows but {actual} returned — stats may be stale; run ANALYZE."
+                ),
+            });
+        }
+    }
+
+    // Rule 6: healthy plan when nothing was flagged.
+    if critical.is_empty() && warnings.is_empty() {
+        infos.push(PlanAdvice {
+            severity: AdviceSeverity::Info,
+            message: "Plan looks healthy — no obvious bottlenecks detected.".to_string(),
+        });
+    }
+
+    critical.into_iter().chain(warnings).chain(infos).collect()
+}
+
 fn op_category_class(cat: OpCategory) -> &'static str {
     match cat {
         OpCategory::Scan => "execution-plan__node-badge--scan",
@@ -50,6 +222,7 @@ fn op_category_class(cat: OpCategory) -> &'static str {
 enum PlanViewMode {
     Tree,
     Raw,
+    Analysis,
 }
 
 type NodePath = Vec<usize>;
@@ -148,8 +321,8 @@ fn node_path_key(path: &[usize]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_expandable_paths, visible_plan_nodes};
-    use models::ExecutionPlanNode;
+    use super::{AdviceSeverity, analyze_plan, collect_expandable_paths, visible_plan_nodes};
+    use models::{ExecutionPlan, ExecutionPlanNode};
     use std::collections::HashSet;
 
     fn sample_plan_nodes() -> Vec<ExecutionPlanNode> {
@@ -206,6 +379,199 @@ mod tests {
 
         assert_eq!(paths, HashSet::from([vec![0], vec![0, 0]]));
     }
+
+    fn plan_with(nodes: Vec<ExecutionPlanNode>) -> ExecutionPlan {
+        let mut plan = ExecutionPlan::new("select * from t");
+        plan.root_nodes = nodes;
+        plan
+    }
+
+    #[test]
+    fn analyze_flags_large_seq_scan_as_warning() {
+        let plan = plan_with(vec![
+            ExecutionPlanNode::new("Seq Scan")
+                .with_target("users")
+                .with_rows(100_000),
+        ]);
+
+        let advice = analyze_plan(&plan);
+        let seq = advice
+            .iter()
+            .find(|a| a.message.contains("Sequential scan on users"));
+        assert!(seq.is_some(), "expected a seq-scan warning, got {advice:?}");
+        assert_eq!(seq.unwrap().severity, AdviceSeverity::Warning);
+    }
+
+    #[test]
+    fn analyze_ignores_small_seq_scan() {
+        let plan = plan_with(vec![
+            ExecutionPlanNode::new("Seq Scan")
+                .with_target("tiny")
+                .with_rows(10),
+        ]);
+
+        let advice = analyze_plan(&plan);
+        assert!(
+            !advice.iter().any(|a| a.message.contains("Sequential scan")),
+            "small seq scan should not be flagged: {advice:?}"
+        );
+    }
+
+    #[test]
+    fn analyze_flags_unindexed_nested_loop_as_warning() {
+        let plan = plan_with(vec![
+            ExecutionPlanNode::new("Nested Loop").with_child(
+                ExecutionPlanNode::new("Seq Scan")
+                    .with_target("orders")
+                    .with_rows(1000),
+            ),
+        ]);
+
+        let advice = analyze_plan(&plan);
+        let nested = advice
+            .iter()
+            .find(|a| a.message.contains("Nested loop join"));
+        assert!(
+            nested.is_some(),
+            "expected nested-loop warning, got {advice:?}"
+        );
+        assert_eq!(nested.unwrap().severity, AdviceSeverity::Warning);
+    }
+
+    #[test]
+    fn analyze_ignores_indexed_nested_loop() {
+        let plan =
+            plan_with(vec![ExecutionPlanNode::new("Nested Loop").with_child(
+                ExecutionPlanNode::new("Index Scan").with_target("orders"),
+            )]);
+
+        let advice = analyze_plan(&plan);
+        assert!(
+            !advice
+                .iter()
+                .any(|a| a.message.contains("Nested loop join")),
+            "indexed nested loop should not be flagged: {advice:?}"
+        );
+    }
+
+    #[test]
+    fn analyze_flags_sort_as_info() {
+        let plan = plan_with(vec![ExecutionPlanNode::new("Sort")]);
+
+        let advice = analyze_plan(&plan);
+        let sort = advice.iter().find(|a| a.message.contains("Sort node"));
+        assert!(sort.is_some(), "expected sort info, got {advice:?}");
+        assert_eq!(sort.unwrap().severity, AdviceSeverity::Info);
+    }
+
+    #[test]
+    fn analyze_flags_high_cost_node_as_critical() {
+        let plan = plan_with(vec![
+            ExecutionPlanNode::new("Seq Scan")
+                .with_target("huge")
+                .with_cost(50_000.0)
+                .with_rows(1_000_000),
+        ]);
+
+        let advice = analyze_plan(&plan);
+        let high = advice
+            .iter()
+            .find(|a| a.message.contains("Highest-cost operation"));
+        assert!(
+            high.is_some(),
+            "expected high-cost critical, got {advice:?}"
+        );
+        assert_eq!(high.unwrap().severity, AdviceSeverity::Critical);
+    }
+
+    fn scan_with_analyze_rows(estimated: u64, actual: u64) -> ExecutionPlanNode {
+        ExecutionPlanNode {
+            operation: "Index Scan".to_string(),
+            target: Some("orders".to_string()),
+            details: Vec::new(),
+            children: Vec::new(),
+            estimated_cost: None,
+            estimated_rows: Some(estimated),
+            actual_rows: Some(actual),
+            actual_time_ms: None,
+            raw_text: None,
+        }
+    }
+
+    #[test]
+    fn analyze_flags_row_estimate_mismatch_as_critical() {
+        let plan = plan_with(vec![scan_with_analyze_rows(100, 60_000)]);
+
+        let advice = analyze_plan(&plan);
+        let mismatch = advice
+            .iter()
+            .find(|a| a.message.contains("Estimate mismatch"));
+        assert!(
+            mismatch.is_some(),
+            "expected estimate-mismatch critical, got {advice:?}"
+        );
+        assert_eq!(mismatch.unwrap().severity, AdviceSeverity::Critical);
+    }
+
+    #[test]
+    fn analyze_ignores_healthy_row_estimates() {
+        let plan = plan_with(vec![scan_with_analyze_rows(100, 150)]);
+
+        let advice = analyze_plan(&plan);
+        assert!(
+            !advice
+                .iter()
+                .any(|a| a.message.contains("Estimate mismatch")),
+            "matching estimates should not be flagged: {advice:?}"
+        );
+    }
+
+    #[test]
+    fn analyze_reports_healthy_plan_as_info() {
+        let plan = plan_with(vec![
+            ExecutionPlanNode::new("Index Scan")
+                .with_target("orders")
+                .with_rows(50),
+        ]);
+
+        let advice = analyze_plan(&plan);
+        assert_eq!(
+            advice.len(),
+            1,
+            "only the healthy line expected: {advice:?}"
+        );
+        assert_eq!(advice[0].severity, AdviceSeverity::Info);
+        assert!(advice[0].message.contains("healthy"));
+    }
+
+    #[test]
+    fn analyze_empty_plan_is_healthy_info() {
+        let plan = plan_with(vec![]);
+        let advice = analyze_plan(&plan);
+        assert_eq!(
+            advice.len(),
+            1,
+            "empty plan should still yield a line: {advice:?}"
+        );
+        assert_eq!(advice[0].severity, AdviceSeverity::Info);
+    }
+
+    #[test]
+    fn analyze_orders_critical_before_warning_before_info() {
+        let plan = plan_with(vec![
+            ExecutionPlanNode::new("Nested Loop")
+                .with_cost(5000.0)
+                .with_child(ExecutionPlanNode::new("Seq Scan").with_rows(50)),
+        ]);
+
+        let advice = analyze_plan(&plan);
+        let order: Vec<AdviceSeverity> = advice.iter().map(|a| a.severity).collect();
+        assert_eq!(
+            order,
+            vec![AdviceSeverity::Critical, AdviceSeverity::Warning],
+            "expected critical then warning, got {order:?}"
+        );
+    }
 }
 
 #[component]
@@ -221,6 +587,7 @@ pub fn ExecutionPlanView(
 
     let flattened = plan.flattened_with_depth();
     let raw_text = plan.raw_text.join("\n");
+    let plan_advice = analyze_plan(&plan);
     let all_expandable_paths = collect_expandable_paths(&plan.root_nodes);
     let plan_state_key = format!(
         "{}\u{1f}{}\u{1f}{}",
@@ -282,6 +649,31 @@ pub fn ExecutionPlanView(
                         },
                         onclick: move |_| view_mode.set(PlanViewMode::Raw),
                         "Raw"
+                    }
+                    button {
+                        class: if view_mode() == PlanViewMode::Analysis {
+                            "execution-plan__toggle execution-plan__toggle--active"
+                        } else {
+                            "execution-plan__toggle"
+                        },
+                        onclick: move |_| view_mode.set(PlanViewMode::Analysis),
+                        "Analysis"
+                    }
+                }
+            }
+
+            if view_mode() != PlanViewMode::Analysis {
+                if !plan_advice.is_empty() {
+                    div { class: "execution-plan__advice-strip",
+                        for item in &plan_advice {
+                            div {
+                                class: "execution-plan__advice execution-plan__advice--compact {item.severity.badge_class()}",
+                                span { class: "execution-plan__advice-badge",
+                                    {severity_label(item.severity)}
+                                }
+                                span { class: "execution-plan__advice-text", "{item.message}" }
+                            }
+                        }
                     }
                 }
             }
@@ -452,6 +844,19 @@ pub fn ExecutionPlanView(
                             }
                             pre { class: "execution-plan__raw-text",
                                 "{raw_text}"
+                            }
+                        }
+                    },
+                    PlanViewMode::Analysis => rsx! {
+                        div { class: "execution-plan__analysis",
+                            for item in &plan_advice {
+                                div {
+                                    class: "execution-plan__advice {item.severity.badge_class()}",
+                                    span { class: "execution-plan__advice-badge",
+                                        {severity_label(item.severity)}
+                                    }
+                                    span { class: "execution-plan__advice-text", "{item.message}" }
+                                }
                             }
                         }
                     },
