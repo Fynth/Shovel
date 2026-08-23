@@ -1,15 +1,20 @@
-mod create_table_modal;
-mod duplicate_table_modal;
 mod tree_views;
 
+// `create_table_modal` and `duplicate_table_modal` are mounted both inline
+// (legacy) and from the native window roots in `crate::windows`. Their
+// `pub` surfaces (the modal component + the `*Target` data structs) need
+// to be reachable across the `explorer` module boundary.
+pub mod create_table_modal;
+pub mod duplicate_table_modal;
+
 use crate::{
-    app_state::{APP_READ_ONLY_MODE, APP_STATE, activate_session, remove_session},
+    app_state::{APP_READ_ONLY_MODE, APP_STATE, APP_THEME, activate_session, remove_session},
     screens::workspace::components::{ActionIcon, IconButton},
 };
 use dioxus::prelude::*;
 use models::{DatabaseKind, ExplorerNode, ExplorerNodeKind, QueryTabState};
 
-use create_table_modal::{CreateTableModal, CreateTableTarget};
+use create_table_modal::CreateTableTarget;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExplorerConnectionSection {
@@ -30,7 +35,6 @@ pub fn SidebarConnectionTree(
     next_tab_id: Signal<u64>,
 ) -> Element {
     let selected_node = use_signal(String::new);
-    let mut show_create_table = use_signal(|| false);
     let mut filter_query = use_signal(String::new);
     let query = filter_query();
     let active_create_target = active_create_table_target(&sections);
@@ -61,7 +65,29 @@ pub fn SidebarConnectionTree(
                         },
                         small: true,
                         disabled: active_create_target.is_none() || read_only_mode,
-                        onclick: move |_| show_create_table.set(true),
+                        onclick: {
+                            let target = active_create_target.clone();
+                            let mut tree_reload = tree_reload;
+                            move |_| {
+                                let Some(target) = target.clone() else {
+                                    return;
+                                };
+                                let connection = crate::app_state::session_connection(target.session_id);
+                                let (bridge, mut rx) = crate::windows::create_table_bridge();
+                                spawn(async move {
+                                    while rx.recv().await.is_some() {
+                                        tree_reload += 1;
+                                    }
+                                });
+                                crate::windows::open_create_table_window(
+                                    bridge,
+                                    target,
+                                    connection,
+                                    read_only_mode,
+                                    APP_THEME(),
+                                );
+                            }
+                        },
                     }
                 }
             }
@@ -97,16 +123,6 @@ pub fn SidebarConnectionTree(
                                 selected_node,
                             }
                         }
-                    }
-                }
-            }
-
-            if show_create_table() {
-                if let Some(target) = active_create_target.clone() {
-                    CreateTableModal {
-                        target,
-                        tree_reload,
-                        show_create_table,
                     }
                 }
             }

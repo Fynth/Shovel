@@ -5,7 +5,7 @@ mod chart;
 mod data_diff;
 mod er_diagram;
 mod execution_plan;
-mod explorer;
+pub(crate) mod explorer;
 mod history;
 mod icon_button;
 mod result_table;

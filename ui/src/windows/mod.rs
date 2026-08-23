@@ -19,7 +19,18 @@
 //! real global state — that triggers the existing persistence effects in
 //! `app.rs` to write the new value to disk.
 
-use crate::{layout::SettingsModal, screens::connect::edit_connection_modal::EditConnectionModal};
+use crate::{
+    layout::SettingsModal,
+    screens::{
+        connect::edit_connection_modal::EditConnectionModal,
+        workspace::components::explorer::{
+            create_table_modal,
+            create_table_modal::{CreateTableModal, CreateTableTarget},
+            duplicate_table_modal,
+            duplicate_table_modal::{DuplicateTableModal, DuplicateTableTarget},
+        },
+    },
+};
 use dioxus::{
     desktop::{Config, LogicalSize, WindowBuilder, window},
     prelude::*,
@@ -305,6 +316,241 @@ pub fn EditConnectionWindowRoot(props: EditConnectionWindowRootProps) -> Element
                 saved_connection,
                 on_saved: move |updated: models::SavedConnection| {
                     bridge.send(ConnectionEditSnapshot { connection: updated });
+                    window().close();
+                },
+                on_close: move |_| {
+                    window().close();
+                },
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Create-table dialog window
+// ---------------------------------------------------------------------------
+
+/// Snapshot the create-table dialog streams back to the main window on save.
+///
+/// The dialog calls `services::create_table` itself using the connection the
+/// main window passed in via props. On success it fires `on_saved(())` and
+/// the window root sends an empty `CreateTableResult` over the bridge — the
+/// main window's receiver task uses it as the signal to bump
+/// `tree_reload += 1`. The dialog then closes itself. `on_close` covers the
+/// user-initiated dismiss paths (Close / Cancel / backdrop click) and
+/// closes the window without sending a result.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CreateTableResult {}
+
+/// Build a fresh `(DialogBridge<CreateTableResult>, Receiver)` pair for one
+/// create-table window session.
+pub fn create_table_bridge() -> (
+    DialogBridge<CreateTableResult>,
+    tokio::sync::mpsc::UnboundedReceiver<CreateTableResult>,
+) {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    (DialogBridge { sender: tx }, rx)
+}
+
+/// Props for [`CreateTableWindowRoot`].
+#[derive(Props, Clone)]
+pub struct CreateTableWindowRootProps {
+    pub bridge: DialogBridge<CreateTableResult>,
+    pub target: CreateTableTarget,
+    /// Live connection resolved by the main window before opening the dialog.
+    /// `None` means the connection was closed in the meantime.
+    pub connection: Option<models::DatabaseConnection>,
+    pub read_only: bool,
+    /// Active theme class (e.g. `"theme-dark"`) for the modal's CSS tokens.
+    pub theme_class: String,
+}
+
+// `DatabaseConnection` does not implement `PartialEq` (sqlx pools are
+// opaque), so we cannot derive it on this struct. The dialog window is
+// opened once and its props never change for the lifetime of the window,
+// so the comparison only needs to match the seed values the main window
+// hands in — the connection is treated as opaque.
+impl PartialEq for CreateTableWindowRootProps {
+    fn eq(&self, other: &Self) -> bool {
+        self.bridge == other.bridge
+            && self.target == other.target
+            && self.connection.is_some() == other.connection.is_some()
+            && self.read_only == other.read_only
+            && self.theme_class == other.theme_class
+    }
+}
+
+/// Open the create-table dialog as a separate native OS window.
+pub fn open_create_table_window(
+    bridge: DialogBridge<CreateTableResult>,
+    target: CreateTableTarget,
+    connection: Option<models::DatabaseConnection>,
+    read_only: bool,
+    theme_class: String,
+) {
+    spawn(async move {
+        let dom = VirtualDom::new_with_props(
+            CreateTableWindowRoot,
+            CreateTableWindowRootProps {
+                bridge,
+                target,
+                connection,
+                read_only,
+                theme_class,
+            },
+        );
+        let config = create_table_window_config();
+        let _pending = window().new_window(dom, config).await;
+    });
+}
+
+fn create_table_window_config() -> Config {
+    let window_builder = WindowBuilder::new()
+        .with_title("Create Table")
+        .with_inner_size(LogicalSize::new(720.0, 720.0))
+        .with_resizable(true)
+        .with_decorations(true);
+
+    Config::new().with_window(window_builder)
+}
+
+/// Root component for the create-table dialog window.
+///
+/// Wraps the prop-driven [`CreateTableModal`] in a themed shell so the
+/// design tokens resolve correctly. The connection is resolved by the main
+/// window (so this window's isolated globals never need it) and passed via
+/// `connection` prop. On save the root forwards an empty
+/// [`CreateTableResult`] over the bridge — the main window's receiver uses
+/// that to bump `tree_reload` and re-fetch the explorer.
+#[component]
+pub fn CreateTableWindowRoot(props: CreateTableWindowRootProps) -> Element {
+    let bridge = props.bridge;
+    let target = props.target;
+    let connection = props.connection;
+    let read_only = props.read_only;
+    let theme_class = props.theme_class;
+
+    rsx! {
+        document::Style { "{APP_CSS}" }
+        div { class: "table-window-shell {theme_class}",
+            CreateTableModal {
+                target,
+                connection: create_table_modal::ModalConnection(connection),
+                read_only,
+                on_saved: move |_| {
+                    bridge.send(CreateTableResult {});
+                    window().close();
+                },
+                on_close: move |_| {
+                    window().close();
+                },
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Duplicate-table dialog window
+// ---------------------------------------------------------------------------
+
+/// Snapshot the duplicate-table dialog streams back to the main window on save.
+///
+/// Carries the qualified name of the newly created table so the main window
+/// can update its `selected_node` signal to point at the duplicate. The
+/// dialog then closes itself. `on_close` closes the window without
+/// sending a result.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DuplicateTableResult {
+    pub new_qualified_name: String,
+}
+
+/// Build a fresh `(DialogBridge<DuplicateTableResult>, Receiver)` pair for
+/// one duplicate-table window session.
+pub fn create_duplicate_table_bridge() -> (
+    DialogBridge<DuplicateTableResult>,
+    tokio::sync::mpsc::UnboundedReceiver<DuplicateTableResult>,
+) {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    (DialogBridge { sender: tx }, rx)
+}
+
+/// Props for [`DuplicateTableWindowRoot`].
+#[derive(Props, Clone)]
+pub struct DuplicateTableWindowRootProps {
+    pub bridge: DialogBridge<DuplicateTableResult>,
+    pub target: DuplicateTableTarget,
+    /// Live connection resolved by the main window before opening the dialog.
+    pub session: Option<models::DatabaseConnection>,
+    pub read_only: bool,
+    pub theme_class: String,
+}
+
+// See `CreateTableWindowRootProps` — `DatabaseConnection` is opaque so we
+// cannot derive `PartialEq` and instead compare the connection as
+// present/absent (the dialog window is opened once and its props never
+// change for the lifetime of the window).
+impl PartialEq for DuplicateTableWindowRootProps {
+    fn eq(&self, other: &Self) -> bool {
+        self.bridge == other.bridge
+            && self.target == other.target
+            && self.session.is_some() == other.session.is_some()
+            && self.read_only == other.read_only
+            && self.theme_class == other.theme_class
+    }
+}
+
+/// Open the duplicate-table dialog as a separate native OS window.
+pub fn open_duplicate_table_window(
+    bridge: DialogBridge<DuplicateTableResult>,
+    target: DuplicateTableTarget,
+    session: Option<models::DatabaseConnection>,
+    read_only: bool,
+    theme_class: String,
+) {
+    spawn(async move {
+        let dom = VirtualDom::new_with_props(
+            DuplicateTableWindowRoot,
+            DuplicateTableWindowRootProps {
+                bridge,
+                target,
+                session,
+                read_only,
+                theme_class,
+            },
+        );
+        let config = duplicate_table_window_config();
+        let _pending = window().new_window(dom, config).await;
+    });
+}
+
+fn duplicate_table_window_config() -> Config {
+    let window_builder = WindowBuilder::new()
+        .with_title("Duplicate Table")
+        .with_inner_size(LogicalSize::new(640.0, 540.0))
+        .with_resizable(true)
+        .with_decorations(true);
+
+    Config::new().with_window(window_builder)
+}
+
+/// Root component for the duplicate-table dialog window.
+#[component]
+pub fn DuplicateTableWindowRoot(props: DuplicateTableWindowRootProps) -> Element {
+    let bridge = props.bridge;
+    let target = props.target;
+    let session = props.session;
+    let read_only = props.read_only;
+    let theme_class = props.theme_class;
+
+    rsx! {
+        document::Style { "{APP_CSS}" }
+        div { class: "table-window-shell {theme_class}",
+            DuplicateTableModal {
+                target,
+                session: duplicate_table_modal::ModalConnection(session),
+                read_only,
+                on_saved: move |new_qualified_name: String| {
+                    bridge.send(DuplicateTableResult { new_qualified_name });
                     window().close();
                 },
                 on_close: move |_| {

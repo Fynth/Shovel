@@ -1,17 +1,25 @@
 use super::{quote_sql_identifier, quoted_table_name_preview};
-use crate::{
-    app_state::session_connection,
-    screens::workspace::actions::{read_only_mode_block_status, read_only_mode_enabled},
-};
+use crate::screens::workspace::actions::read_only_mode_block_status;
 use dioxus::prelude::*;
-use models::{DatabaseKind, TablePreviewSource};
+use models::{DatabaseConnection, DatabaseKind, TablePreviewSource};
+
+/// See `create_table_modal::ModalConnection` — same rationale, satisfies
+/// the `#[component]` props derive for the duplicate window.
+#[derive(Clone)]
+pub struct ModalConnection(pub Option<DatabaseConnection>);
+
+impl PartialEq for ModalConnection {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.is_some() == other.0.is_some()
+    }
+}
 
 #[derive(Clone, PartialEq)]
-pub(super) struct DuplicateTableTarget {
-    pub(super) session_id: u64,
-    pub(super) connection_name: String,
-    pub(super) kind: DatabaseKind,
-    pub(super) source: TablePreviewSource,
+pub struct DuplicateTableTarget {
+    pub session_id: u64,
+    pub connection_name: String,
+    pub kind: DatabaseKind,
+    pub source: TablePreviewSource,
 }
 
 #[derive(Clone, PartialEq)]
@@ -21,17 +29,18 @@ struct DuplicateTableDraft {
 }
 
 #[component]
-pub(super) fn DuplicateTableModal(
+pub fn DuplicateTableModal(
     target: DuplicateTableTarget,
-    tree_reload: Signal<u64>,
-    selected_node: Signal<String>,
-    mut show_duplicate_table: Signal<bool>,
+    session: ModalConnection,
+    read_only: bool,
+    on_saved: Callback<String>,
+    on_close: Callback<()>,
 ) -> Element {
     let mut draft = use_signal(|| default_duplicate_table_draft(&target));
     let mut duplicate_error = use_signal(String::new);
     let mut duplicate_inflight = use_signal(|| false);
     let current_draft = draft();
-    let read_only_mode = read_only_mode_enabled();
+    let read_only_mode = read_only;
     let can_submit = duplicate_table_form_valid(&target, &current_draft)
         && !duplicate_inflight()
         && !read_only_mode;
@@ -42,7 +51,7 @@ pub(super) fn DuplicateTableModal(
             class: "settings-modal__backdrop",
             onclick: move |_| {
                 if !duplicate_inflight() {
-                    show_duplicate_table.set(false);
+                    on_close(());
                 }
             },
             div {
@@ -61,7 +70,7 @@ pub(super) fn DuplicateTableModal(
                     button {
                         class: "button button--ghost button--small",
                         disabled: duplicate_inflight(),
-                        onclick: move |_| show_duplicate_table.set(false),
+                        onclick: move |_| on_close(()),
                         "Close"
                     }
                 }
@@ -148,7 +157,7 @@ pub(super) fn DuplicateTableModal(
                         button {
                             class: "button button--ghost",
                             disabled: duplicate_inflight(),
-                            onclick: move |_| show_duplicate_table.set(false),
+                            onclick: move |_| on_close(()),
                             "Cancel"
                         }
                         button {
@@ -158,7 +167,7 @@ pub(super) fn DuplicateTableModal(
                                 if duplicate_inflight() {
                                     return;
                                 }
-                                if read_only_mode_enabled() {
+                                if read_only_mode {
                                     duplicate_error.set(read_only_mode_block_status("table duplication"));
                                     return;
                                 }
@@ -179,7 +188,7 @@ pub(super) fn DuplicateTableModal(
                                     return;
                                 }
 
-                                let Some(connection) = session_connection(target.session_id) else {
+                                let Some(connection) = session.0.clone() else {
                                     duplicate_error.set(
                                         "The connection was closed before the table could be duplicated."
                                             .to_string(),
@@ -202,13 +211,11 @@ pub(super) fn DuplicateTableModal(
                                     duplicate_inflight.set(false);
                                     match result {
                                         Ok(()) => {
-                                            selected_node.set(duplicated_qualified_name(
+                                            on_saved(duplicated_qualified_name(
                                                 &source,
                                                 target_kind,
                                                 &next_table_name,
                                             ));
-                                            tree_reload += 1;
-                                            show_duplicate_table.set(false);
                                         }
                                         Err(err) => {
                                             duplicate_error.set(err.to_string());

@@ -2,22 +2,34 @@ use super::{
     default_schema_name, quote_clickhouse_identifier, quote_sql_identifier,
     quoted_table_name_preview,
 };
-use crate::{
-    app_state::session_connection,
-    screens::workspace::actions::{read_only_mode_block_status, read_only_mode_enabled},
-};
+use crate::screens::workspace::actions::read_only_mode_block_status;
 use dioxus::prelude::*;
-use models::DatabaseKind;
+use models::{DatabaseConnection, DatabaseKind};
 use std::collections::HashSet;
 
 const CUSTOM_TYPE_VALUE: &str = "__custom__";
 
+/// Thin wrapper around `Option<DatabaseConnection>` that satisfies
+/// `PartialEq`. The underlying `DatabaseConnection` is opaque (it holds
+/// sqlx pools that don't implement `PartialEq`), but the connection is
+/// resolved once at modal mount time and never changes during the modal's
+/// lifetime, so the wrapper only needs to compare presence — not pool
+/// identity — for the `#[component]` props macro to memoize renders.
+#[derive(Clone)]
+pub struct ModalConnection(pub Option<DatabaseConnection>);
+
+impl PartialEq for ModalConnection {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.is_some() == other.0.is_some()
+    }
+}
+
 #[derive(Clone, PartialEq)]
-pub(super) struct CreateTableTarget {
-    pub(super) session_id: u64,
-    pub(super) connection_name: String,
-    pub(super) kind: DatabaseKind,
-    pub(super) schemas: Vec<String>,
+pub struct CreateTableTarget {
+    pub session_id: u64,
+    pub connection_name: String,
+    pub kind: DatabaseKind,
+    pub schemas: Vec<String>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -60,16 +72,18 @@ enum ClickHouseEnginePreset {
 }
 
 #[component]
-pub(super) fn CreateTableModal(
+pub fn CreateTableModal(
     target: CreateTableTarget,
-    tree_reload: Signal<u64>,
-    mut show_create_table: Signal<bool>,
+    connection: ModalConnection,
+    read_only: bool,
+    on_saved: Callback<()>,
+    on_close: Callback<()>,
 ) -> Element {
     let mut draft = use_signal(|| default_create_table_draft(&target));
     let mut create_error = use_signal(String::new);
     let mut create_inflight = use_signal(|| false);
     let current_draft = draft();
-    let read_only_mode = read_only_mode_enabled();
+    let read_only_mode = read_only;
     let can_submit = create_table_form_valid(target.kind, &current_draft)
         && !create_inflight()
         && !read_only_mode;
@@ -78,7 +92,7 @@ pub(super) fn CreateTableModal(
     rsx! {
         div {
             class: "settings-modal__backdrop",
-            onclick: move |_| show_create_table.set(false),
+            onclick: move |_| on_close(()),
             div {
                 class: "settings-modal table-modal",
                 onclick: move |event| event.stop_propagation(),
@@ -94,7 +108,7 @@ pub(super) fn CreateTableModal(
                     }
                     button {
                         class: "button button--ghost button--small",
-                        onclick: move |_| show_create_table.set(false),
+                        onclick: move |_| on_close(()),
                         "Close"
                     }
                 }
@@ -434,7 +448,7 @@ pub(super) fn CreateTableModal(
                         button {
                             class: "button button--ghost button--small",
                             disabled: create_inflight(),
-                            onclick: move |_| show_create_table.set(false),
+                            onclick: move |_| on_close(()),
                             "Cancel"
                         }
                         button {
@@ -442,8 +456,9 @@ pub(super) fn CreateTableModal(
                             disabled: !can_submit,
                             onclick: {
                                 let target = target.clone();
+                                let submit_connection = connection.clone();
                                 move |_| {
-                                    if read_only_mode_enabled() {
+                                    if read_only_mode {
                                         create_error.set(read_only_mode_block_status("table creation"));
                                         return;
                                     }
@@ -467,13 +482,13 @@ pub(super) fn CreateTableModal(
                                     create_error.set(String::new());
                                     create_inflight.set(true);
 
-                                    spawn(async move {
-                                        let Some(connection) = session_connection(target.session_id) else {
-                                            create_error.set("The connection was closed.".to_string());
-                                            create_inflight.set(false);
-                                            return;
-                                        };
+                                    let Some(connection) = submit_connection.0.clone() else {
+                                        create_error.set("The connection was closed.".to_string());
+                                        create_inflight.set(false);
+                                        return;
+                                    };
 
+                                    spawn(async move {
                                         let result = services::create_table(
                                             connection,
                                             schema,
@@ -486,8 +501,7 @@ pub(super) fn CreateTableModal(
                                         create_inflight.set(false);
                                         match result {
                                             Ok(()) => {
-                                                show_create_table.set(false);
-                                                tree_reload += 1;
+                                                on_saved(());
                                             }
                                             Err(err) => {
                                                 create_error.set(err.to_string());

@@ -1,7 +1,5 @@
 use super::{
-    count_objects, disconnect_session,
-    duplicate_table_modal::{DuplicateTableModal, DuplicateTableTarget},
-    split_children,
+    count_objects, disconnect_session, duplicate_table_modal::DuplicateTableTarget, split_children,
 };
 use crate::{
     app_state::{
@@ -219,11 +217,10 @@ fn ExplorerObjectRow(
     tabs: Signal<Vec<QueryTabState>>,
     active_tab_id: Signal<u64>,
     next_tab_id: Signal<u64>,
-    selected_node: Signal<String>,
+    mut selected_node: Signal<String>,
 ) -> Element {
     let table_mutation_inflight = use_signal(|| None::<TableMutationKind>);
     let acp_ctx = use_context::<WorkspaceAcpContext>();
-    let mut show_duplicate_table = use_signal(|| false);
     let (connection_name, connection_kind) = APP_STATE
         .read()
         .session(session_id)
@@ -247,7 +244,6 @@ fn ExplorerObjectRow(
         preview_source.clone(),
         node.kind,
         read_only_mode,
-        show_duplicate_table,
         tabs,
         active_tab_id,
         next_tab_id,
@@ -369,12 +365,34 @@ fn ExplorerObjectRow(
                             small: true,
                             disabled: table_mutation_inflight().is_some() || read_only_mode,
                             onclick: {
+                                let target = DuplicateTableTarget {
+                                    session_id,
+                                    connection_name: connection_name.clone(),
+                                    kind: connection_kind,
+                                    source: preview_source.clone(),
+                                };
+                                let mut tree_reload_signal = tree_reload;
+                                let mut selected_node_signal = selected_node;
                                 move |event: MouseEvent| {
                                     event.stop_propagation();
                                     if read_only_mode_enabled() {
                                         return;
                                     }
-                                    show_duplicate_table.set(true);
+                                    let connection = crate::app_state::session_connection(target.session_id);
+                                    let (bridge, mut rx) = crate::windows::create_duplicate_table_bridge();
+                                    spawn(async move {
+                                        while let Some(result) = rx.recv().await {
+                                            selected_node_signal.set(result.new_qualified_name);
+                                            tree_reload_signal += 1;
+                                        }
+                                    });
+                                    crate::windows::open_duplicate_table_window(
+                                        bridge,
+                                        target.clone(),
+                                        connection,
+                                        read_only_mode_enabled(),
+                                        crate::app_state::APP_THEME(),
+                                    );
                                 }
                             },
                         }
@@ -449,19 +467,6 @@ fn ExplorerObjectRow(
                             }
                         },
                     }
-                }
-            }
-            if show_duplicate_table() {
-                DuplicateTableModal {
-                    target: DuplicateTableTarget {
-                        session_id,
-                        connection_name: connection_name.clone(),
-                        kind: connection_kind,
-                        source: preview_source.clone(),
-                    },
-                    tree_reload,
-                    selected_node,
-                    show_duplicate_table,
                 }
             }
         }
@@ -539,11 +544,10 @@ fn table_mutation_confirmation_description(
 
 #[allow(clippy::too_many_arguments)]
 fn build_explorer_context_menu(
-    _connection_name: String,
+    connection_name: String,
     preview_source: TablePreviewSource,
     kind: ExplorerNodeKind,
     read_only_mode: bool,
-    mut show_duplicate_table: Signal<bool>,
     tabs: Signal<Vec<QueryTabState>>,
     active_tab_id: Signal<u64>,
     next_tab_id: Signal<u64>,
@@ -699,8 +703,30 @@ fn build_explorer_context_menu(
 
     // 8. Duplicate — only for tables. Disables in read-only mode.
     if kind == ExplorerNodeKind::Table {
+        let target = DuplicateTableTarget {
+            session_id,
+            connection_name: connection_name.clone(),
+            kind: connection_kind,
+            source: preview_source.clone(),
+        };
+        let mut tree_reload_signal = tree_reload;
+        let mut selected_node_signal = selected_node;
         let mut item = ContextMenuItem::new("Duplicate table…", move || {
-            show_duplicate_table.set(true);
+            let connection = crate::app_state::session_connection(target.session_id);
+            let (bridge, mut rx) = crate::windows::create_duplicate_table_bridge();
+            spawn(async move {
+                while let Some(result) = rx.recv().await {
+                    selected_node_signal.set(result.new_qualified_name);
+                    tree_reload_signal += 1;
+                }
+            });
+            crate::windows::open_duplicate_table_window(
+                bridge,
+                target.clone(),
+                connection,
+                read_only_mode_enabled(),
+                crate::app_state::APP_THEME(),
+            );
         })
         .with_icon(ActionIcon::Duplicate);
         if read_only_mode {
