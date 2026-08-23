@@ -42,7 +42,6 @@ pub struct ErRelationship {
 }
 
 #[derive(Clone)]
-#[allow(dead_code)]
 pub struct ErLine {
     pub x1: String,
     pub y1: String,
@@ -50,14 +49,11 @@ pub struct ErLine {
     pub y2: String,
 }
 
-/// Pure, prop-driven viewer for an [`ErDiagramState`].
+/// Prop-driven ER diagram viewer.
 ///
-/// Designed to live inside its own native OS window
-/// ([`crate::windows::ErDiagramWindowRoot`]) — the caller passes the
-/// already-resolved diagram as a plain value, so this component does not
-/// need any global state, signals, or overlay host. Rendering (pan / zoom
-/// canvas, table cards, relationship arrows, legend) is identical to the
-/// previous in-overlay version.
+/// Lives in its own native OS window; the caller passes the already-resolved
+/// diagram as a plain value, so this component needs no global state, signals,
+/// or overlay host.
 #[component]
 pub fn ErDiagramViewer(
     diagram: ErDiagramState,
@@ -252,7 +248,6 @@ fn ErTableCard(
     }
 }
 
-#[allow(dead_code)]
 fn calculate_table_positions(
     tables: &[ErTable],
     relationships: &[ErRelationship],

@@ -1,26 +1,9 @@
+use std::collections::HashSet;
+
 use dioxus::prelude::*;
 use models::QueryPage;
 
 #[derive(Clone, PartialEq)]
-#[allow(dead_code)]
-pub struct DiffColumn {
-    pub name: String,
-    pub left_value: String,
-    pub right_value: String,
-    pub status: DiffStatus,
-}
-
-#[derive(Clone, PartialEq)]
-#[allow(dead_code)]
-pub enum DiffStatus {
-    Equal,
-    Different,
-    LeftOnly,
-    RightOnly,
-}
-
-#[derive(Clone, PartialEq)]
-#[allow(dead_code)]
 pub struct DiffResult {
     pub columns: Vec<String>,
     pub differences: Vec<DiffRow>,
@@ -28,7 +11,6 @@ pub struct DiffResult {
 }
 
 #[derive(Clone, PartialEq)]
-#[allow(dead_code)]
 pub struct DiffRow {
     pub row_index: usize,
     pub side: DiffSide,
@@ -36,7 +18,6 @@ pub struct DiffRow {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-#[allow(dead_code)]
 pub enum DiffSide {
     Left,
     Right,
@@ -44,7 +25,6 @@ pub enum DiffSide {
 }
 
 #[derive(Clone, PartialEq)]
-#[allow(dead_code)]
 pub struct DiffSummary {
     pub total_rows_left: usize,
     pub total_rows_right: usize,
@@ -168,7 +148,6 @@ pub fn DataDiffViewer(
     }
 }
 
-#[allow(dead_code)]
 fn calculate_diff(left: Option<&QueryPage>, right: Option<&QueryPage>) -> Option<DiffResult> {
     let (Some(left), Some(right)) = (left, right) else {
         return None;
@@ -243,8 +222,6 @@ fn calculate_diff(left: Option<&QueryPage>, right: Option<&QueryPage>) -> Option
         },
     })
 }
-
-use std::collections::HashSet;
 
 #[cfg(test)]
 mod tests {

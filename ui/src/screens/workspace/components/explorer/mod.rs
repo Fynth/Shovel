@@ -442,9 +442,6 @@ pub(super) fn split_match(name: &str, query: &str) -> Vec<(String, bool)> {
     }
     let needle = trimmed.to_ascii_lowercase();
     let haystack = name.to_ascii_lowercase();
-    if needle.is_empty() {
-        return vec![(name.to_string(), false)];
-    }
 
     let mut out: Vec<(String, bool)> = Vec::new();
     let mut cursor = 0usize;
@@ -467,13 +464,9 @@ pub(super) fn split_match(name: &str, query: &str) -> Vec<(String, bool)> {
 }
 
 /// Renders `name` in RSX with each matched segment (per `split_match`)
-/// wrapped in a `.tree__match` span. Returns an empty fragment when no
-/// segments are produced (only happens for an empty `name`).
+/// wrapped in a `.tree__match` span.
 pub(super) fn highlight_match_segments(name: &str, query: &str) -> Element {
     let segments = split_match(name, query);
-    if segments.is_empty() {
-        return rsx! {};
-    }
     rsx! {
         for (i, (text, is_match)) in segments.into_iter().enumerate() {
             if is_match {

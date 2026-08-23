@@ -1,7 +1,6 @@
 use dioxus::prelude::*;
 
 #[derive(Clone, PartialEq, Debug)]
-#[allow(dead_code)]
 pub enum BlobViewMode {
     Hex,
     Text,
@@ -15,7 +14,6 @@ pub struct BlobData {
 }
 
 #[derive(Clone)]
-#[allow(dead_code)]
 pub struct HexLine {
     pub address: String,
     pub bytes: Vec<HexByte>,
@@ -23,7 +21,6 @@ pub struct HexLine {
 }
 
 #[derive(Clone)]
-#[allow(dead_code)]
 pub struct HexByte {
     pub hex: String,
     pub char: char,
@@ -32,11 +29,9 @@ pub struct HexByte {
 
 /// Pure, prop-driven viewer for a [`BlobData`].
 ///
-/// Designed to live inside its own native OS window
-/// ([`crate::windows::BlobWindowRoot`]) — the caller passes the already-resolved
-/// blob as a plain value, so this component does not need any global state,
-/// signals, or overlay host. Rendering (Hex / Text / Image tabs, hex dump,
-/// preview panes) is identical to the previous in-overlay version.
+/// Lives inside its own native OS window ([`crate::windows::BlobWindowRoot`]);
+/// the caller passes the already-resolved blob as a plain value, so this
+/// component needs no global state, signals, or overlay host.
 #[component]
 pub fn BlobViewer(blob: BlobData, on_close: Callback<()>) -> Element {
     let mut view_mode = use_signal(|| BlobViewMode::Hex);
@@ -196,7 +191,6 @@ pub fn BlobViewer(blob: BlobData, on_close: Callback<()>) -> Element {
     }
 }
 
-#[allow(dead_code)]
 fn detect_blob_type(data: &[u8], mime_hint: Option<&str>) -> BlobViewMode {
     if let Some(mime) = mime_hint {
         if mime.starts_with("image/") {
@@ -235,7 +229,6 @@ fn detect_blob_type(data: &[u8], mime_hint: Option<&str>) -> BlobViewMode {
     BlobViewMode::Hex
 }
 
-#[allow(dead_code)]
 fn render_hex_dump(data: &[u8], bytes_per_line: usize) -> Vec<HexLine> {
     data.chunks(bytes_per_line)
         .enumerate()
@@ -263,12 +256,10 @@ fn render_hex_dump(data: &[u8], bytes_per_line: usize) -> Vec<HexLine> {
         .collect()
 }
 
-#[allow(dead_code)]
 fn render_text_preview(data: &[u8]) -> String {
     String::from_utf8_lossy(data).into_owned()
 }
 
-#[allow(dead_code)]
 fn render_image_preview(data: &[u8]) -> Option<String> {
     let mime = if data.len() >= 4 {
         match [data[0], data[1], data[2], data[3]] {
@@ -286,7 +277,6 @@ fn render_image_preview(data: &[u8]) -> Option<String> {
     Some(format!("data:{mime};base64,{base64}"))
 }
 
-#[allow(dead_code)]
 fn base64_encode(data: &[u8]) -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut result = String::new();
@@ -312,7 +302,6 @@ fn base64_encode(data: &[u8]) -> String {
     result
 }
 
-#[allow(dead_code)]
 fn format_bytes(size: u64) -> String {
     const KB: u64 = 1024;
     const MB: u64 = KB * 1024;
@@ -332,8 +321,6 @@ fn format_bytes(size: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ── detect_blob_type ──────────────────────────────────────────
 
     #[test]
     fn detect_png_magic_bytes() {
@@ -445,8 +432,6 @@ mod tests {
         assert_eq!(detect_blob_type(&[], None), BlobViewMode::Hex);
     }
 
-    // ── format_bytes ──────────────────────────────────────────────
-
     #[test]
     fn format_bytes_bytes_range() {
         assert_eq!(format_bytes(0), "0 bytes");
@@ -470,8 +455,6 @@ mod tests {
         assert_eq!(format_bytes(1_073_741_824), "1.00 GB");
     }
 
-    // ── base64_encode ─────────────────────────────────────────────
-
     #[test]
     fn base64_empty() {
         assert_eq!(base64_encode(b""), "");
@@ -492,8 +475,6 @@ mod tests {
     fn base64_one_byte_two_padding() {
         assert_eq!(base64_encode(b"M"), "TQ==");
     }
-
-    // ── render_hex_dump ───────────────────────────────────────────
 
     #[test]
     fn hex_dump_structure_and_printable_flag() {
@@ -519,8 +500,6 @@ mod tests {
         assert_eq!(lines[0].bytes.len(), 4);
         assert_eq!(lines[1].bytes.len(), 4);
     }
-
-    // ── render_text_preview / render_image_preview ────────────────
 
     #[test]
     fn text_preview_is_lossy_utf8() {

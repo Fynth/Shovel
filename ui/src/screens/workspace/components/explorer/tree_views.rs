@@ -240,14 +240,12 @@ fn ExplorerObjectRow(
         qualified_name: node.qualified_name.clone(),
     };
     let selected = selected_node() == node.qualified_name;
-    let can_duplicate_table = node.kind == ExplorerNodeKind::Table;
-    let can_truncate_table = node.kind == ExplorerNodeKind::Table;
-    let can_drop_table = node.kind == ExplorerNodeKind::Table;
+    let is_table = node.kind == ExplorerNodeKind::Table;
     let read_only_mode = read_only_mode_enabled();
     let kind_badge = node.kind.tree_badge();
     let kind_label = node.kind.display_label();
 
-    let (_read_only_mode_for_menu, items) = build_explorer_context_menu(
+    let items = build_explorer_context_menu(
         connection_name.clone(),
         preview_source.clone(),
         node.kind,
@@ -371,52 +369,50 @@ fn ExplorerObjectRow(
                     div { class: "tree__object-kind", "{kind_label}" }
                 }
             }
-            if can_duplicate_table || can_truncate_table || can_drop_table {
+            if is_table {
                 div { class: "tree__object-actions",
-                    if can_duplicate_table {
-                        IconButton {
-                            icon: ActionIcon::Duplicate,
-                            label: if read_only_mode {
-                                format!("Duplicate table {} is blocked by read-only mode", node.name)
-                            } else {
-                                format!("Duplicate table {}", node.name)
-                            },
-                            small: true,
-                            disabled: table_mutation_inflight().is_some() || read_only_mode,
-                            onclick: {
-                                let target = DuplicateTableTarget {
-                                    session_id,
-                                    connection_name: connection_name.clone(),
-                                    kind: connection_kind,
-                                    source: preview_source.clone(),
-                                };
-                                let mut tree_reload_signal = tree_reload;
-                                let mut selected_node_signal = selected_node;
-                                move |event: MouseEvent| {
-                                    event.stop_propagation();
-                                    if read_only_mode_enabled() {
-                                        return;
-                                    }
-                                    let connection = crate::app_state::session_connection(target.session_id);
-                                    let (bridge, mut rx) = crate::windows::create_duplicate_table_bridge();
-                                    spawn(async move {
-                                        while let Some(result) = rx.recv().await {
-                                            selected_node_signal.set(result.new_qualified_name);
-                                            tree_reload_signal += 1;
-                                        }
-                                    });
-                                    crate::windows::open_duplicate_table_window(
-                                        bridge,
-                                        target.clone(),
-                                        connection,
-                                        read_only_mode_enabled(),
-                                        crate::app_state::APP_THEME(),
-                                    );
+                    IconButton {
+                        icon: ActionIcon::Duplicate,
+                        label: if read_only_mode {
+                            format!("Duplicate table {} is blocked by read-only mode", node.name)
+                        } else {
+                            format!("Duplicate table {}", node.name)
+                        },
+                        small: true,
+                        disabled: table_mutation_inflight().is_some() || read_only_mode,
+                        onclick: {
+                            let target = DuplicateTableTarget {
+                                session_id,
+                                connection_name: connection_name.clone(),
+                                kind: connection_kind,
+                                source: preview_source.clone(),
+                            };
+                            let mut tree_reload_signal = tree_reload;
+                            let mut selected_node_signal = selected_node;
+                            move |event: MouseEvent| {
+                                event.stop_propagation();
+                                if read_only_mode_enabled() {
+                                    return;
                                 }
-                            },
-                        }
+                                let connection = crate::app_state::session_connection(target.session_id);
+                                let (bridge, mut rx) = crate::windows::create_duplicate_table_bridge();
+                                spawn(async move {
+                                    while let Some(result) = rx.recv().await {
+                                        selected_node_signal.set(result.new_qualified_name);
+                                        tree_reload_signal += 1;
+                                    }
+                                });
+                                crate::windows::open_duplicate_table_window(
+                                    bridge,
+                                    target.clone(),
+                                    connection,
+                                    read_only_mode_enabled(),
+                                    crate::app_state::APP_THEME(),
+                                );
+                            }
+                        },
                     }
-                    if can_truncate_table {
+                    if is_table {
                         IconButton {
                             icon: ActionIcon::Truncate,
                             label: if read_only_mode {
@@ -492,10 +488,6 @@ fn ExplorerObjectRow(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Table mutation helpers
-// ---------------------------------------------------------------------------
-
 fn table_mutation_button_label(
     action: TableMutationKind,
     table_name: &str,
@@ -557,10 +549,6 @@ fn table_mutation_confirmation_description(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Context-menu builder for table/view rows in the Explorer
-// ---------------------------------------------------------------------------
-
 #[allow(clippy::too_many_arguments)]
 fn build_explorer_context_menu(
     connection_name: String,
@@ -575,12 +563,11 @@ fn build_explorer_context_menu(
     connection_kind: DatabaseKind,
     table_mutation_inflight: Signal<Option<TableMutationKind>>,
     mut tree_reload: Signal<u64>,
-) -> (bool, Vec<ContextMenuItem>) {
+) -> Vec<ContextMenuItem> {
     use crate::app_state::context_menu::copy_to_clipboard;
 
     let mut items: Vec<ContextMenuItem> = Vec::new();
 
-    // 1. Open in editor (preview) — для объектов, поддерживающих SELECT.
     if kind.is_queryable() {
         let source = preview_source.clone();
         items.push(
@@ -803,17 +790,11 @@ fn build_explorer_context_menu(
         items.push(drop_item);
     }
 
-    (read_only_mode, items)
+    items
 }
 
-// ---------------------------------------------------------------------------
-// Async helpers for table-mutation flows (used by both inline buttons and the
-// context menu). Hoisted from the inline `IconButton` onclick handlers in
-// `ExplorerObjectRow` so that the same flow can be triggered from
-// different surfaces without duplicating the rfd confirmation + signal
-// orchestration logic.
-// ---------------------------------------------------------------------------
-
+// Shared by the inline IconButton onclick handlers and the context menu so the
+// rfd confirmation + signal orchestration stays in one place.
 #[allow(clippy::too_many_arguments)]
 async fn confirm_and_truncate_table(
     source: TablePreviewSource,
