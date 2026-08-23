@@ -379,7 +379,7 @@ pub(crate) fn send_sql_generation_request(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn send_sql_plan_request(
+pub(crate) fn send_sql_plan_request(
     mut panel_state: Signal<AcpPanelState>,
     tabs: Signal<Vec<QueryTabState>>,
     active_tab_id: u64,

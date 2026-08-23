@@ -39,6 +39,7 @@ pub(crate) use self::{
     prompt::{extract_sql_candidate, preferred_sql_target_tab_id},
     requests::{
         execute_agent_sql_request, send_describe_object_request, send_sql_generation_request,
+        send_sql_plan_request,
     },
     setup::ensure_default_sql_agent_connected,
     state::{apply_acp_events, default_acp_panel_state, replace_messages},

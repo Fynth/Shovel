@@ -74,6 +74,20 @@
   color: var(--color-text);
 }
 
+.execution-plan__ai-button {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 2px;
+
+  & .button {
+    color: var(--color-primary);
+  }
+
+  & .button:hover:not(:disabled) {
+    color: color-mix(in srgb, var(--color-primary) 80%, var(--color-text));
+  }
+}
+
 .execution-plan__badge,
 .execution-plan__stat-chip,
 .execution-plan__metric,

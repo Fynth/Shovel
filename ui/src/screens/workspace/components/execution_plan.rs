@@ -1,3 +1,7 @@
+use crate::screens::workspace::{
+    components::{ActionIcon, IconButton, send_sql_plan_request},
+    context::WorkspaceAcpContext,
+};
 use dioxus::prelude::*;
 use models::{ExecutionPlan, ExecutionPlanNode, QueryTabState};
 use std::collections::HashSet;
@@ -580,7 +584,6 @@ pub fn ExecutionPlanView(
     tabs: Signal<Vec<QueryTabState>>,
     active_tab_id: Signal<u64>,
 ) -> Element {
-    let _ = (tabs, active_tab_id);
     let mut view_mode = use_signal(|| PlanViewMode::Tree);
     let mut expanded_nodes = use_signal(HashSet::<NodePath>::new);
     let mut expanded_plan_key = use_signal(String::new);
@@ -613,6 +616,20 @@ pub fn ExecutionPlanView(
     let has_timing = plan.execution_time_ms.is_some() || plan.planning_time_ms.is_some();
     let visible_nodes = visible_plan_nodes(&plan.root_nodes, &expanded_snapshot);
 
+    // Guarded with try_use_context: the plan view can render without an ACP
+    // context (e.g. outside the workspace tree). When absent, hide the AI
+    // button rather than crashing.
+    let acp_ctx = try_use_context::<WorkspaceAcpContext>();
+    let ai_button_visible = acp_ctx.is_some() && !plan.explained_sql.trim().is_empty();
+    let ai_button_disabled = match acp_ctx.as_ref() {
+        Some(ctx) => {
+            let panel_busy = (ctx.acp_panel_state)().busy;
+            let allow_read = (ctx.allow_agent_read_sql_run)();
+            panel_busy || !allow_read
+        }
+        None => true,
+    };
+
     rsx! {
         div { class: "execution-plan",
             // Header
@@ -631,6 +648,37 @@ pub fn ExecutionPlanView(
                     }
                 }
                 div { class: "execution-plan__header-right",
+                    if ai_button_visible {
+                        div { class: "execution-plan__ai-button",
+                            IconButton {
+                                icon: ActionIcon::Agent,
+                                label: if ai_button_disabled {
+                                    "Explain with AI (waiting for ACP)".to_string()
+                                } else {
+                                    "Explain with AI".to_string()
+                                },
+                                small: true,
+                                disabled: ai_button_disabled,
+                                onclick: move |_| {
+                                    if let Some(ctx) = try_use_context::<WorkspaceAcpContext>() {
+                                        let panel_state = ctx.acp_panel_state;
+                                        let chat_revision = ctx.chat_revision;
+                                        let allow_db_read = (ctx.allow_agent_db_read)();
+                                        let allow_read_sql_run = (ctx.allow_agent_read_sql_run)();
+                                        send_sql_plan_request(
+                                            panel_state,
+                                            tabs,
+                                            active_tab_id(),
+                                            ctx.connection_label.clone(),
+                                            chat_revision,
+                                            allow_db_read,
+                                            allow_read_sql_run,
+                                        );
+                                    }
+                                },
+                            }
+                        }
+                    }
                     // View mode toggle
                     button {
                         class: if view_mode() == PlanViewMode::Tree {
