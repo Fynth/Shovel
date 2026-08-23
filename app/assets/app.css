@@ -4708,6 +4708,7 @@ select.input:focus-visible {
 }
 
 .results__cell {
+  position: relative;
   padding: 6px 8px;
   border-bottom: 1px solid color-mix(in srgb, var(--color-border) 74%, transparent);
   border-right: 1px solid color-mix(in srgb, var(--color-border) 58%, transparent);
@@ -4725,6 +4726,50 @@ select.input:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.results__cell-filter {
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+  color: var(--color-primary);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease, background 100ms ease, border-color 100ms ease;
+  backdrop-filter: blur(6px);
+}
+
+.results__cell-filter .button__icon {
+  width: 14px;
+  height: 14px;
+}
+
+.results__cell-filter:hover,
+.results__cell-filter:focus-visible {
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
+  border-color: var(--color-primary);
+  outline: none;
+}
+
+.results__cell-filter:focus-visible {
+  box-shadow: 0 0 0 1px var(--focus-ring);
+}
+
+.results__cell:hover .results__cell-filter,
+.results__cell:focus-within .results__cell-filter {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .results__cell--editable {

@@ -905,6 +905,30 @@ pub fn ResultTable(
                                                                             "{cell}"
                                                                         }
                                                                     }
+                                                                    if should_show_cell_filter(cell) {
+                                                                        if let Some(column_name) = page.columns.get(col_index).cloned() {
+                                                                            button {
+                                                                                class: "results__cell-filter",
+                                                                                title: "Filter by this value",
+                                                                                "aria-label": "Filter by this value",
+                                                                                tabindex: "-1",
+                                                                                onclick: {
+                                                                                    let cell_value = cell.clone();
+                                                                                    move |event| {
+                                                                                        event.stop_propagation();
+                                                                                        apply_filter_for_value(
+                                                                                            column_name.clone(),
+                                                                                            cell_value.clone(),
+                                                                                            QueryFilterOperator::Contains,
+                                                                                            tabs,
+                                                                                            active_tab_id,
+                                                                                        );
+                                                                                    }
+                                                                                },
+                                                                                IconGlyph { icon: ActionIcon::Filter }
+                                                                            }
+                                                                        }
+                                                                    }
                                                                     }
                                                                 }
                                                             }
@@ -1533,6 +1557,15 @@ fn sort_by_column(
     }
 }
 
+/// Decide whether the hover-revealed cell-level filter affordance should
+/// appear for a given cell value. Mirrors the gating used by the cell
+/// context menu's "Filter by this value" item, so the affordance is only
+/// shown when there is an actual value to filter on (trim-aware, so a
+/// whitespace-only cell stays hidden too).
+fn should_show_cell_filter(value: &str) -> bool {
+    !value.trim().is_empty()
+}
+
 /// Apply a filter on `column_name` matching `value` with the
 /// given operator. An empty `value` plus `Contains` opens a blank
 /// filter (the user can then type the value in the panel).
@@ -1561,6 +1594,7 @@ mod tests {
         csv_quote, filter_panel_should_auto_open, filter_panel_should_collapse_after_clear,
         format_all_rows_csv, format_all_rows_json, format_row_csv, format_row_edit_error,
         result_error_message, result_status_text_for_display, should_render_result_status_chip,
+        should_show_cell_filter,
     };
     use crate::screens::workspace::actions::rows_toolbar_summary;
     use models::{QueryFilter, QueryFilterMode, QueryFilterOperator, QueryFilterRule};
@@ -1701,6 +1735,19 @@ mod tests {
         let formatted = format_row_edit_error("Row insert", "constraint violation");
         assert_eq!(formatted, "Row insert error: constraint violation");
         assert!(!formatted.contains(":?"));
+    }
+
+    #[test]
+    fn cell_filter_affordance_visible_for_non_empty_values() {
+        assert!(should_show_cell_filter("Ada"));
+        assert!(should_show_cell_filter("0"));
+        assert!(should_show_cell_filter(" hello "));
+    }
+
+    #[test]
+    fn cell_filter_affordance_hidden_for_empty_values() {
+        assert!(!should_show_cell_filter(""));
+        assert!(!should_show_cell_filter("   "));
     }
 
     #[test]
