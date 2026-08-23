@@ -84,11 +84,6 @@ pub fn BlobViewer(blob: BlobData, on_close: Callback<()>) -> Element {
                         }
                     }
                 }
-                button {
-                    class: "blob-viewer__close",
-                    onclick: move |_| on_close.call(()),
-                    "×"
-                }
             }
             div {
                 class: "blob-viewer__content",

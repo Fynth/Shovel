@@ -97,23 +97,6 @@ pub fn CreateTableModal(
                 class: "settings-modal table-modal",
                 onclick: move |event| event.stop_propagation(),
                 div {
-                    class: "settings-modal__header",
-                    div {
-                        class: "settings-modal__header-copy",
-                        h2 { class: "settings-modal__title", "Create Table" }
-                        p {
-                            class: "settings-modal__hint",
-                            "Create a new table in {target.connection_name}."
-                        }
-                    }
-                    button {
-                        class: "button button--ghost button--small",
-                        onclick: move |_| on_close(()),
-                        "Close"
-                    }
-                }
-
-                div {
                     class: "table-modal__body",
                     div {
                         class: "table-modal__grid",

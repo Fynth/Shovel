@@ -235,24 +235,6 @@ pub fn EditConnectionModal(
             div {
                 class: "settings-modal connect-screen__editor-modal",
                 onclick: move |event| event.stop_propagation(),
-                div {
-                    class: "settings-modal__header",
-                    div {
-                        class: "settings-modal__header-copy",
-                        h2 { class: "settings-modal__title", "Edit Connection" }
-                        p {
-                            class: "settings-modal__hint",
-                            "Update the saved connection in a separate window."
-                        }
-                    }
-                    button {
-                        class: "button button--ghost button--small",
-                        disabled: save_inflight(),
-                        onclick: move |_| on_close(()),
-                        "Close"
-                    }
-                }
-
                 form {
                     class: "settings-modal__body connect-form",
                     onsubmit: move |event| {

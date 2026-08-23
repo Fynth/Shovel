@@ -50,6 +50,34 @@ const APP_CSS: &str = include_str!(concat!(
     "/../app/assets/app.css"
 ));
 
+/// Pure helper that maps a Wayland-session verdict to the right decoration
+/// answer, extracted so it can be unit-tested without touching process-global
+/// env vars.
+///
+/// On Wayland (e.g. Hyprland, Sway, GNOME Wayland) the compositor draws its
+/// own window chrome, so we disable Dioxus/tao decorations to avoid a double
+/// title bar. On X11 and Windows we keep native decorations (the user gets a
+/// real frame with minimize / maximize / close buttons).
+fn decorations_for(is_wayland: bool) -> bool {
+    !is_wayland
+}
+
+/// Decide whether dialog windows should request native decorations from
+/// tao/Dioxus.
+///
+/// Wayland is detected via the two standard signals the session publishes:
+/// `XDG_SESSION_TYPE=wayland` (set by systemd-logind / display managers) and
+/// `WAYLAND_DISPLAY` (set by any Wayland compositor). Either is sufficient —
+/// distros vary on which one they expose, and some apps (Flatpak portals,
+/// nested compositors) only set one of them.
+fn should_use_native_decorations() -> bool {
+    let is_wayland = std::env::var("XDG_SESSION_TYPE")
+        .map(|v| v.eq_ignore_ascii_case("wayland"))
+        .unwrap_or(false)
+        || std::env::var("WAYLAND_DISPLAY").is_ok();
+    decorations_for(is_wayland)
+}
+
 /// A thread-safe channel a dialog window uses to stream changes back to the
 /// main window.
 ///
@@ -156,10 +184,10 @@ fn settings_window_config() -> Config {
         .with_title("Shovel Settings")
         .with_inner_size(LogicalSize::new(560.0, 640.0))
         .with_resizable(true)
-        // Decorations ON — a real OS title bar + close button. This is what
-        // makes the settings surface feel like a separate OS window rather
-        // than an overlay on the main webview.
-        .with_decorations(true);
+        // Decorations ON on X11 / Windows (native frame + minimize / close),
+        // OFF on Wayland (compositor already draws its own chrome — adding
+        // Dioxus decorations would duplicate the title bar).
+        .with_decorations(should_use_native_decorations());
 
     Config::new().with_window(window_builder)
 }
@@ -291,7 +319,7 @@ fn connection_edit_window_config() -> Config {
         .with_title("Edit Connection")
         .with_inner_size(LogicalSize::new(640.0, 720.0))
         .with_resizable(true)
-        .with_decorations(true);
+        .with_decorations(should_use_native_decorations());
 
     Config::new().with_window(window_builder)
 }
@@ -413,7 +441,7 @@ fn create_table_window_config() -> Config {
         .with_title("Create Table")
         .with_inner_size(LogicalSize::new(720.0, 720.0))
         .with_resizable(true)
-        .with_decorations(true);
+        .with_decorations(should_use_native_decorations());
 
     Config::new().with_window(window_builder)
 }
@@ -532,7 +560,7 @@ fn duplicate_table_window_config() -> Config {
         .with_title("Duplicate Table")
         .with_inner_size(LogicalSize::new(640.0, 540.0))
         .with_resizable(true)
-        .with_decorations(true);
+        .with_decorations(should_use_native_decorations());
 
     Config::new().with_window(window_builder)
 }
@@ -611,7 +639,7 @@ fn er_diagram_window_config() -> Config {
         .with_title("ER Diagram")
         .with_inner_size(LogicalSize::new(900.0, 700.0))
         .with_resizable(true)
-        .with_decorations(true);
+        .with_decorations(should_use_native_decorations());
 
     Config::new().with_window(window_builder)
 }
@@ -678,7 +706,7 @@ fn blob_window_config() -> Config {
         .with_title("Blob Viewer")
         .with_inner_size(LogicalSize::new(720.0, 640.0))
         .with_resizable(true)
-        .with_decorations(true);
+        .with_decorations(should_use_native_decorations());
 
     Config::new().with_window(window_builder)
 }
@@ -760,7 +788,7 @@ fn data_diff_window_config() -> Config {
         .with_title("Data Diff")
         .with_inner_size(LogicalSize::new(900.0, 700.0))
         .with_resizable(true)
-        .with_decorations(true);
+        .with_decorations(should_use_native_decorations());
 
     Config::new().with_window(window_builder)
 }
@@ -793,5 +821,24 @@ pub fn DataDiffWindowRoot(props: DataDiffWindowRootProps) -> Element {
                 },
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::decorations_for;
+
+    /// Wayland compositors draw their own chrome, so Dioxus must skip its
+    /// own title bar to avoid rendering it twice.
+    #[test]
+    fn decorations_for_wayland_disables_native_chrome() {
+        assert!(!decorations_for(true));
+    }
+
+    /// X11, Windows, macOS and headless sessions keep the OS frame so the
+    /// user still gets a working minimize / close button.
+    #[test]
+    fn decorations_for_non_wayland_keeps_native_chrome() {
+        assert!(decorations_for(false));
     }
 }

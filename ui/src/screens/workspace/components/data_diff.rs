@@ -70,10 +70,6 @@ pub fn DataDiffViewer(
             div {
                 class: "data-diff__header",
                 div {
-                    class: "data-diff__title",
-                    "Data Diff"
-                }
-                div {
                     class: "data-diff__labels",
                     span {
                         class: "data-diff__label data-diff__label--left",
@@ -83,11 +79,6 @@ pub fn DataDiffViewer(
                         class: "data-diff__label data-diff__label--right",
                         "{right_label}"
                     }
-                }
-                button {
-                    class: "data-diff__close",
-                    onclick: move |_| on_close.call(()),
-                    "×"
                 }
             }
             if let Some(result) = diff_result.as_ref() {

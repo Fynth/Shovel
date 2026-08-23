@@ -63,23 +63,6 @@ pub fn SettingsModal(props: SettingsModalProps) -> Element {
                 class: "settings-modal",
                 onclick: move |event| event.stop_propagation(),
                 div {
-                    class: "settings-modal__header",
-                    div {
-                        class: "settings-modal__header-copy",
-                        h2 { class: "settings-modal__title", "Settings" }
-                        p {
-                            class: "settings-modal__hint",
-                            "Theme, workspace defaults and SQL formatting are saved automatically."
-                        }
-                    }
-                    button {
-                        class: "button button--ghost button--small",
-                        onclick: move |_| on_close.call(()),
-                        "Close"
-                    }
-                }
-
-                div {
                     class: "settings-modal__body",
                     section {
                         class: "settings-modal__section",

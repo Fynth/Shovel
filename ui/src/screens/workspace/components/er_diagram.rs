@@ -115,11 +115,6 @@ pub fn ErDiagramViewer(
                         "Reset"
                     }
                 }
-                button {
-                    class: "er-diagram__close",
-                    onclick: move |_| on_close.call(()),
-                    "×"
-                }
             }
             div {
                 class: "er-diagram__canvas",
