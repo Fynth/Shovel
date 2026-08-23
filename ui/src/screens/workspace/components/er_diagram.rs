@@ -50,9 +50,17 @@ pub struct ErLine {
     pub y2: String,
 }
 
+/// Pure, prop-driven viewer for an [`ErDiagramState`].
+///
+/// Designed to live inside its own native OS window
+/// ([`crate::windows::ErDiagramWindowRoot`]) — the caller passes the
+/// already-resolved diagram as a plain value, so this component does not
+/// need any global state, signals, or overlay host. Rendering (pan / zoom
+/// canvas, table cards, relationship arrows, legend) is identical to the
+/// previous in-overlay version.
 #[component]
 pub fn ErDiagramViewer(
-    diagram_state: Signal<Option<ErDiagramState>>,
+    diagram: ErDiagramState,
     on_close: Callback<()>,
     on_table_click: Callback<String>,
 ) -> Element {
@@ -60,28 +68,6 @@ pub fn ErDiagramViewer(
     let mut zoom = use_signal(|| 1.0f64);
     let mut is_dragging = use_signal(|| false);
     let mut drag_start = use_signal(|| (0.0f64, 0.0f64));
-
-    let state = diagram_state();
-    let Some(diagram) = state else {
-        return rsx! {
-            div {
-                class: "er-diagram er-diagram--empty",
-                div {
-                    class: "er-diagram__header",
-                    span { class: "er-diagram__title", "ER Diagram" }
-                    button {
-                        class: "er-diagram__close",
-                        onclick: move |_| on_close.call(()),
-                        "×"
-                    }
-                }
-                div {
-                    class: "er-diagram__empty-state",
-                    "No tables to display"
-                }
-            }
-        };
-    };
 
     let table_positions = calculate_table_positions(&diagram.tables, &diagram.relationships);
     let relationship_lines: Vec<ErLine> = diagram

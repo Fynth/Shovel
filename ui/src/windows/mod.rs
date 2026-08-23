@@ -23,11 +23,14 @@ use crate::{
     layout::SettingsModal,
     screens::{
         connect::edit_connection_modal::EditConnectionModal,
-        workspace::components::explorer::{
-            create_table_modal,
-            create_table_modal::{CreateTableModal, CreateTableTarget},
-            duplicate_table_modal,
-            duplicate_table_modal::{DuplicateTableModal, DuplicateTableTarget},
+        workspace::components::{
+            BlobData, BlobViewer, DataDiffViewer, ErDiagramState, ErDiagramViewer,
+            explorer::{
+                create_table_modal,
+                create_table_modal::{CreateTableModal, CreateTableTarget},
+                duplicate_table_modal,
+                duplicate_table_modal::{DuplicateTableModal, DuplicateTableTarget},
+            },
         },
     },
 };
@@ -35,6 +38,7 @@ use dioxus::{
     desktop::{Config, LogicalSize, WindowBuilder, window},
     prelude::*,
 };
+use models::QueryPage;
 
 /// Compiled app stylesheet (grass output of `styles/app.scss`).
 ///
@@ -553,6 +557,237 @@ pub fn DuplicateTableWindowRoot(props: DuplicateTableWindowRootProps) -> Element
                     bridge.send(DuplicateTableResult { new_qualified_name });
                     window().close();
                 },
+                on_close: move |_| {
+                    window().close();
+                },
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ER-diagram viewer window
+// ---------------------------------------------------------------------------
+
+/// Props for [`ErDiagramWindowRoot`].
+///
+/// Data flows IN via props only — the window is view-only, so there is no
+/// [`DialogBridge`] to stream anything back. Closing the window calls
+/// `window().close()` directly.
+#[derive(Props, Clone, PartialEq)]
+pub struct ErDiagramWindowRootProps {
+    pub diagram: ErDiagramState,
+    /// Active theme class (e.g. `"theme-dark"`) for the viewer's CSS tokens.
+    pub theme_class: String,
+}
+
+/// Open the ER-diagram viewer as a separate native OS window.
+///
+/// The caller (main workspace window) builds the [`ErDiagramState`] from
+/// `tree_sections` + foreign keys, then hands the resolved value to a brand
+/// new [`VirtualDom`] here. The new window has its own globals
+/// ([`Signal::global`] values do not carry across windows), but does not need
+/// any — the diagram is fully encoded in the props.
+///
+/// Spawns a non-blocking task that configures a [`WindowBuilder`] with
+/// decorations enabled and hands it to Dioxus via
+/// `DesktopContext::new_window`.
+pub fn open_er_diagram_window(diagram: ErDiagramState, theme_class: String) {
+    spawn(async move {
+        let dom = VirtualDom::new_with_props(
+            ErDiagramWindowRoot,
+            ErDiagramWindowRootProps {
+                diagram,
+                theme_class,
+            },
+        );
+        let config = er_diagram_window_config();
+        let _pending = window().new_window(dom, config).await;
+    });
+}
+
+fn er_diagram_window_config() -> Config {
+    let window_builder = WindowBuilder::new()
+        .with_title("ER Diagram")
+        .with_inner_size(LogicalSize::new(900.0, 700.0))
+        .with_resizable(true)
+        .with_decorations(true);
+
+    Config::new().with_window(window_builder)
+}
+
+/// Root component for the ER-diagram viewer window.
+///
+/// Mounts the prop-driven [`ErDiagramViewer`] inside a themed
+/// `.er-diagram-window-shell` so design tokens resolve correctly. The
+/// viewer's `on_close` simply calls `window().close()` — the main window no
+/// longer needs to flip a gate signal because the diagram lives in its own
+/// OS window.
+#[component]
+pub fn ErDiagramWindowRoot(props: ErDiagramWindowRootProps) -> Element {
+    let diagram = props.diagram;
+    let theme_class = props.theme_class;
+
+    rsx! {
+        document::Style { "{APP_CSS}" }
+        div { class: "er-diagram-window-shell {theme_class}",
+            ErDiagramViewer {
+                diagram,
+                on_close: move |_| {
+                    window().close();
+                },
+                on_table_click: move |_table_name: String| {},
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// BLOB viewer window
+// ---------------------------------------------------------------------------
+
+/// Props for [`BlobWindowRoot`].
+///
+/// Data flows IN via props only — the window is view-only, so there is no
+/// [`DialogBridge`] to stream anything back. Closing the window calls
+/// `window().close()` directly.
+#[derive(Props, Clone, PartialEq)]
+pub struct BlobWindowRootProps {
+    pub blob: BlobData,
+    /// Active theme class (e.g. `"theme-dark"`) for the viewer's CSS tokens.
+    pub theme_class: String,
+}
+
+/// Open the BLOB viewer as a separate native OS window.
+///
+/// The caller (main workspace window) builds the [`BlobData`] (raw bytes +
+/// optional MIME type), then hands the resolved value to a brand new
+/// [`VirtualDom`]. The new window does not need any globals — the blob is
+/// fully encoded in the props.
+pub fn open_blob_window(blob: BlobData, theme_class: String) {
+    spawn(async move {
+        let dom =
+            VirtualDom::new_with_props(BlobWindowRoot, BlobWindowRootProps { blob, theme_class });
+        let config = blob_window_config();
+        let _pending = window().new_window(dom, config).await;
+    });
+}
+
+fn blob_window_config() -> Config {
+    let window_builder = WindowBuilder::new()
+        .with_title("Blob Viewer")
+        .with_inner_size(LogicalSize::new(720.0, 640.0))
+        .with_resizable(true)
+        .with_decorations(true);
+
+    Config::new().with_window(window_builder)
+}
+
+/// Root component for the BLOB viewer window.
+///
+/// Mounts the prop-driven [`BlobViewer`] inside a themed
+/// `.blob-viewer-window-shell` so design tokens resolve correctly. The
+/// viewer's `on_close` simply calls `window().close()`.
+#[component]
+pub fn BlobWindowRoot(props: BlobWindowRootProps) -> Element {
+    let blob = props.blob;
+    let theme_class = props.theme_class;
+
+    rsx! {
+        document::Style { "{APP_CSS}" }
+        div { class: "blob-viewer-window-shell {theme_class}",
+            BlobViewer {
+                blob,
+                on_close: move |_| {
+                    window().close();
+                },
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Data-diff viewer window
+// ---------------------------------------------------------------------------
+
+/// Props for [`DataDiffWindowRoot`].
+///
+/// Data flows IN via props only — the window is view-only, so there is no
+/// [`DialogBridge`] to stream anything back. The two [`QueryPage`] values
+/// are the pinned result and the currently-displayed result the caller wants
+/// to compare; labels describe each side in the diff header.
+#[derive(Props, Clone, PartialEq)]
+pub struct DataDiffWindowRootProps {
+    pub left: Option<QueryPage>,
+    pub right: Option<QueryPage>,
+    pub left_label: String,
+    pub right_label: String,
+    /// Active theme class (e.g. `"theme-dark"`) for the viewer's CSS tokens.
+    pub theme_class: String,
+}
+
+/// Open the data-diff viewer as a separate native OS window.
+///
+/// The caller (result table in the main workspace window) hands the
+/// already-resolved left/right [`QueryPage`] values plus their labels to a
+/// brand new [`VirtualDom`]. The diff itself is computed inside the window
+/// via the existing `calculate_diff` helper, so no extra plumbing is needed.
+pub fn open_data_diff_window(
+    left: Option<QueryPage>,
+    right: Option<QueryPage>,
+    left_label: String,
+    right_label: String,
+    theme_class: String,
+) {
+    spawn(async move {
+        let dom = VirtualDom::new_with_props(
+            DataDiffWindowRoot,
+            DataDiffWindowRootProps {
+                left,
+                right,
+                left_label,
+                right_label,
+                theme_class,
+            },
+        );
+        let config = data_diff_window_config();
+        let _pending = window().new_window(dom, config).await;
+    });
+}
+
+fn data_diff_window_config() -> Config {
+    let window_builder = WindowBuilder::new()
+        .with_title("Data Diff")
+        .with_inner_size(LogicalSize::new(900.0, 700.0))
+        .with_resizable(true)
+        .with_decorations(true);
+
+    Config::new().with_window(window_builder)
+}
+
+/// Root component for the data-diff viewer window.
+///
+/// Mounts the prop-driven [`DataDiffViewer`] inside a themed
+/// `.data-diff-window-shell` so design tokens resolve correctly. The
+/// viewer's `on_close` simply calls `window().close()` — the main window no
+/// longer needs to flip a `show_compare` gate signal because the diff lives
+/// in its own OS window.
+#[component]
+pub fn DataDiffWindowRoot(props: DataDiffWindowRootProps) -> Element {
+    let left = props.left;
+    let right = props.right;
+    let left_label = props.left_label;
+    let right_label = props.right_label;
+    let theme_class = props.theme_class;
+
+    rsx! {
+        document::Style { "{APP_CSS}" }
+        div { class: "data-diff-window-shell {theme_class}",
+            DataDiffViewer {
+                left_data: left,
+                right_data: right,
+                left_label,
+                right_label,
                 on_close: move |_| {
                     window().close();
                 },

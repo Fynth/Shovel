@@ -9,11 +9,12 @@ use crate::app_state::keyboard::{ShortcutAction, match_key_combination};
 use crate::app_state::{
     APP_AI_FEATURES_ENABLED, APP_SHOW_AGENT_PANEL, APP_SHOW_CONNECTIONS, APP_SHOW_EXPLORER,
     APP_SHOW_HISTORY, APP_SHOW_SAVED_QUERIES, APP_SHOW_SQL_EDITOR, APP_SQL_FORMAT_SETTINGS,
-    APP_STATE, APP_UI_SETTINGS, ToastKind, context_menu, open_connection_screen,
+    APP_STATE, APP_THEME, APP_UI_SETTINGS, ToastKind, context_menu, open_connection_screen,
     request_focus_editor, request_focus_filter_panel, set_show_agent_panel, set_show_connections,
     set_show_explorer, set_show_history, set_show_saved_queries, set_show_sql_editor, show_toast,
     update_ui_settings,
 };
+use crate::windows;
 use dioxus::{html::input_data::MouseButton, prelude::*};
 use models::{
     AcpPanelState, ChatThreadSummary, QueryHistoryItem, QueryTabState, SavedQuery,
@@ -23,8 +24,8 @@ use models::{
 use self::{
     chat::{create_chat_thread, delete_chat_thread, select_chat_thread},
     components::{
-        AcpAgentPanel, BlobData, BlobViewer, ErDiagramState, ErDiagramViewer, IconButton,
-        QueryHistoryPanel, SavedQueriesPanel, SessionRail, SidebarConnectionTree, TabsManager,
+        AcpAgentPanel, IconButton, QueryHistoryPanel, SavedQueriesPanel, SessionRail,
+        SidebarConnectionTree, TabsManager,
     },
     helpers::{
         DockDropTarget, INSPECTOR_MAX_WIDTH, INSPECTOR_MIN_WIDTH, SIDEBAR_MAX_WIDTH,
@@ -484,8 +485,6 @@ fn WorkspaceBody(
     chat_threads: Signal<Vec<ChatThreadSummary>>,
     active_chat_thread_id: Signal<Option<i64>>,
     connection_label: String,
-    mut er_diagram: Signal<Option<ErDiagramState>>,
-    mut blob_viewer: Signal<Option<BlobData>>,
 ) -> Element {
     rsx! {
         if show_sidebar {
@@ -646,19 +645,21 @@ fn WorkspaceBody(
                         small: true,
                         onclick: move |_| {
                             let sections = tree_sections();
-                            // Показываем диаграмму сразу (без связей), а линии
-                            // подтягиваем асинхронно после загрузки внешних ключей.
-                            er_diagram.set(helpers::build_er_diagram(&sections, &[]));
                             let connection =
                                 APP_STATE.read().active_session().map(|s| s.connection.clone());
                             let Some(connection) = connection else {
                                 return;
                             };
+                            // Load foreign keys first so the window opens with
+                            // the full diagram (tables + relationship lines).
+                            // Each click opens a brand new OS window.
                             spawn(async move {
                                 let fks = services::load_foreign_keys(connection)
                                     .await
                                     .unwrap_or_default();
-                                er_diagram.set(helpers::build_er_diagram(&sections, &fks));
+                                if let Some(diagram) = helpers::build_er_diagram(&sections, &fks) {
+                                    windows::open_er_diagram_window(diagram, APP_THEME());
+                                }
                             });
                         },
                     }
@@ -775,9 +776,6 @@ pub fn Workspace() -> Element {
         .map(|session| session.name.clone())
         .unwrap_or_else(|| "No connection".to_string());
     let show_history = APP_SHOW_HISTORY();
-
-    let mut er_diagram = use_signal(|| None::<ErDiagramState>);
-    let mut blob_viewer = use_signal(|| None::<BlobData>);
 
     // ── Layout signals (owned by Workspace) ────────────────────────
     let sidebar_width = use_signal(|| 320.0);
@@ -1030,27 +1028,6 @@ pub fn Workspace() -> Element {
                 chat_threads,
                 active_chat_thread_id,
                 connection_label: connection_label.clone(),
-                er_diagram,
-                blob_viewer,
-            }
-            if er_diagram().is_some() {
-                div {
-                    class: "workspace__overlay",
-                    ErDiagramViewer {
-                        diagram_state: er_diagram,
-                        on_close: move |_| er_diagram.set(None),
-                        on_table_click: move |_table_name: String | {},
-                    }
-                }
-            }
-            if blob_viewer().is_some() {
-                div {
-                    class: "workspace__overlay",
-                    BlobViewer {
-                        blob_data: blob_viewer,
-                        on_close: move |_| blob_viewer.set(None),
-                    }
-                }
             }
         }
     }

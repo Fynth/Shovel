@@ -1,7 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    app_state::context_menu::{ContextMenuItem, open_context_menu},
+    app_state::{
+        APP_THEME,
+        context_menu::{ContextMenuItem, open_context_menu},
+    },
     screens::workspace::{
         actions::{
             append_next_tab_page, apply_active_tab_filter, clear_active_tab_filter, load_tab_page,
@@ -9,9 +12,10 @@ use crate::{
             rows_toolbar_summary, set_active_tab_status, tab_connection_or_error,
             toggle_active_tab_sort,
         },
-        components::{ActionIcon, DataDiffViewer, IconButton, IconGlyph, ResultChart},
+        components::{ActionIcon, IconButton, IconGlyph, ResultChart},
         helpers::format_duration,
     },
+    windows,
 };
 use dioxus::{html::input_data::MouseButton, prelude::*};
 use models::{
@@ -208,7 +212,6 @@ pub fn ResultTable(
     let mut viewport_height = use_signal(|| 600.0_f64);
     let mut show_chart = use_signal(|| false);
     let mut pinned_result = use_signal(|| None::<models::QueryPage>);
-    let mut show_compare = use_signal(|| false);
 
     let current_editing = editing_cell();
     let active_tab = tabs
@@ -529,15 +532,32 @@ pub fn ResultTable(
                                             } else {
                                                 "button button--ghost button--small"
                                             },
-                                            onclick: move |_| {
-                                                pinned_result.set(Some(page.clone()));
+                                            onclick: {
+                                                let pin_snapshot = page.clone();
+                                                move |_| {
+                                                    pinned_result.set(Some(pin_snapshot.clone()));
+                                                }
                                             },
                                             "Pin for compare"
                                         }
                                         button {
                                             class: "button button--ghost button--small",
                                             disabled: pinned_result().is_none(),
-                                            onclick: move |_| show_compare.set(true),
+                                            onclick: {
+                                                let compare_snapshot = page;
+                                                move |_| {
+                                                    let Some(pinned) = pinned_result() else {
+                                                        return;
+                                                    };
+                                                    windows::open_data_diff_window(
+                                                        Some(pinned),
+                                                        Some(compare_snapshot.clone()),
+                                                        "Pinned".to_string(),
+                                                        "Current".to_string(),
+                                                        APP_THEME(),
+                                                    );
+                                                }
+                                            },
                                             "Compare with pinned"
                                         }
                                     }
@@ -1054,18 +1074,6 @@ pub fn ResultTable(
                                 columns: page.columns.clone(),
                                 rows: page.rows.clone(),
                                 visible: show_chart,
-                            }
-                            if show_compare() && pinned_result().is_some() {
-                                div {
-                                    class: "workspace__overlay",
-                                    DataDiffViewer {
-                                        left_data: pinned_result(),
-                                        right_data: Some(page.clone()),
-                                        left_label: "Pinned".to_string(),
-                                        right_label: "Current".to_string(),
-                                        on_close: move |_| show_compare.set(false),
-                                    }
-                                }
                             }
                         }
                     }

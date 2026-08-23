@@ -30,33 +30,18 @@ pub struct HexByte {
     pub is_printable: bool,
 }
 
+/// Pure, prop-driven viewer for a [`BlobData`].
+///
+/// Designed to live inside its own native OS window
+/// ([`crate::windows::BlobWindowRoot`]) — the caller passes the already-resolved
+/// blob as a plain value, so this component does not need any global state,
+/// signals, or overlay host. Rendering (Hex / Text / Image tabs, hex dump,
+/// preview panes) is identical to the previous in-overlay version.
 #[component]
-pub fn BlobViewer(mut blob_data: Signal<Option<BlobData>>, on_close: Callback<()>) -> Element {
+pub fn BlobViewer(blob: BlobData, on_close: Callback<()>) -> Element {
     let mut view_mode = use_signal(|| BlobViewMode::Hex);
     let mut selected_offset = use_signal(|| 0u64);
     let bytes_per_line = 16;
-
-    let data = blob_data();
-    let Some(blob) = data else {
-        return rsx! {
-            div {
-                class: "blob-viewer blob-viewer--empty",
-                div {
-                    class: "blob-viewer__header",
-                    span { class: "blob-viewer__title", "BLOB Viewer" }
-                    button {
-                        class: "blob-viewer__close",
-                        onclick: move |_| on_close.call(()),
-                        "×"
-                    }
-                }
-                div {
-                    class: "blob-viewer__empty-state",
-                    "No data to display"
-                }
-            }
-        };
-    };
 
     let total_size = blob.raw.len() as u64;
     let suggested_mode = detect_blob_type(&blob.raw, blob.mime_type.as_deref());
