@@ -1268,6 +1268,18 @@ fn build_row_context_menu(
         );
     }
 
+    // 2b. Copy row as CSV (RFC 4180 quoted values, no header).
+    {
+        let columns = columns.clone();
+        let row_values = row_values.clone();
+        items.push(
+            ContextMenuItem::new("Copy row as CSV", move || {
+                let _ = copy_to_clipboard(format_row_csv(&columns, &row_values));
+            })
+            .with_icon(ActionIcon::ExportCsv),
+        );
+    }
+
     // 3. Copy row as INSERT — a real, escaped `INSERT INTO <table> (cols) VALUES (...)`
     //    using the active tab's source table when known. DBeaver-class data
     //    migration clipboard action; the previous placeholder did not quote
@@ -1288,20 +1300,47 @@ fn build_row_context_menu(
         );
     }
 
-    // 3b. Copy all rows on the current page as INSERT statements — useful for
-    //    bulk data export to the clipboard. Carries the group separator; when
-    //    it is absent the single-row item carries it to preserve the divider.
-    if all_rows.len() > 1 {
+    // 3b. Bulk-row copy actions. The closing separator is attached to the
+    //    last bulk item when bulk is present, or moved to the previous
+    //    single-row item when bulk is not, so the divider between the copy
+    //    group and the filter/sort group stays in either layout.
+    let mut bulk_items: Vec<ContextMenuItem> = Vec::new();
+    {
         let table = table_name.clone();
         let columns = columns.clone();
         let rows = all_rows.clone();
-        items.push(
+        bulk_items.push(
             ContextMenuItem::new("Copy all rows as INSERT", move || {
                 let _ = copy_to_clipboard(format_insert_statements(&table, &columns, &rows));
             })
-            .with_icon(ActionIcon::ExportSql)
-            .separator(),
+            .with_icon(ActionIcon::ExportSql),
         );
+    }
+    {
+        let columns = columns.clone();
+        let rows = all_rows.clone();
+        bulk_items.push(
+            ContextMenuItem::new("Copy all rows as CSV", move || {
+                let _ = copy_to_clipboard(format_all_rows_csv(&columns, &rows));
+            })
+            .with_icon(ActionIcon::ExportCsv),
+        );
+    }
+    {
+        let columns = columns.clone();
+        let rows = all_rows.clone();
+        bulk_items.push(
+            ContextMenuItem::new("Copy all rows as JSON", move || {
+                let _ = copy_to_clipboard(format_all_rows_json(&columns, &rows));
+            })
+            .with_icon(ActionIcon::ExportJson),
+        );
+    }
+    if all_rows.len() > 1 {
+        if let Some(last) = bulk_items.pop() {
+            items.push(last.separator());
+        }
+        items.extend(bulk_items);
     } else if let Some(last) = items.pop() {
         items.push(last.separator());
     }
@@ -1519,9 +1558,9 @@ fn apply_filter_for_value(
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{
-        filter_panel_should_auto_open, filter_panel_should_collapse_after_clear,
-        format_row_edit_error, result_error_message, result_status_text_for_display,
-        should_render_result_status_chip,
+        csv_quote, filter_panel_should_auto_open, filter_panel_should_collapse_after_clear,
+        format_all_rows_csv, format_all_rows_json, format_row_csv, format_row_edit_error,
+        result_error_message, result_status_text_for_display, should_render_result_status_chip,
     };
     use crate::screens::workspace::actions::rows_toolbar_summary;
     use models::{QueryFilter, QueryFilterMode, QueryFilterOperator, QueryFilterRule};
@@ -1662,6 +1701,106 @@ mod tests {
         let formatted = format_row_edit_error("Row insert", "constraint violation");
         assert_eq!(formatted, "Row insert error: constraint violation");
         assert!(!formatted.contains(":?"));
+    }
+
+    #[test]
+    fn csv_quote_passes_plain_fields_through_unchanged() {
+        assert_eq!(csv_quote("hello"), "hello");
+        assert_eq!(csv_quote(""), "");
+        assert_eq!(csv_quote("plain-text_42"), "plain-text_42");
+    }
+
+    #[test]
+    fn csv_quote_wraps_fields_containing_commas() {
+        assert_eq!(csv_quote("a,b"), "\"a,b\"");
+    }
+
+    #[test]
+    fn csv_quote_doubles_internal_double_quotes() {
+        assert_eq!(csv_quote("she said \"hi\""), "\"she said \"\"hi\"\"\"");
+    }
+
+    #[test]
+    fn csv_quote_preserves_newlines_inside_quoted_field() {
+        assert_eq!(csv_quote("line1\nline2"), "\"line1\nline2\"");
+        assert_eq!(csv_quote("line1\r\nline2"), "\"line1\r\nline2\"");
+    }
+
+    #[test]
+    fn format_row_csv_omits_header() {
+        let columns = vec!["id".to_string(), "name".to_string()];
+        let row = vec!["1".to_string(), "Ada".to_string()];
+        assert_eq!(format_row_csv(&columns, &row), "1,Ada");
+    }
+
+    #[test]
+    fn format_row_csv_quotes_each_field_independently() {
+        let columns = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let row = vec![
+            "plain".to_string(),
+            "with,comma".to_string(),
+            "with\"quote".to_string(),
+        ];
+        assert_eq!(
+            format_row_csv(&columns, &row),
+            "plain,\"with,comma\",\"with\"\"quote\""
+        );
+    }
+
+    #[test]
+    fn format_all_rows_csv_includes_header_and_quote_columns() {
+        let columns = vec!["id".to_string(), "note,detail".to_string()];
+        let rows = vec![
+            vec!["1".to_string(), "alpha".to_string()],
+            vec!["2".to_string(), "she said \"hi\"".to_string()],
+        ];
+        let output = format_all_rows_csv(&columns, &rows);
+        assert_eq!(
+            output,
+            "id,\"note,detail\"\n1,alpha\n2,\"she said \"\"hi\"\"\""
+        );
+    }
+
+    #[test]
+    fn format_all_rows_csv_emits_only_header_when_no_rows() {
+        let columns = vec!["id".to_string(), "name".to_string()];
+        let rows: Vec<Vec<String>> = Vec::new();
+        assert_eq!(format_all_rows_csv(&columns, &rows), "id,name");
+    }
+
+    #[test]
+    fn format_all_rows_json_serializes_array_of_objects() {
+        let columns = vec!["id".to_string(), "name".to_string()];
+        let rows = vec![
+            vec!["1".to_string(), "Ada".to_string()],
+            vec!["2".to_string(), "Linus".to_string()],
+        ];
+        let output = format_all_rows_json(&columns, &rows);
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(
+            parsed,
+            serde_json::json!([
+                {"id": "1", "name": "Ada"},
+                {"id": "2", "name": "Linus"},
+            ])
+        );
+    }
+
+    #[test]
+    fn format_all_rows_json_emits_empty_array_when_no_rows() {
+        let columns = vec!["id".to_string()];
+        let rows: Vec<Vec<String>> = Vec::new();
+        assert_eq!(format_all_rows_json(&columns, &rows), "[]");
+    }
+
+    #[test]
+    fn format_all_rows_json_is_compact_single_line() {
+        let columns = vec!["a".to_string()];
+        let rows = vec![vec!["x".to_string()], vec!["y".to_string()]];
+        let output = format_all_rows_json(&columns, &rows);
+        // Compact: no internal newlines or excessive whitespace.
+        assert!(!output.contains('\n'));
+        assert_eq!(output, r#"[{"a":"x"},{"a":"y"}]"#);
     }
 }
 
@@ -2117,6 +2256,74 @@ fn format_row_tsv(columns: &[String], row: &[String]) -> String {
         .collect::<Vec<_>>()
         .join("\t");
     format!("{header}\n{body}")
+}
+
+/// Quote a single CSV field per RFC 4180. The field is left bare when it
+/// contains none of the special characters; otherwise the field is wrapped
+/// in double quotes and any internal `"` is doubled. A trailing CR/LF is
+/// preserved inside the quoted form so that multi-line cells survive the
+/// round-trip.
+fn csv_quote(field: &str) -> String {
+    let needs_quote = field
+        .as_bytes()
+        .iter()
+        .any(|&byte| matches!(byte, b',' | b'"' | b'\n' | b'\r'));
+    if !needs_quote {
+        return field.to_string();
+    }
+    let escaped = field.replace('"', "\"\"");
+    format!("\"{escaped}\"")
+}
+
+/// Serialize a row as a single CSV line. The header row is intentionally
+/// omitted — the single-row context menu item copies just the values so
+/// that a single copy-paste into a spreadsheet fills one cell range.
+fn format_row_csv(_columns: &[String], row: &[String]) -> String {
+    row.iter()
+        .map(|value| csv_quote(value))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Serialize a full result page as CSV: header row + one data row per
+/// record, with every field quoted per RFC 4180. Empty input produces a
+/// header line and nothing else, matching the convention used by the
+/// existing export pipeline.
+fn format_all_rows_csv(columns: &[String], rows: &[Vec<String>]) -> String {
+    let header = columns
+        .iter()
+        .map(|column| csv_quote(column))
+        .collect::<Vec<_>>()
+        .join(",");
+    if rows.is_empty() {
+        return header;
+    }
+    let body = rows
+        .iter()
+        .map(|row| {
+            row.iter()
+                .map(|value| csv_quote(value))
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("{header}\n{body}")
+}
+
+/// Serialize a full result page as a compact JSON array of objects.
+/// Empty input serializes to `[]`; the per-cell value coercion matches
+/// `format_row_json` so null/JSON-looking/strings stay consistent.
+fn format_all_rows_json(columns: &[String], rows: &[Vec<String>]) -> String {
+    let mut array = Vec::with_capacity(rows.len());
+    for row in rows {
+        let mut object = Map::with_capacity(columns.len());
+        for (column, value) in columns.iter().zip(row.iter()) {
+            object.insert(column.clone(), detail_json_value(value));
+        }
+        array.push(Value::Object(object));
+    }
+    serde_json::to_string(&Value::Array(array)).unwrap_or_else(|_| "[]".to_string())
 }
 
 fn detail_json_value(value: &str) -> Value {
