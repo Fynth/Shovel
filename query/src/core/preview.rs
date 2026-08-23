@@ -120,7 +120,7 @@ pub async fn load_table_preview_page(
                 clickhouse_get_primary_key_columns(&config, &schema_name, &source.table_name)
                     .await?;
 
-            let (response, _row_locators) = if let Some((ref pk_columns, _)) = pk_result {
+            let (response, row_locators) = if let Some((ref pk_columns, _)) = pk_result {
                 let pk_select = pk_columns
                     .iter()
                     .map(|c| quote_identifier_clickhouse(c))
@@ -136,12 +136,7 @@ pub async fn load_table_preview_page(
                 );
                 let response = ClickHouseDriver.execute_json_query(&config, &sql).await?;
 
-                let pk_count = pk_columns.len();
-                let row_locators: Vec<String> = response
-                    .data
-                    .iter()
-                    .map(|row| build_clickhouse_locator(pk_columns, &row[..pk_count]))
-                    .collect();
+                let row_locators = clickhouse_row_locators(pk_columns, &response.data);
                 (response, row_locators)
             } else {
                 let sql = build_outer_paginated_query(
@@ -156,8 +151,9 @@ pub async fn load_table_preview_page(
                 (response, vec![])
             };
 
-            // Product policy: ClickHouse table previews are read-only for now.
-            let editable = None;
+            // ClickHouse table previews are editable when the table has a
+            // primary key, because mutations rely on primary-key row locators.
+            let editable = clickhouse_editable_context(&pk_result, source, row_locators);
 
             let (columns, rows) = if let Some((ref pk_columns, _)) = pk_result {
                 let pk_count = pk_columns.len();
@@ -197,5 +193,106 @@ pub async fn load_table_preview_page(
                 has_next,
             }))
         }
+    }
+}
+
+/// Builds the `col=value|col=value` locator string for every row, taking only
+/// the leading PK columns of each row (the query emits `pk_select, *`).
+fn clickhouse_row_locators(pk_columns: &[String], data: &[Vec<serde_json::Value>]) -> Vec<String> {
+    let pk_count = pk_columns.len();
+    data.iter()
+        .map(|row| build_clickhouse_locator(pk_columns, &row[..pk_count]))
+        .collect()
+}
+
+/// Gates preview editability on the presence of a primary key: mutations
+/// (insert/update/delete) require primary-key row locators, so a pk-less
+/// ClickHouse table stays read-only (`None`).
+fn clickhouse_editable_context(
+    pk_result: &Option<(Vec<String>, String)>,
+    source: TablePreviewSource,
+    row_locators: Vec<String>,
+) -> Option<models::EditableTableContext> {
+    pk_result.as_ref().map(|_| models::EditableTableContext {
+        source,
+        row_locators,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{clickhouse_editable_context, clickhouse_row_locators};
+    use models::TablePreviewSource;
+
+    #[test]
+    fn clickhouse_locators_use_leading_pk_columns_only() {
+        let pk_columns = vec!["id".to_string(), "tenant_id".to_string()];
+        let data = vec![
+            vec![
+                serde_json::json!(1),
+                serde_json::json!("tenant-a"),
+                serde_json::json!("alpha"),
+                serde_json::json!(10),
+            ],
+            vec![
+                serde_json::json!(2),
+                serde_json::json!("tenant-b"),
+                serde_json::json!("beta"),
+                serde_json::json!(20),
+            ],
+        ];
+
+        let locators = clickhouse_row_locators(&pk_columns, &data);
+
+        assert_eq!(
+            locators,
+            vec!["id=1|tenant_id='tenant-a'", "id=2|tenant_id='tenant-b'"]
+        );
+    }
+
+    #[test]
+    fn clickhouse_locators_tolerate_missing_pk_values() {
+        let pk_columns = vec!["id".to_string(), "note".to_string()];
+        let data = vec![vec![
+            serde_json::json!(7),
+            serde_json::Value::Null,
+            serde_json::json!("payload"),
+        ]];
+
+        assert_eq!(
+            clickhouse_row_locators(&pk_columns, &data),
+            vec!["id=7|note=NULL"]
+        );
+    }
+
+    fn source() -> TablePreviewSource {
+        TablePreviewSource {
+            schema: Some("analytics".to_string()),
+            table_name: "events".to_string(),
+            qualified_name: "analytics.events".to_string(),
+        }
+    }
+
+    #[test]
+    fn clickhouse_pk_table_exposes_editable_context_with_locators() {
+        let pk_result = Some((vec!["id".to_string()], "UInt64".to_string()));
+        let locators = vec!["id=1".to_string(), "id=2".to_string()];
+
+        let editable = clickhouse_editable_context(&pk_result, source(), locators.clone());
+
+        assert_eq!(
+            editable,
+            Some(models::EditableTableContext {
+                source: source(),
+                row_locators: locators,
+            })
+        );
+    }
+
+    #[test]
+    fn clickhouse_pk_less_table_stays_read_only() {
+        let editable = clickhouse_editable_context(&None, source(), vec![]);
+
+        assert_eq!(editable, None);
     }
 }

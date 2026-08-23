@@ -182,12 +182,23 @@ pub async fn insert_table_row_with_values(
             Ok(())
         }
         DatabaseConnection::ClickHouse(config) => {
-            let sql = build_insert_row_sql(&source, &column_values, quote_identifier_clickhouse);
+            let sql = build_clickhouse_insert_sql(&source, &column_values);
 
             ClickHouseDriver.execute_text_query(&config, &sql).await?;
             Ok(())
         }
     }
+}
+
+/// ClickHouse rejects `DEFAULT VALUES`, so an empty value list uses the explicit `() values ()` form.
+fn build_clickhouse_insert_sql(
+    source: &TablePreviewSource,
+    column_values: &[(String, String)],
+) -> String {
+    if column_values.is_empty() {
+        return format!("insert into {} () values ()", source.qualified_name);
+    }
+    build_insert_row_sql(source, column_values, quote_identifier_clickhouse)
 }
 
 pub async fn next_table_primary_key_id(
@@ -426,5 +437,36 @@ pub async fn delete_table_row(
             ClickHouseDriver.execute_text_query(&config, &sql).await?;
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_clickhouse_insert_sql;
+    use models::TablePreviewSource;
+
+    fn source() -> TablePreviewSource {
+        TablePreviewSource {
+            schema: Some("analytics".to_string()),
+            table_name: "events".to_string(),
+            qualified_name: "analytics.events".to_string(),
+        }
+    }
+
+    #[test]
+    fn clickhouse_empty_insert_uses_explicit_empty_column_list() {
+        let sql = build_clickhouse_insert_sql(&source(), &[]);
+        assert_eq!(sql, "insert into analytics.events () values ()");
+        assert!(!sql.contains("default values"));
+    }
+
+    #[test]
+    fn clickhouse_non_empty_insert_keeps_build_insert_row_sql_path() {
+        let sql =
+            build_clickhouse_insert_sql(&source(), &[("name".to_string(), "launch".to_string())]);
+        assert_eq!(
+            sql,
+            "insert into analytics.events (`name`) values ('launch')"
+        );
     }
 }
