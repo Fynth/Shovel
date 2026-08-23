@@ -9,5 +9,6 @@ mod completion;
 mod components;
 mod layout;
 mod screens;
+pub mod windows;
 
 pub use app::App;
