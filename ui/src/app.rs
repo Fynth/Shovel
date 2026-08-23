@@ -1,10 +1,10 @@
 use crate::{
     app_state::{
-        APP_SHOW_SETTINGS_MODAL, APP_SQL_FORMAT_SETTINGS, APP_STATE, APP_THEME, APP_TOOLTIP,
-        APP_UI_SETTINGS, replace_ui_settings, restore_connection_sessions, toast_error,
+        APP_SQL_FORMAT_SETTINGS, APP_STATE, APP_THEME, APP_TOOLTIP, APP_UI_SETTINGS,
+        replace_ui_settings, restore_connection_sessions, toast_error,
     },
     components::context_menu::{ContextMenu, TextInputMenuInit},
-    layout::{SettingsModal, StatusBar, ToastContainer, Toolbar},
+    layout::{StatusBar, ToastContainer, Toolbar},
     screens::{DbConnect, Workspace},
 };
 use dioxus::prelude::*;
@@ -172,9 +172,6 @@ pub fn App() -> Element {
                     }
                 } else {
                     DbConnect {}
-                }
-                if APP_SHOW_SETTINGS_MODAL() {
-                    SettingsModal {}
                 }
                 if let Some(tooltip) = APP_TOOLTIP() {
                     div {

@@ -2,9 +2,9 @@
 //!
 //! Each window is a real top-level OS window with its own webview, decorations,
 //! and event loop slot. The main `Shovel` window stays independent — the only
-//! shared state in step 1 is the compiled app stylesheet, injected into the
-//! new window via `<document::Style>` so the placeholder matches the rest of
-//! the app's design tokens.
+//! shared state is the compiled app stylesheet, injected into the new window
+//! via `<document::Style>` so the placeholder matches the rest of the app's
+//! design tokens.
 //!
 //! ## Cross-window state
 //!
@@ -13,11 +13,13 @@
 //! see the main window's globals (e.g. `APP_UI_SETTINGS`,
 //! `APP_SQL_FORMAT_SETTINGS`) — they would silently re-default.
 //!
-//! To keep the persistence effects in `app.rs` working, dialog windows must
-//! NOT mirror globals locally. Instead they receive a [`DialogBridge`] from the
-//! main window and stream change snapshots back over it. The main window owns
-//! the receiver and applies the snapshot to its real global state.
+//! Dialog windows must NOT mirror globals locally. Instead they receive a
+//! [`DialogBridge`] from the main window and stream change snapshots back over
+//! it. The main window owns the receiver and applies each snapshot to its
+//! real global state — that triggers the existing persistence effects in
+//! `app.rs` to write the new value to disk.
 
+use crate::layout::SettingsModal;
 use dioxus::{
     desktop::{Config, LogicalSize, WindowBuilder, window},
     prelude::*,
@@ -28,7 +30,10 @@ use dioxus::{
 /// Lives in the `app` crate and is embedded into every Shovel window so the
 /// design tokens and base styles are available without re-running grass from
 /// `ui`. This mirrors the pattern in `app/src/main.rs` (APP_CSS).
-const APP_CSS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../app/assets/app.css"));
+const APP_CSS: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../app/assets/app.css"
+));
 
 /// A thread-safe channel a dialog window uses to stream changes back to the
 /// main window.
@@ -90,28 +95,41 @@ pub fn create_settings_bridge() -> (
 
 /// Props for [`SettingsWindowRoot`].
 ///
-/// `bridge` is the only prop — the settings window needs nothing else. The
-/// snapshot data is held by the main window's globals; the dialog pushes
-/// changes through `bridge`, never the other way around.
+/// The window mirrors the latest snapshot the user has committed into the
+/// bridge, but it needs an initial value to render before any edit happens —
+/// `initial_ui` / `initial_sql` are that seed. `bridge` carries every user
+/// edit back to the main window, which owns the real globals + persistence.
 #[derive(Props, Clone, PartialEq)]
 pub struct SettingsWindowRootProps {
     pub bridge: DialogBridge<SettingsSnapshot>,
+    pub initial_ui: models::AppUiSettings,
+    pub initial_sql: models::SqlFormatSettings,
 }
 
 /// Open the settings window as a separate native OS window.
 ///
 /// `bridge` is the sender half created by [`create_settings_bridge`] — the
 /// main window keeps the matching receiver and applies incoming snapshots to
-/// its real global state.
+/// its real global state. `initial_ui` / `initial_sql` are the snapshots the
+/// main window currently holds; the new window uses them as its seed values
+/// so the user sees the current settings the moment the window opens.
 ///
 /// Spawns a non-blocking task that builds a new [`VirtualDom`], configures a
 /// [`WindowBuilder`] with decorations enabled, and hands it to Dioxus via
 /// `DesktopContext::new_window`. The future resolves once the window is ready.
-pub fn open_settings_window(bridge: DialogBridge<SettingsSnapshot>) {
+pub fn open_settings_window(
+    bridge: DialogBridge<SettingsSnapshot>,
+    initial_ui: models::AppUiSettings,
+    initial_sql: models::SqlFormatSettings,
+) {
     spawn(async move {
         let dom = VirtualDom::new_with_props(
             SettingsWindowRoot,
-            SettingsWindowRootProps { bridge },
+            SettingsWindowRootProps {
+                bridge,
+                initial_ui,
+                initial_sql,
+            },
         );
         let config = settings_window_config();
         let _pending = window().new_window(dom, config).await;
@@ -133,34 +151,49 @@ fn settings_window_config() -> Config {
 
 /// Root component for the settings window.
 ///
-/// Step 2 keeps this as a minimal stub that proves the [`DialogBridge`]
-/// round-trips compile: pressing the "Save" button builds a demo
-/// [`SettingsSnapshot`] (using the settings types' `Default` impls), sends it
-/// through the bridge, and closes the window. The full settings UI lives in
-/// `ui/src/layout/settings_modal.rs` and will be mounted here in a later step.
+/// Mounts the prop-driven [`SettingsModal`] inside a `.settings-window-shell`
+/// wrapper. The shell just centers/fills the window; the modal content reuses
+/// its existing `.settings-modal` styles (already tokenized in
+/// `styles/components/_settings-modal.scss`). Two local signals mirror the
+/// current UI + SQL settings; every edit flows through both the local signal
+/// (so the field re-renders with the new value) and the [`DialogBridge`] (so
+/// the main window's globals stay in sync, triggering its persistence
+/// effects).
 #[component]
 pub fn SettingsWindowRoot(props: SettingsWindowRootProps) -> Element {
     let bridge = props.bridge;
+    let initial_ui = props.initial_ui;
+    let initial_sql = props.initial_sql;
+    let mut ui = use_signal(move || initial_ui.clone());
+    let mut sql = use_signal(move || initial_sql.clone());
+
+    // Reflect the main window's current theme so tokens resolve to the right
+    // palette. The user can still switch theme from inside the modal — that
+    // edit goes through the bridge and the next render picks it up.
+    let theme_class = ui().theme.css_class().to_string();
+
+    let on_change =
+        move |(next_ui, next_sql): (models::AppUiSettings, models::SqlFormatSettings)| {
+            ui.set(next_ui.clone());
+            sql.set(next_sql.clone());
+            bridge.send(SettingsSnapshot {
+                ui: next_ui,
+                sql: next_sql,
+            });
+        };
+
+    let on_close = move |_| {
+        window().close();
+    };
 
     rsx! {
         document::Style { "{APP_CSS}" }
-        div { class: "settings-window-root theme-dark",
-            header { class: "settings-window-root__header",
-                h1 { "Settings" }
-            }
-            main { class: "settings-window-root__body",
-                p { class: "settings-window-root__hint", "Settings window (in progress)" }
-                button {
-                    class: "settings-window-root__save",
-                    onclick: move |_| {
-                        bridge.send(SettingsSnapshot {
-                            ui: models::AppUiSettings::default(),
-                            sql: models::SqlFormatSettings::default(),
-                        });
-                        window().close();
-                    },
-                    "Save"
-                }
+        div { class: "settings-window-shell {theme_class}",
+            SettingsModal {
+                settings: ui(),
+                sql_settings: sql(),
+                on_change,
+                on_close,
             }
         }
     }

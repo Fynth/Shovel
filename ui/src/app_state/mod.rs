@@ -135,7 +135,6 @@ pub static APP_SHOW_SQL_EDITOR: GlobalSignal<bool> =
     Signal::global(|| AppUiSettings::default().show_sql_editor);
 pub static APP_SHOW_AGENT_PANEL: GlobalSignal<bool> =
     Signal::global(|| AppUiSettings::default().show_agent_panel);
-pub static APP_SHOW_SETTINGS_MODAL: GlobalSignal<bool> = Signal::global(|| false);
 pub static APP_TOOLTIP: GlobalSignal<Option<AppTooltip>> = Signal::global(|| None);
 pub static APP_TOAST: GlobalSignal<Vec<AppToast>> = Signal::global(Vec::new);
 pub static APP_TAB_DRAFTS: GlobalSignal<Vec<models::TabDraft>> = Signal::global(Vec::new);
@@ -168,42 +167,6 @@ pub fn update_ui_settings(update: impl FnOnce(&mut AppUiSettings)) {
         current.clone()
     };
     sync_runtime_ui_settings(&settings);
-}
-
-pub fn reset_ui_settings() {
-    replace_ui_settings(AppUiSettings::default());
-    // Purge API keys from keyring so they don't resurrect on next load.
-    spawn(async move {
-        let _ = services::save_codestral_api_key(String::new()).await;
-        let _ = services::save_deepseek_api_key(String::new()).await;
-    });
-}
-
-pub fn set_theme_preference(theme: AppThemePreference) {
-    update_ui_settings(|current| {
-        current.theme = theme;
-    });
-}
-
-pub fn set_ai_features_enabled(enabled: bool) {
-    update_ui_settings(|current| {
-        current.ai_features_enabled = enabled;
-        if !enabled {
-            current.show_agent_panel = false;
-        }
-    });
-}
-
-pub fn set_restore_session_on_launch(enabled: bool) {
-    update_ui_settings(|current| {
-        current.restore_session_on_launch = enabled;
-    });
-}
-
-pub fn set_read_only_mode(enabled: bool) {
-    update_ui_settings(|current| {
-        current.read_only_mode = enabled;
-    });
 }
 
 pub fn set_show_saved_queries(visible: bool) {
@@ -239,33 +202,6 @@ pub fn set_show_sql_editor(visible: bool) {
 pub fn set_show_agent_panel(visible: bool) {
     update_ui_settings(|current| {
         current.show_agent_panel = visible;
-    });
-}
-
-pub fn set_default_page_size(page_size: u32) {
-    update_ui_settings(|current| {
-        current.default_page_size = page_size;
-    });
-}
-
-pub fn set_codestral_enabled(enabled: bool) {
-    update_ui_settings(|current| {
-        current.codestral.enabled = enabled;
-    });
-}
-
-pub fn set_codestral_api_key(api_key: String) {
-    update_ui_settings(|current| {
-        current.codestral.api_key = api_key;
-        if current.codestral.api_key.trim().is_empty() {
-            current.codestral.enabled = false;
-        }
-    });
-}
-
-pub fn set_codestral_model(model: String) {
-    update_ui_settings(|current| {
-        current.codestral.model = model;
     });
 }
 
@@ -337,14 +273,6 @@ fn sync_runtime_ui_settings(settings: &AppUiSettings) {
     crate::screens::workspace::components::agent_panel::prompt::sync_ai_response_language(
         settings.ai_response_language.clone(),
     );
-}
-
-pub fn open_settings_modal() {
-    *APP_SHOW_SETTINGS_MODAL.write() = true;
-}
-
-pub fn close_settings_modal() {
-    *APP_SHOW_SETTINGS_MODAL.write() = false;
 }
 
 /// Записывает сводку последнего запроса в глобальный сигнал статус-бара.

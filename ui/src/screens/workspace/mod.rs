@@ -8,11 +8,11 @@ mod hooks;
 use crate::app_state::keyboard::{ShortcutAction, match_key_combination};
 use crate::app_state::{
     APP_AI_FEATURES_ENABLED, APP_SHOW_AGENT_PANEL, APP_SHOW_CONNECTIONS, APP_SHOW_EXPLORER,
-    APP_SHOW_HISTORY, APP_SHOW_SAVED_QUERIES, APP_SHOW_SETTINGS_MODAL, APP_SHOW_SQL_EDITOR,
-    APP_SQL_FORMAT_SETTINGS, APP_STATE, APP_UI_SETTINGS, ToastKind, close_settings_modal,
-    context_menu, open_connection_screen, request_focus_editor, request_focus_filter_panel,
-    set_show_agent_panel, set_show_connections, set_show_explorer, set_show_history,
-    set_show_saved_queries, set_show_sql_editor, show_toast, update_ui_settings,
+    APP_SHOW_HISTORY, APP_SHOW_SAVED_QUERIES, APP_SHOW_SQL_EDITOR, APP_SQL_FORMAT_SETTINGS,
+    APP_STATE, APP_UI_SETTINGS, ToastKind, context_menu, open_connection_screen,
+    request_focus_editor, request_focus_filter_panel, set_show_agent_panel, set_show_connections,
+    set_show_explorer, set_show_history, set_show_saved_queries, set_show_sql_editor, show_toast,
+    update_ui_settings,
 };
 use dioxus::{html::input_data::MouseButton, prelude::*};
 use models::{
@@ -1059,10 +1059,8 @@ pub fn Workspace() -> Element {
 pub(crate) use self::components::SqlFormatSettingsFields;
 
 fn close_topmost_overlay() {
-    if APP_SHOW_SETTINGS_MODAL() {
-        close_settings_modal();
-        return;
-    }
+    // The settings surface lives in its own native window now, so the Esc
+    // shortcut on the main window only needs to clear the context menu.
     if context_menu::CONTEXT_MENU().is_some() {
         context_menu::close_context_menu();
     }

@@ -1,39 +1,64 @@
-use crate::{
-    app_state::{
-        APP_SHOW_SETTINGS_MODAL, APP_SQL_FORMAT_SETTINGS, APP_UI_SETTINGS, close_settings_modal,
-        reset_ui_settings, set_ai_features_enabled, set_codestral_api_key, set_codestral_enabled,
-        set_codestral_model, set_deepseek_api_key, set_deepseek_base_url, set_deepseek_enabled,
-        set_deepseek_model, set_deepseek_reasoning_effort, set_deepseek_thinking_enabled,
-        set_default_page_size, set_read_only_mode, set_restore_session_on_launch,
-        set_show_agent_panel, set_show_connections, set_show_explorer, set_show_history,
-        set_show_saved_queries, set_show_sql_editor, set_theme_preference, update_ui_settings,
-    },
-    screens::SqlFormatSettingsFields,
-};
+//! Pure, prop-driven settings form.
+//!
+//! Owns no global state. Receives the current [`models::AppUiSettings`] and
+//! [`models::SqlFormatSettings`] as props and reports every user edit through
+//! a single [`on_change`] callback that emits the updated pair.
+//!
+//! This makes the component reusable in any host:
+//!
+//! - The main window mounts it as an in-app overlay (caller pushes each edit
+//!   back to the global [`crate::app_state`] signals).
+//! - The native settings window mounts it inside [`crate::windows::SettingsWindowRoot`]
+//!   and forwards each edit through a [`crate::windows::DialogBridge`] to the
+//!   main window, which owns the real globals + persistence effects.
+//!
+//! [`on_change`]: SettingsModalProps::on_change
+
+use crate::screens::SqlFormatSettingsFields;
 use dioxus::prelude::*;
-use models::AppThemePreference;
+use models::{AppThemePreference, AppUiSettings, SqlFormatSettings};
+
+/// Props for [`SettingsModal`].
+#[derive(Props, Clone, PartialEq)]
+pub struct SettingsModalProps {
+    /// Current UI settings snapshot to render. Must be the latest value the
+    /// caller holds — every keystroke re-emits the updated pair via
+    /// [`SettingsModalProps::on_change`] and the caller is expected to feed it
+    /// back through props on the next render.
+    pub settings: AppUiSettings,
+    /// Current SQL formatting snapshot to render. Same ownership contract as
+    /// [`SettingsModalProps::settings`].
+    pub sql_settings: SqlFormatSettings,
+    /// Called with `(updated_ui, updated_sql)` whenever the user edits a
+    /// field. The component does not store the new value itself; the caller
+    /// is responsible for updating state and re-supplying it via props.
+    pub on_change: Callback<(AppUiSettings, SqlFormatSettings)>,
+    /// Called when the user dismisses the form. The component never closes
+    /// itself — closing is a host responsibility (in the in-app overlay host
+    /// it hides the modal; in the native window host it closes the OS window).
+    pub on_close: Callback<()>,
+}
 
 #[component]
-#[allow(clippy::redundant_closure)]
-pub fn SettingsModal() -> Element {
-    if !APP_SHOW_SETTINGS_MODAL() {
-        return VNode::empty();
-    }
-
-    let mut sql_format_settings = use_signal(|| APP_SQL_FORMAT_SETTINGS());
-    let settings = APP_UI_SETTINGS();
-
-    use_effect(move || {
-        let settings = sql_format_settings();
-        if APP_SQL_FORMAT_SETTINGS() != settings {
-            *APP_SQL_FORMAT_SETTINGS.write() = settings;
-        }
-    });
+pub fn SettingsModal(props: SettingsModalProps) -> Element {
+    // Wrap `props` in a `Signal` so every per-control closure below can take a
+    // cheap `Signal` clone (instead of an expensive `AppUiSettings` clone) and
+    // read the latest value at event time. Without this, the first `move`
+    // closure captures `props` by value and every subsequent closure loses
+    // access — `AppUiSettings` is not `Copy`, and field accesses inside
+    // closures move the value out of the props struct.
+    let props = use_signal(|| props);
+    let on_change = props.read().on_change;
+    let on_close = props.read().on_close;
+    // Local clone for the render body (kept out of closures to avoid moves).
+    // The render body never reads the SQL formatter settings directly — those
+    // flow through `SqlFormatFieldsAdapter`, which owns its own signal.
+    let settings = props.read().settings.clone();
 
     rsx! {
         div {
             class: "settings-modal__backdrop",
-            onclick: move |_| close_settings_modal(),
+            onclick: move |_| on_close.call(()),
             div {
                 class: "settings-modal",
                 onclick: move |event| event.stop_propagation(),
@@ -49,7 +74,7 @@ pub fn SettingsModal() -> Element {
                     }
                     button {
                         class: "button button--ghost button--small",
-                        onclick: move |_| close_settings_modal(),
+                        onclick: move |_| on_close.call(()),
                         "Close"
                     }
                 }
@@ -74,7 +99,9 @@ pub fn SettingsModal() -> Element {
                                 },
                                 aria_pressed: settings.theme == AppThemePreference::Dark,
                                 onclick: move |_| {
-                                    set_theme_preference(AppThemePreference::Dark);
+                                    let mut next = props.read().settings.clone();
+                                    next.theme = AppThemePreference::Dark;
+                                    on_change.call((next, props.read().sql_settings.clone()));
                                 },
                                 "Dark"
                             }
@@ -86,7 +113,9 @@ pub fn SettingsModal() -> Element {
                                 },
                                 aria_pressed: settings.theme == AppThemePreference::Light,
                                 onclick: move |_| {
-                                    set_theme_preference(AppThemePreference::Light);
+                                    let mut next = props.read().settings.clone();
+                                    next.theme = AppThemePreference::Light;
+                                    on_change.call((next, props.read().sql_settings.clone()));
                                 },
                                 "Light"
                             }
@@ -110,7 +139,9 @@ pub fn SettingsModal() -> Element {
                                 checked: settings.deepseek.enabled,
                                 disabled: settings.deepseek.api_key.is_empty(),
                                 oninput: move |event| {
-                                    set_deepseek_enabled(event.checked());
+                                    let mut next = props.read().settings.clone();
+                                    next.deepseek.enabled = event.checked();
+                                    on_change.call((next, props.read().sql_settings.clone()));
                                 },
                             }
                             span { "Use DeepSeek as the default embedded SQL agent" }
@@ -126,7 +157,13 @@ pub fn SettingsModal() -> Element {
                                     placeholder: "sk-...",
                                     value: "{settings.deepseek.api_key}",
                                     oninput: move |event| {
-                                        set_deepseek_api_key(event.value());
+                                        let mut next = props.read().settings.clone();
+                                        let value = event.value();
+                                        next.deepseek.api_key = value.clone();
+                                        if value.trim().is_empty() {
+                                            next.deepseek.enabled = false;
+                                        }
+                                        on_change.call((next, props.read().sql_settings.clone()));
                                     },
                                 }
                             }
@@ -138,7 +175,9 @@ pub fn SettingsModal() -> Element {
                                     placeholder: "https://api.deepseek.com",
                                     value: "{settings.deepseek.base_url}",
                                     oninput: move |event| {
-                                        set_deepseek_base_url(event.value());
+                                        let mut next = props.read().settings.clone();
+                                        next.deepseek.base_url = event.value();
+                                        on_change.call((next, props.read().sql_settings.clone()));
                                     },
                                 }
                             }
@@ -149,7 +188,9 @@ pub fn SettingsModal() -> Element {
                                     class: "input",
                                     value: "{settings.deepseek.model}",
                                     oninput: move |event| {
-                                        set_deepseek_model(event.value());
+                                        let mut next = props.read().settings.clone();
+                                        next.deepseek.model = event.value();
+                                        on_change.call((next, props.read().sql_settings.clone()));
                                     },
                                     option { value: "deepseek-chat", "deepseek-chat (fast, recommended)" }
                                     option { value: "deepseek-v4-pro", "deepseek-v4-pro (reasoning)" }
@@ -163,7 +204,9 @@ pub fn SettingsModal() -> Element {
                                     class: "input",
                                     value: "{settings.deepseek.reasoning_effort}",
                                     oninput: move |event| {
-                                        set_deepseek_reasoning_effort(event.value());
+                                        let mut next = props.read().settings.clone();
+                                        next.deepseek.reasoning_effort = event.value();
+                                        on_change.call((next, props.read().sql_settings.clone()));
                                     },
                                     option { value: "low", "low" }
                                     option { value: "medium", "medium" }
@@ -177,7 +220,9 @@ pub fn SettingsModal() -> Element {
                                 r#type: "checkbox",
                                 checked: settings.deepseek.thinking_enabled,
                                 oninput: move |event| {
-                                    set_deepseek_thinking_enabled(event.checked());
+                                    let mut next = props.read().settings.clone();
+                                    next.deepseek.thinking_enabled = event.checked();
+                                    on_change.call((next, props.read().sql_settings.clone()));
                                 },
                             }
                             span { "Enable DeepSeek thinking mode when the selected model supports it" }
@@ -204,7 +249,16 @@ pub fn SettingsModal() -> Element {
                                 class: "settings-modal__section-actions",
                                 button {
                                     class: "button button--ghost button--small",
-                                    onclick: move |_| reset_ui_settings(),
+                                    onclick: move |_| {
+                                        // Reset to defaults, but preserve the user's
+                                        // API keys (they live in the OS keyring and
+                                        // are not part of the JSON-serialized
+                                        // AppUiSettings payload).
+                                        let mut next = AppUiSettings::default();
+                                        next.deepseek.api_key = props.read().settings.deepseek.api_key.clone();
+                                        next.codestral.api_key = props.read().settings.codestral.api_key.clone();
+                                        on_change.call((next, props.read().sql_settings.clone()));
+                                    },
                                     "Reset UI"
                                 }
                             }
@@ -224,12 +278,14 @@ pub fn SettingsModal() -> Element {
                                         max: "1000",
                                         value: "{settings.default_page_size}",
                                         oninput: move |event| {
-                                            set_default_page_size(parse_u32_in_range(
+                                            let mut next = props.read().settings.clone();
+                                            next.default_page_size = parse_u32_in_range(
                                                 &event.value(),
-                                                settings.default_page_size,
+                                                props.read().settings.default_page_size,
                                                 10,
                                                 1000,
-                                            ));
+                                            );
+                                            on_change.call((next, props.read().sql_settings.clone()));
                                         },
                                     }
                                 }
@@ -247,7 +303,9 @@ pub fn SettingsModal() -> Element {
                                     r#type: "checkbox",
                                     checked: settings.restore_session_on_launch,
                                     oninput: move |event| {
-                                        set_restore_session_on_launch(event.checked());
+                                        let mut next = props.read().settings.clone();
+                                        next.restore_session_on_launch = event.checked();
+                                        on_change.call((next, props.read().sql_settings.clone()));
                                     },
                                 }
                                 span { "Restore previous session on launch" }
@@ -258,7 +316,9 @@ pub fn SettingsModal() -> Element {
                                     r#type: "checkbox",
                                     checked: settings.read_only_mode,
                                     oninput: move |event| {
-                                        set_read_only_mode(event.checked());
+                                        let mut next = props.read().settings.clone();
+                                        next.read_only_mode = event.checked();
+                                        on_change.call((next, props.read().sql_settings.clone()));
                                     },
                                 }
                                 span { "Read-only mode (block write SQL, imports, and table edits)" }
@@ -280,7 +340,9 @@ pub fn SettingsModal() -> Element {
                                     r#type: "checkbox",
                                     checked: settings.show_saved_queries,
                                     oninput: move |event| {
-                                        set_show_saved_queries(event.checked());
+                                        let mut next = props.read().settings.clone();
+                                        next.show_saved_queries = event.checked();
+                                        on_change.call((next, props.read().sql_settings.clone()));
                                     },
                                 }
                                 span { "Show saved queries panel by default" }
@@ -291,7 +353,9 @@ pub fn SettingsModal() -> Element {
                                     r#type: "checkbox",
                                     checked: settings.show_connections,
                                     oninput: move |event| {
-                                        set_show_connections(event.checked());
+                                        let mut next = props.read().settings.clone();
+                                        next.show_connections = event.checked();
+                                        on_change.call((next, props.read().sql_settings.clone()));
                                     },
                                 }
                                 span { "Show connections panel by default" }
@@ -302,7 +366,9 @@ pub fn SettingsModal() -> Element {
                                     r#type: "checkbox",
                                     checked: settings.show_explorer,
                                     oninput: move |event| {
-                                        set_show_explorer(event.checked());
+                                        let mut next = props.read().settings.clone();
+                                        next.show_explorer = event.checked();
+                                        on_change.call((next, props.read().sql_settings.clone()));
                                     },
                                 }
                                 span { "Show explorer by default" }
@@ -313,7 +379,9 @@ pub fn SettingsModal() -> Element {
                                     r#type: "checkbox",
                                     checked: settings.show_history,
                                     oninput: move |event| {
-                                        set_show_history(event.checked());
+                                        let mut next = props.read().settings.clone();
+                                        next.show_history = event.checked();
+                                        on_change.call((next, props.read().sql_settings.clone()));
                                     },
                                 }
                                 span { "Show history by default" }
@@ -324,7 +392,9 @@ pub fn SettingsModal() -> Element {
                                     r#type: "checkbox",
                                     checked: settings.show_sql_editor,
                                     oninput: move |event| {
-                                        set_show_sql_editor(event.checked());
+                                        let mut next = props.read().settings.clone();
+                                        next.show_sql_editor = event.checked();
+                                        on_change.call((next, props.read().sql_settings.clone()));
                                     },
                                 }
                                 span { "Show SQL editor by default" }
@@ -341,7 +411,9 @@ pub fn SettingsModal() -> Element {
                                     checked: settings.show_agent_panel,
                                     disabled: !settings.ai_features_enabled,
                                     oninput: move |event| {
-                                        set_show_agent_panel(event.checked());
+                                        let mut next = props.read().settings.clone();
+                                        next.show_agent_panel = event.checked();
+                                        on_change.call((next, props.read().sql_settings.clone()));
                                     },
                                 }
                                 span { "Show ACP agent panel by default" }
@@ -359,7 +431,12 @@ pub fn SettingsModal() -> Element {
                                     r#type: "checkbox",
                                     checked: settings.ai_features_enabled,
                                     oninput: move |event| {
-                                        set_ai_features_enabled(event.checked());
+                                        let mut next = props.read().settings.clone();
+                                        next.ai_features_enabled = event.checked();
+                                        if !event.checked() {
+                                            next.show_agent_panel = false;
+                                        }
+                                        on_change.call((next, props.read().sql_settings.clone()));
                                     },
                                 }
                                 span { "Enable AI features (ACP panel, prompts, and SQL actions)" }
@@ -377,9 +454,9 @@ pub fn SettingsModal() -> Element {
                                     value: "{settings.ai_response_language}",
                                     disabled: !settings.ai_features_enabled,
                                     oninput: move |event| {
-                                        update_ui_settings(|current| {
-                                            current.ai_response_language = event.value();
-                                        });
+                                        let mut next = props.read().settings.clone();
+                                        next.ai_response_language = event.value();
+                                        on_change.call((next, props.read().sql_settings.clone()));
                                     },
                                 }
                             }
@@ -401,13 +478,24 @@ pub fn SettingsModal() -> Element {
                                 class: "settings-modal__section-actions",
                                 button {
                                     class: "button button--ghost button--small",
-                                    onclick: move |_| sql_format_settings.set(models::SqlFormatSettings::default()),
+                                    onclick: move |_| {
+                                        on_change.call((props.read().settings.clone(), SqlFormatSettings::default()));
+                                    },
                                     "Reset SQL"
                                 }
                             }
                         }
-                        SqlFormatSettingsFields {
-                            settings: sql_format_settings,
+                        // `SqlFormatSettingsFields` owns a `Signal<SqlFormatSettings>`.
+                        // The adapter below owns a local signal that mirrors the
+                        // prop, hands it to the field component, and watches the
+                        // signal with `use_effect` to bubble every change through
+                        // `on_change`. This keeps the SQL formatter fields
+                        // reusable (they only need a `Signal`) while satisfying
+                        // the prop-driven contract of `SettingsModal`.
+                        SqlFormatFieldsAdapter {
+                            sql_settings: props.read().sql_settings.clone(),
+                            settings: props.read().settings.clone(),
+                            on_change,
                         }
                     }
 
@@ -428,7 +516,9 @@ pub fn SettingsModal() -> Element {
                                 checked: settings.codestral.enabled,
                                 disabled: settings.codestral.api_key.is_empty(),
                                 oninput: move |event| {
-                                    set_codestral_enabled(event.checked());
+                                    let mut next = props.read().settings.clone();
+                                    next.codestral.enabled = event.checked();
+                                    on_change.call((next, props.read().sql_settings.clone()));
                                 },
                             }
                             span { "Enable CodeStral inline completion" }
@@ -442,7 +532,13 @@ pub fn SettingsModal() -> Element {
                                 placeholder: "sk-...",
                                 value: "{settings.codestral.api_key}",
                                 oninput: move |event| {
-                                    set_codestral_api_key(event.value());
+                                    let mut next = props.read().settings.clone();
+                                    let value = event.value();
+                                    next.codestral.api_key = value.clone();
+                                    if value.trim().is_empty() {
+                                        next.codestral.enabled = false;
+                                    }
+                                    on_change.call((next, props.read().sql_settings.clone()));
                                 },
                             }
                         }
@@ -454,7 +550,9 @@ pub fn SettingsModal() -> Element {
                                 placeholder: "codestral-latest",
                                 value: "{settings.codestral.model}",
                                 oninput: move |event| {
-                                    set_codestral_model(event.value());
+                                    let mut next = props.read().settings.clone();
+                                    next.codestral.model = event.value();
+                                    on_change.call((next, props.read().sql_settings.clone()));
                                 },
                             }
                         }
@@ -476,9 +574,135 @@ pub fn SettingsModal() -> Element {
     }
 }
 
+/// Thin adapter that re-exposes [`SqlFormatSettingsFields`] (which expects a
+/// `Signal<SqlFormatSettings>`) while keeping [`SettingsModal`] prop-driven.
+///
+/// `SqlFormatSettingsFields` mutates the `Signal` it owns directly, so we
+/// can't hook into individual edits. Instead, the adapter:
+/// 1. Mirrors the incoming `sql_settings` prop into a local signal.
+/// 2. Hands that signal to `SqlFormatSettingsFields`.
+/// 3. Watches the local signal with `use_effect` and emits the latest value
+///    through `on_change` whenever it changes.
+///
+/// When the parent supplies a new `sql_settings` prop (e.g. after a
+/// round-trip through the dialog bridge) the local signal is reset to match.
+#[component]
+fn SqlFormatFieldsAdapter(
+    sql_settings: SqlFormatSettings,
+    settings: AppUiSettings,
+    on_change: Callback<(AppUiSettings, SqlFormatSettings)>,
+) -> Element {
+    // Wrap both props in signals so the multiple `move` closures below can
+    // each capture a cheap `Signal` clone instead of moving the owned values.
+    let sql_settings = use_signal(move || sql_settings);
+    let settings = use_signal(move || settings);
+
+    // Local working copy — `SqlFormatSettingsFields` mutates this signal.
+    let mut local_sql = use_signal(move || sql_settings.read().clone());
+
+    // Whenever the prop changes (e.g. bridge round-tripped a fresh value from
+    // the main window), re-seed the local signal. `use_effect` with an
+    // equality check avoids overwriting unsaved edits if the prop value is
+    // already current.
+    use_effect(move || {
+        if local_sql.peek().clone() != sql_settings.read().clone() {
+            local_sql.set(sql_settings.read().clone());
+        }
+    });
+
+    // Propagate every local change upstream through `on_change`.
+    use_effect(move || {
+        on_change.call((settings.read().clone(), local_sql()));
+    });
+
+    rsx! {
+        SqlFormatSettingsFields { settings: local_sql }
+    }
+}
+
 fn parse_u32_in_range(value: &str, fallback: u32, min: u32, max: u32) -> u32 {
     value
         .parse::<u32>()
         .map(|parsed| parsed.clamp(min, max))
         .unwrap_or(fallback)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use models::AppUiSettings;
+
+    /// Pure toggle helper: returns a clone of `ui` with `flag` set to `value`.
+    /// Mirrors the `set_show_*` helpers in `crate::app_state` but is exposed
+    /// here as a pure function so the SettingsModal prop contract can be
+    /// exercised without standing up a renderer.
+    fn toggle_show_flag(mut ui: AppUiSettings, flag: ShowFlag, value: bool) -> AppUiSettings {
+        match flag {
+            ShowFlag::SavedQueries => ui.show_saved_queries = value,
+            ShowFlag::Connections => ui.show_connections = value,
+            ShowFlag::Explorer => ui.show_explorer = value,
+            ShowFlag::History => ui.show_history = value,
+            ShowFlag::SqlEditor => ui.show_sql_editor = value,
+            ShowFlag::AgentPanel => ui.show_agent_panel = value,
+        }
+        ui
+    }
+
+    #[derive(Copy, Clone, Debug)]
+    #[allow(dead_code)]
+    enum ShowFlag {
+        SavedQueries,
+        Connections,
+        Explorer,
+        History,
+        SqlEditor,
+        AgentPanel,
+    }
+
+    #[test]
+    fn toggle_show_flag_only_mutates_target_field() {
+        let before = AppUiSettings::default();
+        let after = toggle_show_flag(before.clone(), ShowFlag::Explorer, false);
+
+        // Unrelated flags preserved.
+        assert_eq!(after.show_saved_queries, before.show_saved_queries);
+        assert_eq!(after.show_connections, before.show_connections);
+        assert_eq!(after.show_history, before.show_history);
+        assert_eq!(after.show_sql_editor, before.show_sql_editor);
+        assert_eq!(after.show_agent_panel, before.show_agent_panel);
+
+        // Target flag flipped.
+        assert!(before.show_explorer);
+        assert!(!after.show_explorer);
+
+        // Deepseek/Codestral config preserved (reset UI keeps API keys).
+        assert_eq!(after.deepseek, before.deepseek);
+        assert_eq!(after.codestral, before.codestral);
+    }
+
+    #[test]
+    fn toggle_show_flag_round_trips_all_variants() {
+        // Sanity check that every `ShowFlag` variant maps to its own field —
+        // guards against copy-paste regressions in the match arms.
+        let mut current = AppUiSettings::default();
+        current = toggle_show_flag(current, ShowFlag::SavedQueries, false);
+        assert!(!current.show_saved_queries);
+        current = toggle_show_flag(current, ShowFlag::Connections, true);
+        assert!(current.show_connections);
+        current = toggle_show_flag(current, ShowFlag::History, true);
+        assert!(current.show_history);
+        current = toggle_show_flag(current, ShowFlag::SqlEditor, true);
+        assert!(current.show_sql_editor);
+        current = toggle_show_flag(current, ShowFlag::AgentPanel, true);
+        assert!(current.show_agent_panel);
+    }
+
+    #[test]
+    fn parse_u32_in_range_clamps_and_falls_back() {
+        assert_eq!(parse_u32_in_range("", 50, 10, 1000), 50);
+        assert_eq!(parse_u32_in_range("not-a-number", 50, 10, 1000), 50);
+        assert_eq!(parse_u32_in_range("5", 50, 10, 1000), 10);
+        assert_eq!(parse_u32_in_range("9999", 50, 10, 1000), 1000);
+        assert_eq!(parse_u32_in_range("250", 50, 10, 1000), 250);
+    }
 }

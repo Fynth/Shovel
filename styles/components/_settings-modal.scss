@@ -242,3 +242,15 @@
     align-items: stretch;
   }
 }
+
+// Root container for the separate native OS settings window. The dialog window
+// has its own webview + theme class (set by `SettingsWindowRoot`), so this
+// shell just needs to fill the viewport and provide the page-level theme
+// tokens (`--color-*`) the modal styles expect. The `.settings-modal__backdrop`
+// inside handles centering + backdrop blur.
+.settings-window-shell {
+  min-height: 100vh;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  background: var(--color-backdrop, transparent);
+}

@@ -1,4 +1,10 @@
-use crate::app_state::{APP_STATE, open_connection_screen, open_settings_modal, show_workspace};
+use crate::{
+    app_state::{
+        APP_SQL_FORMAT_SETTINGS, APP_STATE, APP_UI_SETTINGS, open_connection_screen,
+        replace_ui_settings, show_workspace,
+    },
+    windows,
+};
 use dioxus::{desktop::use_window, html::input_data::MouseButton, prelude::*};
 
 const APP_ICON: &str = include_str!("../../../app/assets/icon.svg");
@@ -81,7 +87,7 @@ pub fn Toolbar() -> Element {
                 }
                 button {
                     class: "button button--ghost button--small",
-                    onclick: move |_| open_settings_modal(),
+                    onclick: move |_| open_settings_window(),
                     "Settings"
                 }
             }
@@ -109,4 +115,29 @@ pub fn Toolbar() -> Element {
             }
         }
     }
+}
+
+/// Open the native OS settings window and wire a bridge receiver back to the
+/// main window's globals.
+///
+/// The bridge carries every [`crate::windows::SettingsSnapshot`] the user
+/// commits from inside the dialog. The receiver task spawned here applies
+/// each snapshot to [`APP_UI_SETTINGS`] / [`APP_SQL_FORMAT_SETTINGS`], which
+/// the existing `use_effect`s in `app.rs` pick up to persist to disk. Closing
+/// the dialog window drops the bridge sender; the receiver task exits the
+/// next time it tries to read.
+fn open_settings_window() {
+    let (bridge, mut rx) = windows::create_settings_bridge();
+
+    // Receiver task: applies incoming snapshots to the real globals on the
+    // main window. The main window's persistence effects (app.rs) will then
+    // write the new values to disk — no extra persistence code needed here.
+    spawn(async move {
+        while let Some(snapshot) = rx.recv().await {
+            replace_ui_settings(snapshot.ui.clone());
+            *APP_SQL_FORMAT_SETTINGS.write() = snapshot.sql.clone();
+        }
+    });
+
+    windows::open_settings_window(bridge, APP_UI_SETTINGS(), APP_SQL_FORMAT_SETTINGS());
 }

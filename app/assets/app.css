@@ -1346,6 +1346,13 @@ select.input:focus-visible {
     align-items: stretch;
   }
 }
+.settings-window-shell {
+  min-height: 100vh;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  background: var(--color-backdrop, transparent);
+}
+
 .table-modal {
   width: min(760px, 100%);
 }
