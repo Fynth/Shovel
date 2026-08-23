@@ -15,6 +15,7 @@
 //! [`on_change`]: SettingsModalProps::on_change
 
 use crate::screens::SqlFormatSettingsFields;
+use crate::components::tooltip_target::TooltipTarget;
 use dioxus::prelude::*;
 use models::{AppThemePreference, AppUiSettings, SqlFormatSettings};
 
@@ -230,19 +231,22 @@ pub fn SettingsModal(props: SettingsModalProps) -> Element {
                             h3 { class: "settings-modal__section-title", "Workspace" }
                             div {
                                 class: "settings-modal__section-actions",
-                                button {
-                                    class: "button button--ghost button--small",
-                                    onclick: move |_| {
-                                        // Reset to defaults, but preserve the user's
-                                        // API keys (they live in the OS keyring and
-                                        // are not part of the JSON-serialized
-                                        // AppUiSettings payload).
-                                        let mut next = AppUiSettings::default();
-                                        next.deepseek.api_key = props.read().settings.deepseek.api_key.clone();
-                                        next.codestral.api_key = props.read().settings.codestral.api_key.clone();
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                    "Reset UI"
+                                TooltipTarget {
+                                    label: "Reset workspace, panels, and AI settings to their defaults (API keys are preserved)".to_string(),
+                                    button {
+                                        class: "button button--ghost button--small",
+                                        onclick: move |_| {
+                                            // Reset to defaults, but preserve the user's
+                                            // API keys (they live in the OS keyring and
+                                            // are not part of the JSON-serialized
+                                            // AppUiSettings payload).
+                                            let mut next = AppUiSettings::default();
+                                            next.deepseek.api_key = props.read().settings.deepseek.api_key.clone();
+                                            next.codestral.api_key = props.read().settings.codestral.api_key.clone();
+                                            on_change.call((next, props.read().sql_settings.clone()));
+                                        },
+                                        "Reset UI"
+                                    }
                                 }
                             }
                         }
@@ -459,12 +463,15 @@ pub fn SettingsModal(props: SettingsModalProps) -> Element {
                             }
                             div {
                                 class: "settings-modal__section-actions",
-                                button {
-                                    class: "button button--ghost button--small",
-                                    onclick: move |_| {
-                                        on_change.call((props.read().settings.clone(), SqlFormatSettings::default()));
-                                    },
-                                    "Reset SQL"
+                                TooltipTarget {
+                                    label: "Reset SQL formatting options (keyword case, wrapping, joins, inline arguments) to defaults".to_string(),
+                                    button {
+                                        class: "button button--ghost button--small",
+                                        onclick: move |_| {
+                                            on_change.call((props.read().settings.clone(), SqlFormatSettings::default()));
+                                        },
+                                        "Reset SQL"
+                                    }
                                 }
                             }
                         }

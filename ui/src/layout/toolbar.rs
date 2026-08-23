@@ -3,6 +3,7 @@ use crate::{
         APP_SQL_FORMAT_SETTINGS, APP_STATE, APP_UI_SETTINGS, open_connection_screen,
         replace_ui_settings, show_workspace,
     },
+    components::tooltip_target::TooltipTarget,
     windows,
 };
 use dioxus::{desktop::use_window, html::input_data::MouseButton, prelude::*};
@@ -69,26 +70,36 @@ pub fn Toolbar() -> Element {
                 class: "toolbar__actions",
                 onmousedown: move |event| event.stop_propagation(),
                 if has_sessions {
-                    button {
-                        class: if show_connect_screen {
-                            "button button--ghost button--small"
+                    TooltipTarget {
+                        label: if show_connect_screen {
+                            "Return to the open workspace".to_string()
                         } else {
-                            "button button--primary button--small"
+                            "Open the connection picker to start a new session".to_string()
                         },
-                        onclick: move |_| {
-                            if show_connect_screen {
-                                show_workspace();
+                        button {
+                            class: if show_connect_screen {
+                                "button button--ghost button--small"
                             } else {
-                                open_connection_screen();
-                            }
-                        },
-                        if show_connect_screen { "Back to Workspace" } else { "New Connection" }
+                                "button button--primary button--small"
+                            },
+                            onclick: move |_| {
+                                if show_connect_screen {
+                                    show_workspace();
+                                } else {
+                                    open_connection_screen();
+                                }
+                            },
+                            if show_connect_screen { "Back to Workspace" } else { "New Connection" }
+                        }
                     }
                 }
-                button {
-                    class: "button button--ghost button--small",
-                    onclick: move |_| open_settings_window(),
-                    "Settings"
+                TooltipTarget {
+                    label: "Open application settings in a separate window".to_string(),
+                    button {
+                        class: "button button--ghost button--small",
+                        onclick: move |_| open_settings_window(),
+                        "Settings"
+                    }
                 }
             }
             div {

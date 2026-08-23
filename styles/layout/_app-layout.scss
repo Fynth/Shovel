@@ -101,11 +101,43 @@
   white-space: nowrap;
   box-shadow: var(--shadow-panel);
   backdrop-filter: blur(24px) saturate(150%);
+  // Fade-in with a small delay so tooltips don't flash while the mouse
+  // moves across the UI: starts invisible, waits, then fades in.
+  // Uses opacity only (GPU-composited) so motion stays cheap.
+  opacity: 0;
+  animation: app__tooltip-fade-in $motion-normal ease-out 150ms forwards;
   transform: translate(-50%, calc(-100% - 12px));
+}
+
+@keyframes app__tooltip-fade-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-100% - 16px));
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, calc(-100% - 12px));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app__tooltip {
+    animation-duration: 0ms;
+    animation-delay: 0ms;
+  }
 }
 
 @media (max-width: 760px) {
   .app__tooltip-layer {
     display: none;
   }
+}
+
+// Wrapper used by the <TooltipTarget> component to attach hover tooltip
+// handlers to arbitrary children (text buttons, tree rows, etc.).
+// Inline-flex so it doesn't disturb flex parents; transparent so the
+// focus ring of any focusable child still draws correctly.
+.tooltip-target {
+  display: inline-flex;
+  align-items: stretch;
 }
