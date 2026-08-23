@@ -1,7 +1,11 @@
-mod edit_connection_modal;
 mod forms;
 mod kind_selector;
 mod recent_connections;
+
+// `edit_connection_modal` is also mounted from a separate native OS window
+// (see `crate::windows::EditConnectionWindowRoot`). It must therefore be
+// reachable across the `screens::connect` module boundary.
+pub mod edit_connection_modal;
 
 use crate::app_state::{APP_STATE, show_workspace, toast_error};
 use dioxus::prelude::*;

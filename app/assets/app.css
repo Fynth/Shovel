@@ -1353,6 +1353,13 @@ select.input:focus-visible {
   background: var(--color-backdrop, transparent);
 }
 
+.connect-window-shell {
+  min-height: 100vh;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  background: var(--color-backdrop, transparent);
+}
+
 .table-modal {
   width: min(760px, 100%);
 }

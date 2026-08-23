@@ -19,7 +19,7 @@
 //! real global state — that triggers the existing persistence effects in
 //! `app.rs` to write the new value to disk.
 
-use crate::layout::SettingsModal;
+use crate::{layout::SettingsModal, screens::connect::edit_connection_modal::EditConnectionModal};
 use dioxus::{
     desktop::{Config, LogicalSize, WindowBuilder, window},
     prelude::*,
@@ -194,6 +194,122 @@ pub fn SettingsWindowRoot(props: SettingsWindowRootProps) -> Element {
                 sql_settings: sql(),
                 on_change,
                 on_close,
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Connection-edit dialog window
+// ---------------------------------------------------------------------------
+
+/// Snapshot the connection-edit dialog streams back to the main window on save.
+///
+/// The dialog calls `services::replace_connection_request` itself, then sends
+/// the resulting `SavedConnection` back over the bridge. The main window
+/// receives the snapshot in a `spawn`-ed receiver task, bumps the
+/// `saved_connections_revision` signal so the recent-connections list
+/// re-fetches, and writes a status message. The dialog window then closes
+/// itself.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConnectionEditSnapshot {
+    pub connection: models::SavedConnection,
+}
+
+/// Build a fresh `(DialogBridge<ConnectionEditSnapshot>, Receiver)` pair for a
+/// single edit-window session.
+///
+/// The main window passes the sender half (as a [`DialogBridge`]) to the new
+/// dialog window via [`EditConnectionWindowRoot`] props, and keeps the
+/// receiver so it can apply the resulting snapshot to its local signals.
+pub fn create_connection_edit_bridge() -> (
+    DialogBridge<ConnectionEditSnapshot>,
+    tokio::sync::mpsc::UnboundedReceiver<ConnectionEditSnapshot>,
+) {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    (DialogBridge { sender: tx }, rx)
+}
+
+/// Props for [`EditConnectionWindowRoot`].
+#[derive(Props, Clone, PartialEq)]
+pub struct EditConnectionWindowRootProps {
+    pub bridge: DialogBridge<ConnectionEditSnapshot>,
+    pub saved_connection: models::SavedConnection,
+    /// Active theme class (e.g. `"theme-dark"`) for the modal's CSS tokens.
+    pub theme_class: String,
+}
+
+/// Open the connection-edit dialog as a separate native OS window.
+///
+/// `bridge` is the sender half created by [`create_connection_edit_bridge`] —
+/// the main window keeps the matching receiver and applies incoming
+/// snapshots to its `saved_connections_revision` signal + status display.
+/// `saved_connection` is the row the user picked from the recent-connections
+/// list; the dialog seeds its form fields from it. `theme_class` is the
+/// active theme the main window currently uses, so the dialog renders with
+/// matching CSS tokens.
+///
+/// Spawns a non-blocking task that builds a new [`VirtualDom`], configures a
+/// [`WindowBuilder`] with decorations enabled, and hands it to Dioxus via
+/// `DesktopContext::new_window`.
+pub fn open_connection_edit_window(
+    bridge: DialogBridge<ConnectionEditSnapshot>,
+    saved_connection: models::SavedConnection,
+    theme_class: String,
+) {
+    spawn(async move {
+        let dom = VirtualDom::new_with_props(
+            EditConnectionWindowRoot,
+            EditConnectionWindowRootProps {
+                bridge,
+                saved_connection,
+                theme_class,
+            },
+        );
+        let config = connection_edit_window_config();
+        let _pending = window().new_window(dom, config).await;
+    });
+}
+
+fn connection_edit_window_config() -> Config {
+    let window_builder = WindowBuilder::new()
+        .with_title("Edit Connection")
+        .with_inner_size(LogicalSize::new(640.0, 720.0))
+        .with_resizable(true)
+        .with_decorations(true);
+
+    Config::new().with_window(window_builder)
+}
+
+/// Root component for the connection-edit dialog window.
+///
+/// Wraps the prop-driven [`EditConnectionModal`] inside a themed
+/// `.connect-window-shell` so the form fields resolve to the right design
+/// tokens (the modal itself reuses `.settings-modal` / `.connect-form`
+/// styling). The modal is responsible for calling
+/// `services::replace_connection_request`; on success it fires `on_saved`
+/// with the updated `SavedConnection`, which this root forwards over the
+/// bridge and then closes the window. `on_close` covers the user-initiated
+/// dismiss paths (Cancel, X, backdrop click) — they close the window without
+/// sending a snapshot.
+#[component]
+pub fn EditConnectionWindowRoot(props: EditConnectionWindowRootProps) -> Element {
+    let bridge = props.bridge;
+    let saved_connection = props.saved_connection;
+    let theme_class = props.theme_class;
+
+    rsx! {
+        document::Style { "{APP_CSS}" }
+        div { class: "connect-window-shell {theme_class}",
+            EditConnectionModal {
+                saved_connection,
+                on_saved: move |updated: models::SavedConnection| {
+                    bridge.send(ConnectionEditSnapshot { connection: updated });
+                    window().close();
+                },
+                on_close: move |_| {
+                    window().close();
+                },
             }
         }
     }

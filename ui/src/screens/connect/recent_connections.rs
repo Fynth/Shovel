@@ -1,8 +1,11 @@
-use crate::app_state::add_connection_session;
+use crate::{
+    app_state::{APP_THEME, add_connection_session},
+    windows,
+};
 use dioxus::prelude::*;
 use models::SavedConnection;
 
-use super::{edit_connection_modal::EditConnectionModal, forms::connection_status_class};
+use super::forms::connection_status_class;
 
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn recent_connections_loading_text() -> &'static str {
@@ -58,10 +61,9 @@ mod tests {
 #[component]
 pub fn RecentConnections(
     saved_connections: Option<Vec<SavedConnection>>,
-    saved_connections_revision: Signal<u64>,
+    mut saved_connections_revision: Signal<u64>,
 ) -> Element {
     let mut status = use_signal(String::new);
-    let mut editing_connection = use_signal(|| None::<SavedConnection>);
     let status_value = status();
     let status_class = connection_status_class(&status_value);
 
@@ -87,10 +89,24 @@ pub fn RecentConnections(
                                     class: "recent-connection__actions",
                                     button {
                                         class: "button button--ghost button--small",
-                                        onclick: {
-                                            let connection_to_edit = saved_connection.clone();
-                                            move |_| editing_connection.set(Some(connection_to_edit.clone()))
-                                        },
+                                            onclick: {
+                                                let connection_to_edit = saved_connection.clone();
+                                                move |_| {
+                                                    let conn = connection_to_edit.clone();
+                                                    let (bridge, mut rx) = windows::create_connection_edit_bridge();
+                                                    spawn(async move {
+                                                        while rx.recv().await.is_some() {
+                                                            saved_connections_revision += 1;
+                                                            status.set("Connection updated".to_string());
+                                                        }
+                                                    });
+                                                    windows::open_connection_edit_window(
+                                                        bridge,
+                                                        conn,
+                                                        APP_THEME(),
+                                                    );
+                                                }
+                                            },
                                         "Edit"
                                     }
                                     button {
@@ -132,15 +148,6 @@ pub fn RecentConnections(
             }
             if !status().is_empty() {
                 p { class: "{status_class}", "{status_value}" }
-            }
-
-            if let Some(saved_connection) = editing_connection() {
-                EditConnectionModal {
-                    saved_connection,
-                    editing_connection,
-                    saved_connections_revision,
-                    status,
-                }
             }
         }
     }

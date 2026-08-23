@@ -254,3 +254,15 @@
   font-family: var(--font-sans);
   background: var(--color-backdrop, transparent);
 }
+
+// Root container for the separate native OS connection-edit window. Same
+// viewport-fill + theme-token contract as `.settings-window-shell`; the
+// `<EditConnectionModal>` inside reuses the `.settings-modal` styles, which
+// already lean on `var(--color-*)` tokens, so theming just works when the
+// shell applies the active theme class (`theme-dark` / `theme-light`).
+.connect-window-shell {
+  min-height: 100vh;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  background: var(--color-backdrop, transparent);
+}

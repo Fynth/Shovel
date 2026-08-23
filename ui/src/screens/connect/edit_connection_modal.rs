@@ -205,9 +205,8 @@ impl RemoteConnectionDraft {
 #[component]
 pub fn EditConnectionModal(
     saved_connection: SavedConnection,
-    mut editing_connection: Signal<Option<SavedConnection>>,
-    mut saved_connections_revision: Signal<u64>,
-    mut status: Signal<String>,
+    on_saved: Callback<SavedConnection>,
+    on_close: Callback<()>,
 ) -> Element {
     let selected_kind = use_signal(|| saved_connection.request.kind());
     let sqlite_path = use_signal(|| match &saved_connection.request {
@@ -230,7 +229,7 @@ pub fn EditConnectionModal(
             class: "settings-modal__backdrop",
             onclick: move |_| {
                 if !save_inflight() {
-                    editing_connection.set(None);
+                    on_close(());
                 }
             },
             div {
@@ -249,7 +248,7 @@ pub fn EditConnectionModal(
                     button {
                         class: "button button--ghost button--small",
                         disabled: save_inflight(),
-                        onclick: move |_| editing_connection.set(None),
+                        onclick: move |_| on_close(()),
                         "Close"
                     }
                 }
@@ -309,6 +308,8 @@ pub fn EditConnectionModal(
                         };
 
                         let previous_identity_key = saved_connection.request.identity_key();
+                        let updated_name = saved_connection.name.clone();
+                        let next_request_for_callback = next_request.clone();
                         save_status.set("Saving...".to_string());
                         save_inflight.set(true);
 
@@ -317,10 +318,11 @@ pub fn EditConnectionModal(
                                 .await
                             {
                                 Ok(()) => {
-                                    status.set("Saved connection updated.".to_string());
-                                    saved_connections_revision += 1;
                                     save_inflight.set(false);
-                                    editing_connection.set(None);
+                                    on_saved(SavedConnection {
+                                        name: updated_name,
+                                        request: next_request_for_callback,
+                                    });
                                 }
                                 Err(err) => {
                                     save_inflight.set(false);
@@ -379,7 +381,7 @@ pub fn EditConnectionModal(
                                 class: "button button--ghost",
                                 r#type: "button",
                                 disabled: save_inflight(),
-                                onclick: move |_| editing_connection.set(None),
+                                onclick: move |_| on_close(()),
                                 "Cancel"
                             }
                             button {
