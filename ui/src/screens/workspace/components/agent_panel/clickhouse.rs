@@ -230,23 +230,31 @@ mod tests {
     };
     use models::{ExplorerNode, ExplorerNodeKind, TablePreviewSource};
 
+    fn schema_node(name: &str, children: Vec<ExplorerNode>) -> ExplorerNode {
+        ExplorerNode {
+            name: name.to_string(),
+            kind: ExplorerNodeKind::Schema,
+            schema: Some(name.to_string()),
+            qualified_name: format!("`{name}`"),
+            row_count: None,
+            children,
+        }
+    }
+
+    fn table_node(name: &str) -> ExplorerNode {
+        ExplorerNode {
+            name: name.to_string(),
+            kind: ExplorerNodeKind::Table,
+            schema: Some("dwh_ogs".to_string()),
+            qualified_name: format!("`dwh_ogs`.`{name}`"),
+            row_count: None,
+            children: Vec::new(),
+        }
+    }
+
     #[test]
     fn clickhouse_catalog_lookup_uses_default_schema_for_unqualified_sql() {
-        let tree = vec![ExplorerNode {
-            name: "dwh_ogs".to_string(),
-            kind: ExplorerNodeKind::Schema,
-            schema: Some("dwh_ogs".to_string()),
-            qualified_name: "`dwh_ogs`".to_string(),
-            row_count: None,
-            children: vec![ExplorerNode {
-                name: "source_statistics".to_string(),
-                kind: ExplorerNodeKind::Table,
-                schema: Some("dwh_ogs".to_string()),
-                qualified_name: "`dwh_ogs`.`source_statistics`".to_string(),
-                row_count: None,
-                children: Vec::new(),
-            }],
-        }];
+        let tree = vec![schema_node("dwh_ogs", vec![table_node("source_statistics")])];
         let source = TablePreviewSource {
             schema: None,
             table_name: "source_statistics".to_string(),
@@ -264,21 +272,7 @@ mod tests {
 
     #[test]
     fn clickhouse_catalog_lookup_rejects_missing_relation_names() {
-        let tree = vec![ExplorerNode {
-            name: "dwh_ogs".to_string(),
-            kind: ExplorerNodeKind::Schema,
-            schema: Some("dwh_ogs".to_string()),
-            qualified_name: "`dwh_ogs`".to_string(),
-            row_count: None,
-            children: vec![ExplorerNode {
-                name: "dag_source_statistics".to_string(),
-                kind: ExplorerNodeKind::Table,
-                schema: Some("dwh_ogs".to_string()),
-                qualified_name: "`dwh_ogs`.`dag_source_statistics`".to_string(),
-                row_count: None,
-                children: Vec::new(),
-            }],
-        }];
+        let tree = vec![schema_node("dwh_ogs", vec![table_node("dag_source_statistics")])];
         let source = TablePreviewSource {
             schema: Some("dwh_ogs".to_string()),
             table_name: "dag_source_statistics_kafka_buffer".to_string(),
@@ -292,31 +286,13 @@ mod tests {
 
     #[test]
     fn clickhouse_matcher_prefers_real_buffer_table_with_strongest_token_overlap() {
-        let tree = vec![ExplorerNode {
-            name: "dwh_ogs".to_string(),
-            kind: ExplorerNodeKind::Schema,
-            schema: Some("dwh_ogs".to_string()),
-            qualified_name: "`dwh_ogs`".to_string(),
-            row_count: None,
-            children: vec![
-                ExplorerNode {
-                    name: "dag_source_statistics".to_string(),
-                    kind: ExplorerNodeKind::Table,
-                    schema: Some("dwh_ogs".to_string()),
-                    qualified_name: "`dwh_ogs`.`dag_source_statistics`".to_string(),
-                    row_count: None,
-                    children: Vec::new(),
-                },
-                ExplorerNode {
-                    name: "source_statistics_test_debug_buffer".to_string(),
-                    kind: ExplorerNodeKind::Table,
-                    schema: Some("dwh_ogs".to_string()),
-                    qualified_name: "`dwh_ogs`.`source_statistics_test_debug_buffer`".to_string(),
-                    row_count: None,
-                    children: Vec::new(),
-                },
+        let tree = vec![schema_node(
+            "dwh_ogs",
+            vec![
+                table_node("dag_source_statistics"),
+                table_node("source_statistics_test_debug_buffer"),
             ],
-        }];
+        )];
         let source = TablePreviewSource {
             schema: Some("dwh_ogs".to_string()),
             table_name: "dag_source_statistics_kafka_buffer".to_string(),

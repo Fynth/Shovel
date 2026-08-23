@@ -31,10 +31,6 @@ fn build_routing_context(
     parts.join("\n\n")
 }
 
-fn send_routed_prompt(prompt: String, routing_context: String) -> Result<(), String> {
-    services::send_acp_prompt_with_routing(prompt, routing_context)
-}
-
 #[allow(clippy::too_many_arguments)]
 pub(super) fn send_chat_prompt_request(
     mut panel_state: Signal<AcpPanelState>,
@@ -127,7 +123,7 @@ pub(super) fn send_chat_prompt_request(
             ),
         };
 
-        match send_routed_prompt(contextual_prompt, routing_context) {
+        match services::send_acp_prompt_with_routing(contextual_prompt, routing_context) {
             Ok(()) => {
                 panel_state.with_mut(|state| {
                     push_message(state, AcpMessageKind::User, prompt.clone());
@@ -222,7 +218,7 @@ pub(crate) fn send_describe_object_request(
             ),
         };
 
-        match send_routed_prompt(contextual_prompt, routing_context) {
+        match services::send_acp_prompt_with_routing(contextual_prompt, routing_context) {
             Ok(()) => {
                 panel_state.with_mut(|state| {
                     push_message(
@@ -341,7 +337,7 @@ pub(crate) fn send_sql_generation_request(
             ),
         };
 
-        match send_routed_prompt(prompt, routing_context) {
+        match services::send_acp_prompt_with_routing(prompt, routing_context) {
             Ok(()) => {
                 panel_state.with_mut(|state| {
                     if record_in_agent_panel {
@@ -538,7 +534,7 @@ pub(crate) fn send_sql_plan_request(
             )
         };
 
-        match send_routed_prompt(prompt, routing_context) {
+        match services::send_acp_prompt_with_routing(prompt, routing_context) {
             Ok(()) => {
                 panel_state.with_mut(|state| {
                     push_message(
@@ -657,7 +653,7 @@ pub(super) fn send_sql_explanation_request(
             ),
         };
 
-        match send_routed_prompt(prompt, routing_context) {
+        match services::send_acp_prompt_with_routing(prompt, routing_context) {
             Ok(()) => {
                 panel_state.with_mut(|state| {
                     push_message(
@@ -791,7 +787,7 @@ pub(super) fn send_sql_error_fix_request(
             ),
         };
 
-        match send_routed_prompt(prompt, routing_context) {
+        match services::send_acp_prompt_with_routing(prompt, routing_context) {
             Ok(()) => {
                 panel_state.with_mut(|state| {
                     push_message(

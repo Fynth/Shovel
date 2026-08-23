@@ -903,18 +903,13 @@ fn preview_create_table_column_sql(
             quote_sql_identifier(preview_column_name(column))
         }
     };
-    let data_type = column
-        .data_type
-        .trim()
-        .to_string()
-        .chars()
-        .collect::<String>();
-    let data_type = if data_type.trim().is_empty() {
+    let data_type = column.data_type.trim();
+    let data_type = if data_type.is_empty() {
         create_table_default_type(kind, column.auto_increment).to_string()
     } else if kind == DatabaseKind::ClickHouse && !column.not_null {
-        clickhouse_preview_data_type(&data_type)
+        wrap_clickhouse_nullable(data_type)
     } else {
-        data_type
+        data_type.to_string()
     };
 
     let default_value = column.default_value.trim();
@@ -1287,15 +1282,7 @@ fn build_clickhouse_engine_clause(
         .map(|column| column.name.as_str())
         .collect::<Vec<_>>();
     let order_by = clickhouse_order_by_expression(&key_columns);
-    match draft.clickhouse_engine {
-        ClickHouseEnginePreset::MergeTree => {
-            format!("ENGINE = MergeTree() ORDER BY {order_by}")
-        }
-        ClickHouseEnginePreset::ReplacingMergeTree => {
-            format!("ENGINE = ReplacingMergeTree() ORDER BY {order_by}")
-        }
-        ClickHouseEnginePreset::Log => "ENGINE = Log".to_string(),
-    }
+    format_clickhouse_engine_clause(draft.clickhouse_engine, &order_by)
 }
 
 fn preview_clickhouse_engine_clause(draft: &CreateTableDraft) -> String {
@@ -1306,7 +1293,14 @@ fn preview_clickhouse_engine_clause(draft: &CreateTableDraft) -> String {
         .map(preview_column_name)
         .collect::<Vec<_>>();
     let order_by = clickhouse_order_by_expression(&key_columns);
-    match draft.clickhouse_engine {
+    format_clickhouse_engine_clause(draft.clickhouse_engine, &order_by)
+}
+
+fn format_clickhouse_engine_clause(
+    engine: ClickHouseEnginePreset,
+    order_by: &str,
+) -> String {
+    match engine {
         ClickHouseEnginePreset::MergeTree => {
             format!("ENGINE = MergeTree() ORDER BY {order_by}")
         }
@@ -1352,10 +1346,6 @@ fn wrap_clickhouse_nullable(data_type: &str) -> String {
     } else {
         format!("Nullable({data_type})")
     }
-}
-
-fn clickhouse_preview_data_type(data_type: &str) -> String {
-    wrap_clickhouse_nullable(data_type.trim())
 }
 
 fn sqlite_identity_type_supported(data_type: &str) -> bool {

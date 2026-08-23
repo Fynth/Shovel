@@ -40,10 +40,9 @@ pub fn DuplicateTableModal(
     let mut duplicate_error = use_signal(String::new);
     let mut duplicate_inflight = use_signal(|| false);
     let current_draft = draft();
-    let read_only_mode = read_only;
     let can_submit = duplicate_table_form_valid(&target, &current_draft)
         && !duplicate_inflight()
-        && !read_only_mode;
+        && !read_only;
     let preview_sql = duplicate_table_preview_sql(&target, &current_draft);
 
     rsx! {
@@ -149,7 +148,7 @@ pub fn DuplicateTableModal(
                                 if duplicate_inflight() {
                                     return;
                                 }
-                                if read_only_mode {
+                                if read_only {
                                     duplicate_error.set(read_only_mode_block_status("table duplication"));
                                     return;
                                 }
@@ -243,7 +242,7 @@ fn duplicate_table_preview_sql(
     let target_name = duplicated_qualified_name(&target.source, target.kind, table_name);
 
     match target.kind {
-        DatabaseKind::Sqlite => {
+        DatabaseKind::Sqlite | DatabaseKind::ClickHouse => {
             let create_sql =
                 format!("CREATE TABLE {target_name} /* definition copied from {source_name} */");
             if draft.copy_data {
@@ -263,15 +262,6 @@ fn duplicate_table_preview_sql(
         }
         DatabaseKind::MySql => {
             let create_sql = format!("CREATE TABLE {target_name} LIKE {source_name}");
-            if draft.copy_data {
-                format!("{create_sql};\nINSERT INTO {target_name} SELECT * FROM {source_name};")
-            } else {
-                format!("{create_sql};")
-            }
-        }
-        DatabaseKind::ClickHouse => {
-            let create_sql =
-                format!("CREATE TABLE {target_name} /* definition copied from {source_name} */");
             if draft.copy_data {
                 format!("{create_sql};\nINSERT INTO {target_name} SELECT * FROM {source_name};")
             } else {
