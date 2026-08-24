@@ -242,6 +242,11 @@ pub struct QueryTabState {
     /// ещё не выполнялся. Используется для индикации тайминга в области
     /// результатов и статусе вкладки.
     pub last_duration_ms: Option<u64>,
+    /// Вкладка «закреплена» (DBeaver pin). Закреплённые вкладки
+    /// не закрываются командами «Close Others» / «Close to Right» /
+    /// «Close All» — только явным «Close». QueryTabState не
+    /// сериализуется на диск, поэтому без `#[serde(default)]`.
+    pub pinned: bool,
 }
 
 /// In-progress or completed multi-statement batch run.
@@ -295,6 +300,7 @@ impl Default for QueryTabState {
             batch_results: None,
             batch_outputs: Vec::new(),
             last_duration_ms: None,
+            pinned: false,
         }
     }
 }

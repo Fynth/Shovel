@@ -149,9 +149,62 @@ pub static APP_SHOW_AGENT_PANEL: GlobalSignal<bool> =
 pub static APP_TOOLTIP: GlobalSignal<Option<AppTooltip>> = Signal::global(|| None);
 pub static APP_TOAST: GlobalSignal<Vec<AppToast>> = Signal::global(Vec::new);
 pub static APP_TAB_DRAFTS: GlobalSignal<Vec<models::TabDraft>> = Signal::global(Vec::new);
+/// Most-recently-closed query tabs (newest first). Capped to
+/// `RECENTLY_CLOSED_TABS_LIMIT`. Restored by the tab context menu's
+/// "Reopen Closed Tab" item so the user can get back the last few
+/// tabs after closing them. Tab state is kept in-memory only (the
+/// active tab list is also in-memory; the on-disk draft layer is
+/// separate and untouched by this stack).
+pub static APP_RECENTLY_CLOSED_TABS: GlobalSignal<Vec<models::QueryTabState>> =
+    Signal::global(Vec::new);
+/// Maximum number of tabs retained for "Reopen Closed Tab".
+pub const RECENTLY_CLOSED_TABS_LIMIT: usize = 8;
 pub static APP_LAST_QUERY: GlobalSignal<Option<LastQuerySummary>> = Signal::global(|| None);
 pub static APP_FOCUS_EDITOR_REQUEST: GlobalSignal<u64> = Signal::global(|| 0);
 pub static APP_FOCUS_FILTER_PANEL_REQUEST: GlobalSignal<u64> = Signal::global(|| 0);
+
+/// Push a tab onto the "recently closed" stack. The tab is
+/// prepended (newest first) and the stack is capped at
+/// [`RECENTLY_CLOSED_TABS_LIMIT`]. The tab's `pinned` flag is
+/// cleared on push so the reopened tab is not sticky by default.
+pub fn push_recently_closed_tab(tab: models::QueryTabState) {
+    APP_RECENTLY_CLOSED_TABS.with_mut(|stack| {
+        push_recently_closed_tab_into(stack, tab);
+    });
+}
+
+/// Pop the most-recently-closed tab. Returns `None` when the stack
+/// is empty. The popped tab is removed from the stack and a fresh
+/// `id` is assigned so it does not collide with any live tab.
+pub fn pop_recently_closed_tab(next_tab_id: &mut Signal<u64>) -> Option<models::QueryTabState> {
+    let mut popped: Option<models::QueryTabState> = None;
+    APP_RECENTLY_CLOSED_TABS.with_mut(|stack| {
+        if !stack.is_empty() {
+            popped = Some(stack.remove(0));
+        }
+    });
+    popped.map(|mut tab| {
+        let new_id = next_tab_id();
+        next_tab_id.set(new_id + 1);
+        tab.id = new_id;
+        tab
+    })
+}
+
+/// Pure helper that mutates a stack in place: prepends the tab,
+/// strips `pinned`, and caps the stack at
+/// [`RECENTLY_CLOSED_TABS_LIMIT`]. Exposed so the behaviour can be
+/// unit-tested without spinning up a Dioxus runtime.
+fn push_recently_closed_tab_into(
+    stack: &mut Vec<models::QueryTabState>,
+    mut tab: models::QueryTabState,
+) {
+    tab.pinned = false;
+    stack.insert(0, tab);
+    if stack.len() > RECENTLY_CLOSED_TABS_LIMIT {
+        stack.truncate(RECENTLY_CLOSED_TABS_LIMIT);
+    }
+}
 
 // Command-palette visibility. The palette is a compact overlay that
 // can be opened from anywhere with Ctrl+Shift+P (or the palette's own
@@ -694,5 +747,60 @@ mod tests {
         ]);
         assert_eq!(prune_expired(&mut cache, now), 2);
         assert!(cache.is_empty());
+    }
+
+    fn test_tab(id: u64, title: &str) -> models::QueryTabState {
+        let mut tab = models::QueryTabState::default();
+        tab.id = id;
+        tab.title = title.to_string();
+        tab
+    }
+
+    #[test]
+    fn push_into_strips_pinned_flag() {
+        let mut stack: Vec<models::QueryTabState> = Vec::new();
+        let mut tab = test_tab(7, "Q");
+        tab.pinned = true;
+        push_recently_closed_tab_into(&mut stack, tab);
+        assert_eq!(stack.len(), 1);
+        assert!(!stack[0].pinned, "push must strip the pinned flag");
+    }
+
+    #[test]
+    fn push_into_prepends_newest_first() {
+        let mut stack: Vec<models::QueryTabState> = Vec::new();
+        for i in 0..5 {
+            push_recently_closed_tab_into(&mut stack, test_tab(i, &format!("Q{i}")));
+        }
+        let ids: Vec<u64> = stack.iter().map(|t| t.id).collect();
+        // Newest first — last pushed at index 0.
+        assert_eq!(ids, vec![4, 3, 2, 1, 0]);
+    }
+
+    #[test]
+    fn push_into_caps_at_limit() {
+        let mut stack: Vec<models::QueryTabState> = Vec::new();
+        let total = RECENTLY_CLOSED_TABS_LIMIT + 3;
+        for i in 0..total {
+            push_recently_closed_tab_into(&mut stack, test_tab(i as u64, &format!("Q{i}")));
+        }
+        assert_eq!(stack.len(), RECENTLY_CLOSED_TABS_LIMIT);
+        // The oldest three entries should have been dropped.
+        let ids: Vec<u64> = stack.iter().map(|t| t.id).collect();
+        assert_eq!(ids[0], (total - 1) as u64);
+        assert_eq!(ids[RECENTLY_CLOSED_TABS_LIMIT - 1], 3);
+    }
+
+    #[test]
+    fn push_into_preserves_tab_content() {
+        let mut stack: Vec<models::QueryTabState> = Vec::new();
+        let mut tab = test_tab(11, "Q11");
+        tab.session_id = 42;
+        tab.sql = "select 1".to_string();
+        push_recently_closed_tab_into(&mut stack, tab);
+        assert_eq!(stack[0].id, 11);
+        assert_eq!(stack[0].title, "Q11");
+        assert_eq!(stack[0].session_id, 42);
+        assert_eq!(stack[0].sql, "select 1");
     }
 }

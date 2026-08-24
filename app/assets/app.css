@@ -2151,6 +2151,21 @@ select.input:focus-visible {
   box-shadow: inset 0 1px 0 var(--glass-highlight), 0 -10px 28px rgba(2, 8, 18, 0.18);
 }
 
+.tabbar__tab--pinned {
+  border-color: color-mix(in srgb, var(--color-primary) 36%, var(--color-border));
+  box-shadow: inset 0 1px 0 var(--glass-highlight), inset 2px 0 0 0 color-mix(in srgb, var(--color-primary) 70%, transparent);
+}
+
+.tabbar__pin {
+  flex: 0 0 auto;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--color-primary);
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--color-primary) 30%, transparent));
+  user-select: none;
+  margin-right: -2px;
+}
+
 .tabbar__tab {
   display: inline-flex;
   align-items: center;

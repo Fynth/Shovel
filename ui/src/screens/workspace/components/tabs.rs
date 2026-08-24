@@ -1,24 +1,49 @@
 use crate::{
     app_state::{
-        APP_AI_FEATURES_ENABLED, APP_SHOW_SQL_EDITOR, APP_SQL_FORMAT_SETTINGS, APP_STATE,
+        APP_AI_FEATURES_ENABLED,
+        APP_SHOW_SQL_EDITOR,
+        APP_SQL_FORMAT_SETTINGS,
+        APP_STATE,
+        context_menu::{ContextMenuItem, open_context_menu},
         open_connection_screen,
+        pop_recently_closed_tab,
+        push_recently_closed_tab,
     },
     screens::workspace::actions::{
-        new_query_tab, open_structure_tab, read_only_mode_block_status, read_only_mode_enabled,
-        refresh_tab_result, replace_active_tab_sql, run_explain_for_tab, run_query_for_tab,
-        set_active_tab_status, tab_connection_or_error, toggle_execution_plan_for_tab,
+        new_query_tab,
+        open_structure_tab,
+        read_only_mode_block_status,
+        read_only_mode_enabled,
+        refresh_tab_result,
+        replace_active_tab_sql,
+        run_explain_for_tab,
+        run_query_for_tab,
+        set_active_tab_status,
+        tab_connection_or_error,
+        toggle_execution_plan_for_tab,
     },
 };
-use dioxus::prelude::*;
+use dioxus::{html::input_data::MouseButton, prelude::*};
 use models::{
-    AcpPanelState, QueryHistoryItem, QueryOutput, QueryTabState, SqlFormatSettings,
+    AcpPanelState,
+    QueryHistoryItem,
+    QueryOutput,
+    QueryTabState,
+    SqlFormatSettings,
     TablePreviewSource,
 };
 use rfd::AsyncFileDialog;
 
 use super::{
-    ActionIcon, BatchResultsView, ExecutionPlanView, ExplorerConnectionSection, IconButton,
-    ResultTable, SqlEditor, ensure_default_sql_agent_connected, send_sql_generation_request,
+    ActionIcon,
+    BatchResultsView,
+    ExecutionPlanView,
+    ExplorerConnectionSection,
+    IconButton,
+    ResultTable,
+    SqlEditor,
+    ensure_default_sql_agent_connected,
+    send_sql_generation_request,
 };
 
 const EDITOR_MIN_HEIGHT: f64 = 160.0;
@@ -146,10 +171,16 @@ pub fn TabsManager(
                 class: "tabbar",
                 for tab in tabs() {
                     div {
-                        class: if tab.id == active_tab_id() {
-                            "tabbar__tab tabbar__tab--active"
-                        } else {
-                            "tabbar__tab"
+                        class: {
+                            let mut class_name = if tab.id == active_tab_id() {
+                                "tabbar__tab tabbar__tab--active".to_string()
+                            } else {
+                                "tabbar__tab".to_string()
+                            };
+                            if tab.pinned {
+                                class_name.push_str(" tabbar__tab--pinned");
+                            }
+                            class_name
                         },
                         onclick: {
                             let tab_id = tab.id;
@@ -157,6 +188,25 @@ pub fn TabsManager(
                             move |_| {
                                 active_tab_id.set(tab_id);
                                 crate::app_state::activate_session(session_id);
+                            }
+                        },
+                        onauxclick: {
+                            let tab_id = tab.id;
+                            move |event| {
+                                if event.trigger_button() != Some(MouseButton::Auxiliary) {
+                                    return;
+                                }
+                                close_tab_for_middle_click(tabs, active_tab_id, tab_id);
+                            }
+                        },
+                        oncontextmenu: {
+                            let tab_id = tab.id;
+                            move |event| {
+                                event.prevent_default();
+                                let coords = event.client_coordinates();
+                                let items =
+                                    build_tab_context_menu(tab_id, tabs, active_tab_id, next_tab_id);
+                                open_context_menu(coords.x, coords.y, items);
                             }
                         },
                         div {
@@ -214,23 +264,21 @@ pub fn TabsManager(
                                 span { class: "tabbar__context", "{session_name}" }
                             }
                         }
+                        if tab.pinned {
+                            span {
+                                class: "tabbar__pin",
+                                "aria-label": "Pinned tab",
+                                title: "Pinned",
+                                "📌"
+                            }
+                        }
                         button {
                             class: "tabbar__close",
                             onclick: {
                                 let tab_id = tab.id;
                                 move |event| {
                                     event.stop_propagation();
-                                    if tabs.read().len() == 1 {
-                                        return;
-                                    }
-
-                                    tabs.with_mut(|all_tabs| all_tabs.retain(|tab| tab.id != tab_id));
-                                    if active_tab_id() == tab_id
-                                        && let Some(first_tab) = tabs.read().first()
-                                    {
-                                        active_tab_id.set(first_tab.id);
-                                        crate::app_state::activate_session(first_tab.session_id);
-                                    }
+                                    close_tab_for_middle_click(tabs, active_tab_id, tab_id);
                                 }
                             },
                             "x"
@@ -780,9 +828,8 @@ fn import_csv_into_active_table(tabs: Signal<Vec<QueryTabState>>, current_tab: Q
                     refresh_tab_result(tabs, updated_tab, Some(source));
                 }
             }
-            Err(err) => {
-                set_active_tab_status(tabs, current_tab.id, format!("CSV import error: {err}"))
-            }
+            Err(err) =>
+                set_active_tab_status(tabs, current_tab.id, format!("CSV import error: {err}")),
         }
     });
 }
@@ -939,4 +986,324 @@ fn actionable_table_source(tab: &QueryTabState) -> Option<TablePreviewSource> {
             .as_deref()
             .and_then(services::preview_source_for_sql)
     })
+}
+
+/// Re-assign `active_tab_id` to the first remaining tab when the
+/// current active tab is no longer in the list. Used by every
+/// "close many" helper so the editor does not stay focused on a
+/// vanished tab.
+fn reassign_active_if_missing(tabs: Signal<Vec<QueryTabState>>, mut active_tab_id: Signal<u64>) {
+    if tabs.read().iter().any(|t| t.id == active_tab_id()) {
+        return;
+    }
+    if let Some(next) = tabs.read().first().cloned() {
+        active_tab_id.set(next.id);
+        crate::app_state::activate_session(next.session_id);
+    }
+}
+
+/// Close a single tab by id. Pinned tabs are protected — this
+/// helper is also the entry point for the X button and the
+/// middle-click handler, both of which explicitly close the tab
+/// the user targeted (so pinning never silently blocks an
+/// intentional close). The closed tab is pushed onto the
+/// "recently closed" stack so "Reopen Closed Tab" can restore it.
+fn close_tab_for_middle_click(
+    mut tabs: Signal<Vec<QueryTabState>>,
+    mut active_tab_id: Signal<u64>,
+    tab_id: u64,
+) {
+    let snapshot = tabs.read().clone();
+    if snapshot.len() <= 1 {
+        return;
+    }
+    let Some(closed) = snapshot.iter().find(|tab| tab.id == tab_id).cloned() else {
+        return;
+    };
+
+    push_recently_closed_tab(closed);
+    tabs.with_mut(|all_tabs| all_tabs.retain(|tab| tab.id != tab_id));
+
+    if active_tab_id() == tab_id {
+        let remaining = tabs.read().clone();
+        let next_tab = remaining
+            .iter()
+            .find(|tab| !tab.pinned)
+            .or_else(|| remaining.first())
+            .cloned();
+        if let Some(next_tab) = next_tab {
+            active_tab_id.set(next_tab.id);
+            crate::app_state::activate_session(next_tab.session_id);
+        }
+    }
+}
+
+/// Build the right-click menu for a tab. Mirrors DBeaver/DataGrip
+/// (Close, Close Others, Close to Right, Close All, Pin/Unpin,
+/// Duplicate, Reopen Closed Tab). Pinned tabs are protected from
+/// "Close Others" / "Close to Right" / "Close All" — those items
+/// only affect non-pinned tabs (and "Close Others" keeps all
+/// pinned tabs).
+#[allow(clippy::too_many_arguments)]
+fn build_tab_context_menu(
+    tab_id: u64,
+    tabs: Signal<Vec<QueryTabState>>,
+    active_tab_id: Signal<u64>,
+    next_tab_id: Signal<u64>,
+) -> Vec<ContextMenuItem> {
+    let mut items: Vec<ContextMenuItem> = Vec::new();
+
+    let snapshot: Option<QueryTabState> = tabs.read().iter().find(|t| t.id == tab_id).cloned();
+    let Some(tab) = snapshot else {
+        return items;
+    };
+    let total = tabs.read().len();
+    let tab_index = tabs.read().iter().position(|t| t.id == tab_id);
+    let non_pinned_total = tabs.read().iter().filter(|t| !t.pinned).count();
+    let pinned_total = total - non_pinned_total;
+    let tabs_to_right = tab_index
+        .map(|idx| {
+            tabs.read()
+                .iter()
+                .skip(idx + 1)
+                .filter(|t| !t.pinned)
+                .count()
+        })
+        .unwrap_or(0);
+
+    // 1. Close
+    {
+        let mut item = ContextMenuItem::new("Close", move || {
+            close_tab_for_middle_click(tabs, active_tab_id, tab_id);
+        })
+        .with_icon(ActionIcon::Close);
+        item.disabled = total <= 1;
+        items.push(item);
+    }
+
+    // 2. Close Others — keep this tab + every other pinned tab.
+    {
+        let closeable_others =
+            non_pinned_total.saturating_sub(1) + (if tab.pinned { 0 } else { pinned_total });
+        let mut item = ContextMenuItem::new("Close Others", move || {
+            close_other_tabs(tabs, active_tab_id, tab_id);
+        })
+        .with_icon(ActionIcon::Close);
+        item.disabled = closeable_others == 0;
+        items.push(item);
+    }
+
+    // 3. Close to Right — non-pinned tabs to the right of this one.
+    {
+        let mut item = ContextMenuItem::new("Close Tabs to the Right", move || {
+            close_tabs_to_the_right(tabs, active_tab_id, tab_id);
+        })
+        .with_icon(ActionIcon::Close);
+        item.disabled = tabs_to_right == 0;
+        items.push(item);
+    }
+
+    // 4. Close All — close every non-pinned tab.
+    {
+        let mut item = ContextMenuItem::new("Close All", move || {
+            close_all_non_pinned_tabs(tabs, active_tab_id, next_tab_id, tab_id);
+        })
+        .with_icon(ActionIcon::Close)
+        .separator();
+        item.disabled = non_pinned_total == 0;
+        items.push(item);
+    }
+
+    // 5. Pin / Unpin
+    {
+        if tab.pinned {
+            items.push(ContextMenuItem::new("Unpin", move || {
+                set_tab_pinned(tabs, tab_id, false);
+            }));
+        } else {
+            items.push(ContextMenuItem::new("Pin", move || {
+                set_tab_pinned(tabs, tab_id, true);
+            }));
+        }
+    }
+
+    // 6. Duplicate — clone the tab into a new tab inserted after
+    //    this one. The new tab gets a fresh id; title is suffixed
+    //    with " copy". Result, SQL, and preview_source are copied
+    //    so the duplicate is ready to run.
+    {
+        let source = tab.clone();
+        items.push(
+            ContextMenuItem::new("Duplicate", move || {
+                duplicate_tab(tabs, active_tab_id, next_tab_id, source.clone());
+            })
+            .with_icon(ActionIcon::Duplicate)
+            .separator(),
+        );
+    }
+
+    // 7. Reopen Closed Tab
+    {
+        let mut item = ContextMenuItem::new("Reopen Closed Tab", move || {
+            reopen_last_closed_tab(tabs, active_tab_id, next_tab_id);
+        });
+        item.disabled = crate::app_state::APP_RECENTLY_CLOSED_TABS.peek().is_empty();
+        items.push(item);
+    }
+
+    items
+}
+
+fn set_tab_pinned(mut tabs: Signal<Vec<QueryTabState>>, tab_id: u64, pinned: bool) {
+    tabs.with_mut(|all_tabs| {
+        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == tab_id) {
+            tab.pinned = pinned;
+        }
+    });
+}
+
+fn duplicate_tab(
+    mut tabs: Signal<Vec<QueryTabState>>,
+    mut active_tab_id: Signal<u64>,
+    mut next_tab_id: Signal<u64>,
+    source: QueryTabState,
+) {
+    let source_id = source.id;
+    let new_id = next_tab_id();
+    next_tab_id.set(new_id + 1);
+    let mut clone = source;
+    clone.id = new_id;
+    clone.pinned = false;
+    let trimmed_lower = clone.title.trim_end().to_lowercase();
+    if !trimmed_lower.ends_with(" copy") {
+        clone.title.push_str(" copy");
+    }
+    let insert_at = tabs
+        .read()
+        .iter()
+        .position(|tab| tab.id == source_id)
+        .map(|idx| idx + 1)
+        .unwrap_or_else(|| tabs.read().len());
+    tabs.with_mut(|all_tabs| all_tabs.insert(insert_at, clone));
+    active_tab_id.set(new_id);
+}
+
+fn reopen_last_closed_tab(
+    mut tabs: Signal<Vec<QueryTabState>>,
+    mut active_tab_id: Signal<u64>,
+    mut next_tab_id: Signal<u64>,
+) {
+    let Some(restored) = pop_recently_closed_tab(&mut next_tab_id) else {
+        return;
+    };
+    let new_id = restored.id;
+    let session_id = restored.session_id;
+    tabs.with_mut(|all_tabs| all_tabs.push(restored));
+    active_tab_id.set(new_id);
+    crate::app_state::activate_session(session_id);
+}
+
+fn close_other_tabs(
+    mut tabs: Signal<Vec<QueryTabState>>,
+    active_tab_id: Signal<u64>,
+    keep_tab_id: u64,
+) {
+    let to_close: Vec<QueryTabState> = tabs
+        .read()
+        .iter()
+        .filter(|t| t.id != keep_tab_id && !t.pinned)
+        .cloned()
+        .collect();
+    if to_close.is_empty() {
+        return;
+    }
+    for tab in to_close {
+        push_recently_closed_tab(tab);
+    }
+    tabs.with_mut(|all_tabs| {
+        all_tabs.retain(|t| t.id == keep_tab_id || t.pinned);
+    });
+    reassign_active_if_missing(tabs, active_tab_id);
+}
+
+fn close_tabs_to_the_right(
+    mut tabs: Signal<Vec<QueryTabState>>,
+    active_tab_id: Signal<u64>,
+    anchor_tab_id: u64,
+) {
+    let snapshot = tabs.read().clone();
+    let Some(anchor_idx) = snapshot.iter().position(|t| t.id == anchor_tab_id) else {
+        return;
+    };
+    let to_close: Vec<QueryTabState> = snapshot
+        .iter()
+        .skip(anchor_idx + 1)
+        .filter(|t| !t.pinned)
+        .cloned()
+        .collect();
+    if to_close.is_empty() {
+        return;
+    }
+    for tab in to_close {
+        push_recently_closed_tab(tab);
+    }
+    tabs.with_mut(|all_tabs| {
+        let keep: std::collections::HashSet<u64> = all_tabs
+            .iter()
+            .take(anchor_idx + 1)
+            .map(|t| t.id)
+            .chain(all_tabs.iter().filter(|t| t.pinned).map(|t| t.id))
+            .collect();
+        all_tabs.retain(|t| keep.contains(&t.id));
+    });
+    reassign_active_if_missing(tabs, active_tab_id);
+}
+
+fn close_all_non_pinned_tabs(
+    mut tabs: Signal<Vec<QueryTabState>>,
+    mut active_tab_id: Signal<u64>,
+    mut next_tab_id: Signal<u64>,
+    pin_origin: u64,
+) {
+    let to_close: Vec<QueryTabState> = tabs.read().iter().filter(|t| !t.pinned).cloned().collect();
+    if to_close.is_empty() {
+        return;
+    }
+    for tab in to_close {
+        push_recently_closed_tab(tab);
+    }
+    tabs.with_mut(|all_tabs| {
+        all_tabs.retain(|t| t.pinned);
+    });
+
+    // Always keep at least one non-pinned tab so the editor stays
+    // open. The user just closed everything, so we spin up a fresh
+    // query tab for the active session (or the origin tab's session
+    // when no active tab remains).
+    let session_id = tabs
+        .read()
+        .iter()
+        .find(|t| t.id == pin_origin)
+        .map(|t| t.session_id)
+        .or_else(|| tabs.read().iter().find(|t| t.pinned).map(|t| t.session_id))
+        .or_else(|| crate::app_state::APP_STATE.read().active_session_id);
+
+    if !tabs.read().iter().any(|t| !t.pinned) {
+        if let Some(session_id) = session_id {
+            let new_id = next_tab_id();
+            next_tab_id.set(new_id + 1);
+            tabs.with_mut(|all_tabs| {
+                all_tabs.push(new_query_tab(
+                    new_id,
+                    session_id,
+                    format!("Query {new_id}"),
+                    String::new(),
+                ));
+            });
+            active_tab_id.set(new_id);
+            crate::app_state::activate_session(session_id);
+        }
+    } else {
+        reassign_active_if_missing(tabs, active_tab_id);
+    }
 }
