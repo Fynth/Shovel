@@ -13,6 +13,7 @@ use crate::{
     components::{
         command_palette::CommandPalette,
         context_menu::{ContextMenu, TextInputMenuInit},
+        global_search::GlobalSearch,
     },
     layout::{StatusBar, ToastContainer, Toolbar},
     screens::{DbConnect, Workspace},
@@ -154,53 +155,54 @@ pub fn App() -> Element {
     };
 
     rsx! {
-        div {
-            class: "app {theme_name} {density_class}",
-            Toolbar {}
-            main {
-                class: if has_sessions {
-                    "app__body"
-                } else {
-                    "app__body app__body--welcome"
-                },
-                if has_sessions {
-                    ErrorBoundary {
-                        handle_error: |_| {
-                            rsx! {
-                                div {
-                                    class: "workspace-error",
-                                    p { "Something went wrong. Please restart the application." }
+            div {
+                class: "app {theme_name} {density_class}",
+                Toolbar {}
+                main {
+                    class: if has_sessions {
+                        "app__body"
+                    } else {
+                        "app__body app__body--welcome"
+                    },
+                    if has_sessions {
+                        ErrorBoundary {
+                            handle_error: |_| {
+                                rsx! {
+                                    div {
+                                        class: "workspace-error",
+                                        p { "Something went wrong. Please restart the application." }
+                                    }
                                 }
+                            },
+                            Workspace {}
+                        }
+                        if should_show_connect {
+                            div {
+                                class: "app__overlay",
+                                DbConnect {}
                             }
-                        },
-                        Workspace {}
+                        }
+                    } else {
+                        DbConnect {}
                     }
-                    if should_show_connect {
+                    if let Some(tooltip) = APP_TOOLTIP() {
                         div {
-                            class: "app__overlay",
-                            DbConnect {}
+                            class: "app__tooltip-layer",
+                            div {
+                                class: "app__tooltip",
+                                left: "{tooltip.x:.0}px",
+                                top: "{tooltip.y:.0}px",
+                                "{tooltip.label}"
+                            }
                         }
                     }
-                } else {
-                    DbConnect {}
-                }
-                if let Some(tooltip) = APP_TOOLTIP() {
-                    div {
-                        class: "app__tooltip-layer",
-                        div {
-                            class: "app__tooltip",
-                            left: "{tooltip.x:.0}px",
-                            top: "{tooltip.y:.0}px",
-                            "{tooltip.label}"
-                        }
-                    }
-                }
                 ToastContainer {}
             }
             StatusBar {}
             TextInputMenuInit {}
             ContextMenu {}
             CommandPalette {}
+            GlobalSearch {}
         }
     }
 }

@@ -10,6 +10,10 @@ use crate::{
         APP_AI_FEATURES_ENABLED,
         APP_COMMAND_REQUEST,
         APP_COMMAND_REQUEST_KIND,
+        APP_GLOBAL_SEARCH_OBJECTS,
+        APP_GLOBAL_SEARCH_REQUEST,
+        APP_GLOBAL_SEARCH_REQUEST_KIND,
+        APP_GLOBAL_SEARCH_REQUEST_PAYLOAD,
         APP_SHOW_AGENT_PANEL,
         APP_SHOW_CONNECTIONS,
         APP_SHOW_EXPLORER,
@@ -21,6 +25,8 @@ use crate::{
         APP_THEME,
         APP_UI_SETTINGS,
         ToastKind,
+        actions as actions_state,
+        close_global_search,
         commands::{
             CMD_CLOSE_TAB,
             CMD_EXPLAIN_QUERY,
@@ -32,8 +38,16 @@ use crate::{
             CMD_SAVE_QUERY,
         },
         context_menu,
+        global_search::{
+            GLOBAL_SEARCH_OPEN_OBJECT,
+            GLOBAL_SEARCH_OPEN_TAB,
+            GLOBAL_SEARCH_RUN_ACTION,
+            GlobalSearchObjectItem,
+            GlobalSearchTabItem,
+        },
         keyboard::{ShortcutAction, match_key_combination},
         open_connection_screen,
+        open_global_search_with_snapshots,
         request_focus_editor,
         request_focus_filter_panel,
         set_show_agent_panel,
@@ -43,7 +57,6 @@ use crate::{
         set_show_saved_queries,
         set_show_sql_editor,
         show_toast,
-        toggle_command_palette,
         update_ui_settings,
     },
     windows,
@@ -52,9 +65,11 @@ use dioxus::{html::input_data::MouseButton, prelude::*};
 use models::{
     AcpPanelState,
     ChatThreadSummary,
+    ExplorerNode,
     QueryHistoryItem,
     QueryTabState,
     SavedQuery,
+    TablePreviewSource,
     WorkspaceToolDock,
     WorkspaceToolPanel,
 };
@@ -987,6 +1002,46 @@ pub fn Workspace() -> Element {
         }
     });
 
+    // ── Effect: dispatch global-search picks ───────────────────
+    // The Ctrl+K overlay (mounted in `app.rs` outside the workspace
+    // tree) bumps `APP_GLOBAL_SEARCH_REQUEST` when the user picks a
+    // result. We watch the counter here and realise the pick against
+    // the live tab/active_tab_id/explorer signals. The discriminator
+    // tells us which kind of result it was; the payload is a u64 that
+    // means tab_id for tab hits, snapshot index for object hits, and
+    // action id for action hits.
+    use_effect(move || {
+        let _ = APP_GLOBAL_SEARCH_REQUEST();
+        let kind = APP_GLOBAL_SEARCH_REQUEST_KIND();
+        let payload = APP_GLOBAL_SEARCH_REQUEST_PAYLOAD();
+        match kind {
+            x if x == GLOBAL_SEARCH_OPEN_TAB => {
+                if let Some(tab) = tabs.read().iter().find(|tab| tab.id == payload).cloned() {
+                    active_tab_id.set(tab.id);
+                    crate::app_state::activate_session(tab.session_id);
+                }
+                close_global_search();
+            }
+            x if x == GLOBAL_SEARCH_OPEN_OBJECT => {
+                let objects = APP_GLOBAL_SEARCH_OBJECTS();
+                if let Some(object) = objects.get(payload as usize).cloned() {
+                    open_object_hit(tabs, active_tab_id, next_tab_id, tree_reload, &object);
+                }
+                close_global_search();
+            }
+            x if x == GLOBAL_SEARCH_RUN_ACTION => {
+                if let Some(action_id) = payload_to_action_id(payload) {
+                    actions_state::dispatch_action(action_id);
+                }
+                close_global_search();
+            }
+            _ => {
+                // Unknown discriminator: ignore so a stale dispatch
+                // never tears down the workspace.
+            }
+        }
+    });
+
     let tool_panel_layout = APP_UI_SETTINGS().tool_panel_layout.normalized();
     let tool_vis = helpers::ToolPanelVisibility {
         show_saved_queries: APP_SHOW_SAVED_QUERIES(),
@@ -1071,11 +1126,35 @@ pub fn Workspace() -> Element {
                     ShortcutAction::FocusEditor => {
                         request_focus_editor();
                     }
-                    // Ctrl+K — the closest global-search surface today is
-                    // the command palette; a dedicated overlay can reuse
-                    // the same `GlobalSearch` id later.
+                    // Ctrl+K — global search overlay. We snapshot
+                    // tabs + tree into the overlay's globals so the
+                    // overlay can filter without reaching into the
+                    // workspace's local signals.
                     ShortcutAction::GlobalSearch => {
-                        toggle_command_palette();
+                        let tab_snapshot: Vec<GlobalSearchTabItem> = tabs
+                            .read()
+                            .iter()
+                            .map(|tab| GlobalSearchTabItem {
+                                tab_id: tab.id,
+                                session_id: tab.session_id,
+                                title: tab.title.clone(),
+                            })
+                            .collect();
+                        let object_snapshot: Vec<GlobalSearchObjectItem> = tree_sections
+                            .read()
+                            .iter()
+                            .flat_map(|section| {
+                                let session_id = section.session_id;
+                                let session_name = section.name.clone();
+                                section.nodes.iter().map(move |node| ExplorerObjectNode {
+                                    session_id,
+                                    session_name: session_name.clone(),
+                                    node,
+                                })
+                            })
+                            .flat_map(|item| flatten_explorer_node(&item))
+                            .collect();
+                        open_global_search_with_snapshots(tab_snapshot, object_snapshot);
                     }
                     // F2 rename / Delete drop act on the selected explorer
                     // object, which lives deep inside the explorer tree
@@ -1161,4 +1240,122 @@ fn show_save_status_toast(status: &str) {
     } else if !status.is_empty() {
         show_toast(status.to_string(), ToastKind::Warning);
     }
+}
+
+/// Workspace-bound reference to an explorer node. Used as the input to
+/// [`flatten_explorer_node`] when the Ctrl+K handler turns a loaded
+/// `Vec<ExplorerConnectionSection>` into a flat list of search index
+/// entries.
+struct ExplorerObjectNode<'a> {
+    session_id: u64,
+    session_name: String,
+    node: &'a ExplorerNode,
+}
+
+/// Walk an [`ExplorerNode`] (and its children) into a flat list of
+/// [`GlobalSearchObjectItem`]s. We include columns too so the user can
+/// jump to "the email column" without going through the table first.
+/// The recursion is bounded by the same `EXPLORER_CACHE_TTL` lifetime
+/// the tree cache already enforces; nothing here issues DB calls.
+fn flatten_explorer_node(item: &ExplorerObjectNode<'_>) -> Vec<GlobalSearchObjectItem> {
+    let mut out = Vec::new();
+    flatten_into(item, &mut out);
+    out
+}
+
+fn flatten_into(item: &ExplorerObjectNode<'_>, out: &mut Vec<GlobalSearchObjectItem>) {
+    out.push(GlobalSearchObjectItem {
+        session_id: item.session_id,
+        session_name: item.session_name.clone(),
+        name: item.node.name.clone(),
+        qualified_name: item.node.qualified_name.clone(),
+        kind: item.node.kind,
+        schema: item.node.schema.clone(),
+    });
+    for child in &item.node.children {
+        flatten_into(
+            &ExplorerObjectNode {
+                session_id: item.session_id,
+                session_name: item.session_name.clone(),
+                node: child,
+            },
+            out,
+        );
+    }
+}
+
+/// Realise a "user picked this object" pick from the global search
+/// overlay. Mirrors the explorer's double-click flow: ensure a tab
+/// exists for the session, then run a table preview. Non-queryable
+/// kinds (schema, function, procedure, trigger) just activate the
+/// session so the explorer panel focuses on the right connection.
+fn open_object_hit(
+    tabs: Signal<Vec<QueryTabState>>,
+    active_tab_id: Signal<u64>,
+    next_tab_id: Signal<u64>,
+    _tree_reload: Signal<u64>,
+    object: &GlobalSearchObjectItem,
+) {
+    crate::app_state::activate_session(object.session_id);
+
+    if !object.kind.is_queryable() {
+        return;
+    }
+
+    let current_id =
+        actions::ensure_tab_for_session(tabs, active_tab_id, next_tab_id, object.session_id);
+    let current_tab = tabs.read().iter().find(|tab| tab.id == current_id).cloned();
+    let Some(current_tab) = current_tab else {
+        return;
+    };
+
+    let Some(connection) =
+        actions::tab_connection_or_error(tabs, current_id, current_tab.session_id)
+    else {
+        return;
+    };
+
+    let source = TablePreviewSource {
+        schema: object.schema.clone(),
+        table_name: object.name.clone(),
+        qualified_name: object.qualified_name.clone(),
+    };
+    actions::run_table_preview_for_tab(
+        tabs,
+        current_id,
+        connection,
+        source,
+        0,
+        current_tab.page_size,
+    );
+}
+
+/// Map a payload u64 back to an action id. We only forward
+/// palette-visible actions through the global search, so the candidates
+/// are the 18 workspace actions. Listing them by hand keeps the lookup
+/// independent of the full catalog (which includes context-menu ids we
+/// never want to run from the search overlay).
+fn payload_to_action_id(payload: u64) -> Option<actions_state::ActionId> {
+    use actions_state as acts;
+    let candidates = [
+        acts::ACTION_NEW_CONNECTION,
+        acts::ACTION_OPEN_SETTINGS,
+        acts::ACTION_NEW_TAB,
+        acts::ACTION_CLOSE_TAB,
+        acts::ACTION_NEXT_TAB,
+        acts::ACTION_TOGGLE_EXPLORER,
+        acts::ACTION_TOGGLE_SAVED_QUERIES,
+        acts::ACTION_TOGGLE_HISTORY,
+        acts::ACTION_TOGGLE_SQL_EDITOR,
+        acts::ACTION_TOGGLE_AGENT_PANEL,
+        acts::ACTION_TOGGLE_CONNECTIONS,
+        acts::ACTION_REFRESH_EXPLORER,
+        acts::ACTION_RUN_QUERY,
+        acts::ACTION_FORMAT_SQL,
+        acts::ACTION_EXPLAIN_QUERY,
+        acts::ACTION_SAVE_QUERY,
+        acts::ACTION_OPEN_COMMAND_PALETTE,
+        acts::ACTION_ABOUT,
+    ];
+    candidates.iter().find(|id| id.0 == payload).copied()
 }

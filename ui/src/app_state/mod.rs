@@ -49,7 +49,21 @@ use tokio_util::sync::CancellationToken;
 pub mod actions;
 pub mod commands;
 pub mod context_menu;
+pub mod global_search;
 pub mod keyboard;
+
+// Re-export the workspace-facing global-search surface so the workspace
+// dispatcher can reach it via `crate::app_state::*` instead of
+// reaching into the `global_search` sub-module. Mirrors how
+// `APP_COMMAND_PALETTE` is exposed today.
+pub use global_search::{
+    APP_GLOBAL_SEARCH_OBJECTS,
+    APP_GLOBAL_SEARCH_REQUEST,
+    APP_GLOBAL_SEARCH_REQUEST_KIND,
+    APP_GLOBAL_SEARCH_REQUEST_PAYLOAD,
+    close_global_search,
+    open_global_search_with_snapshots,
+};
 
 // Explorer cache: session_id -> sections (valid for 5 minutes)
 const EXPLORER_CACHE_TTL: Duration = Duration::from_secs(300);
@@ -239,11 +253,6 @@ pub fn close_command_palette() {
     if APP_COMMAND_PALETTE() {
         *APP_COMMAND_PALETTE.write() = false;
     }
-}
-
-pub fn toggle_command_palette() {
-    let current = APP_COMMAND_PALETTE();
-    *APP_COMMAND_PALETTE.write() = !current;
 }
 
 /// Bump the workspace-scoped command request counter with a stable
