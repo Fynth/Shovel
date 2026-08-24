@@ -79,6 +79,16 @@ pub const ACTION_COLUMN_SORT_ASC: ActionId = ActionId::new(114);
 pub const ACTION_COLUMN_SORT_DESC: ActionId = ActionId::new(115);
 pub const ACTION_TABLE_RENAME: ActionId = ActionId::new(116);
 
+// ── Result view-mode + quick-filter actions (PHASE 7). Toolbar buttons
+//    in `result_table.rs` read their labels/icons from this catalog so
+//    the segmented view-mode control and the quick-filter toggle stay
+//    consistent with the rest of the registry. ─────────────────────────
+pub const ACTION_VIEW_TABLE: ActionId = ActionId::new(120);
+pub const ACTION_VIEW_RECORDS: ActionId = ActionId::new(121);
+pub const ACTION_VIEW_SINGLE_RECORD: ActionId = ActionId::new(122);
+pub const ACTION_VIEW_DETAILS: ActionId = ActionId::new(123);
+pub const ACTION_TOGGLE_QUICK_FILTER: ActionId = ActionId::new(124);
+
 // ── Composable action groups. Each group names the child actions that
 //    belong together for a given object type. The explorer menu builder
 //    reads these ids to decide which actions a right-click should show,
@@ -465,6 +475,51 @@ pub fn action_catalog() -> &'static [Action] {
                 keywords: &["sort", "desc"],
                 category: "Object",
                 icon: Some(ActionIcon::Next),
+                children: &[],
+            },
+            Action {
+                id: ACTION_VIEW_TABLE,
+                label: "Table view",
+                shortcut: None,
+                keywords: &["view", "grid", "rows"],
+                category: "View",
+                icon: Some(ActionIcon::Details),
+                children: &[],
+            },
+            Action {
+                id: ACTION_VIEW_RECORDS,
+                label: "Records view",
+                shortcut: None,
+                keywords: &["view", "records", "list", "dense"],
+                category: "View",
+                icon: Some(ActionIcon::History),
+                children: &[],
+            },
+            Action {
+                id: ACTION_VIEW_SINGLE_RECORD,
+                label: "Single record view",
+                shortcut: None,
+                keywords: &["view", "single", "card", "detail"],
+                category: "View",
+                icon: Some(ActionIcon::Apply),
+                children: &[],
+            },
+            Action {
+                id: ACTION_VIEW_DETAILS,
+                label: "Details view",
+                shortcut: None,
+                keywords: &["view", "details", "sidebar", "panel"],
+                category: "View",
+                icon: Some(ActionIcon::Details),
+                children: &[],
+            },
+            Action {
+                id: ACTION_TOGGLE_QUICK_FILTER,
+                label: "Toggle quick filter",
+                shortcut: Some("Ctrl+F"),
+                keywords: &["filter", "where", "search", "quick"],
+                category: "Query",
+                icon: Some(ActionIcon::Filter),
                 children: &[],
             },
         ]

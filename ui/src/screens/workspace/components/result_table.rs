@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     app_state::{
         APP_THEME,
+        actions::find_action,
         context_menu::{ContextMenuItem, open_context_menu},
     },
     screens::workspace::{
@@ -104,6 +105,40 @@ enum ResultsStateAction {
     None,
     RunAgain,
     Retry,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ResultViewMode {
+    Table,
+    Records,
+    Single,
+    Details,
+}
+
+impl ResultViewMode {
+    fn label(self) -> &'static str {
+        match self {
+            ResultViewMode::Table => "Table",
+            ResultViewMode::Records => "Records",
+            ResultViewMode::Single => "Single",
+            ResultViewMode::Details => "Details",
+        }
+    }
+
+    fn catalog_id(self) -> crate::app_state::actions::ActionId {
+        use crate::app_state::actions::{
+            ACTION_VIEW_DETAILS,
+            ACTION_VIEW_RECORDS,
+            ACTION_VIEW_SINGLE_RECORD,
+            ACTION_VIEW_TABLE,
+        };
+        match self {
+            ResultViewMode::Table => ACTION_VIEW_TABLE,
+            ResultViewMode::Records => ACTION_VIEW_RECORDS,
+            ResultViewMode::Single => ACTION_VIEW_SINGLE_RECORD,
+            ResultViewMode::Details => ACTION_VIEW_DETAILS,
+        }
+    }
 }
 
 /// Coherent empty/error state block for the result grid. Renders an icon + title + body and, when applicable, a Retry action that calls `refresh_tab_result`.
@@ -214,6 +249,11 @@ pub fn ResultTable(
     let mut row_details_view = use_signal(|| RowDetailsView::Fields);
     let mut editing_row_values = use_signal(Vec::<(usize, String)>::new);
     let mut editing_row_ref = use_signal(|| None::<EditableRowRef>);
+    let mut view_mode = use_signal(|| ResultViewMode::Table);
+    let mut quick_filter_open = use_signal(|| false);
+    let mut quick_filter_column = use_signal(String::new);
+    let mut quick_filter_operator = use_signal(|| QueryFilterOperator::Contains);
+    let mut quick_filter_value = use_signal(String::new);
     // Materialized only when the active tab's result or pending changes change,
     // not after every render (scroll, selection, hover). `use_memo` auto-tracks
     // the `tabs`/`active_tab_id()` reads, so this recomputes on dependency change
@@ -299,6 +339,12 @@ pub fn ResultTable(
         let _ = crate::app_state::APP_FOCUS_FILTER_PANEL_REQUEST();
         if filter_enabled {
             filter_panel_open.set(true);
+        }
+    });
+
+    use_effect(move || {
+        if view_mode() == ResultViewMode::Details && !show_row_details() {
+            show_row_details.set(true);
         }
     });
 
@@ -484,9 +530,53 @@ pub fn ResultTable(
                                         }
                                         div {
                                         class: "results__toolbar-actions",
+                                        div {
+                                            class: "results__view-mode",
+                                            role: "group",
+                                            "aria-label": "Result view mode",
+                                            for mode in [ResultViewMode::Table, ResultViewMode::Records, ResultViewMode::Single, ResultViewMode::Details] {
+                                                {
+                                                    let catalog_entry = find_action(mode.catalog_id());
+                                                    let label = catalog_entry.map(|a| a.label).unwrap_or(mode.label());
+                                                    let active = view_mode() == mode;
+                                                    rsx! {
+                                                        button {
+                                                            class: if active {
+                                                                "button button--ghost button--small button--active results__view-mode-button"
+                                                            } else {
+                                                                "button button--ghost button--small results__view-mode-button"
+                                                            },
+                                                            "aria-label": label,
+                                                            "aria-pressed": "{active}",
+                                                            title: "{label}",
+                                                            onclick: move |_| {
+                                                                view_mode.set(mode);
+                                                                if mode == ResultViewMode::Details {
+                                                                    show_row_details.set(true);
+                                                                }
+                                                            },
+                                                            "{mode.label()}"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                         if filter_enabled {
                                             IconButton {
                                                 icon: ActionIcon::Filter,
+                                                label: "Quick filter".to_string(),
+                                                active: quick_filter_open(),
+                                                small: true,
+                                                onclick: move |_| {
+                                                    let next = !quick_filter_open();
+                                                    quick_filter_open.set(next);
+                                                    if next {
+                                                        filter_panel_open.set(true);
+                                                    }
+                                                },
+                                            }
+                                            IconButton {
+                                                icon: ActionIcon::AddRule,
                                                 label: "Filters".to_string(),
                                                 active: filter_panel_open(),
                                                 small: true,
@@ -637,6 +727,92 @@ pub fn ResultTable(
                                     if filter_enabled && filter_panel_open() {
                                         div {
                                             class: "results__filters",
+                                            if filter_enabled && quick_filter_open() {
+                                                div {
+                                                    class: "results__quick-filter",
+                                                    "aria-label": "Quick filter",
+                                                    span {
+                                                        class: "results__quick-filter-keyword",
+                                                        "WHERE"
+                                                    }
+                                                    select {
+                                                        class: "input results__quick-filter-column",
+                                                        value: "{quick_filter_column()}",
+                                                        oninput: move |event| quick_filter_column.set(event.value()),
+                                                        for column in page.columns.iter().cloned() {
+                                                            option { value: column.clone(), "{column}" }
+                                                        }
+                                                    }
+                                                    select {
+                                                        class: "input results__quick-filter-operator",
+                                                        value: filter_operator_value(quick_filter_operator()),
+                                                        oninput: move |event| {
+                                                            quick_filter_operator.set(parse_filter_operator(&event.value()));
+                                                        },
+                                                        for operator in supported_filter_operators() {
+                                                            option {
+                                                                value: filter_operator_value(operator),
+                                                                "{filter_operator_label(operator)}"
+                                                            }
+                                                        }
+                                                    }
+                                                    if quick_filter_operator().is_nullary() {
+                                                        div {
+                                                            class: "results__filter-null",
+                                                            "No value required"
+                                                        }
+                                                    } else {
+                                                        input {
+                                                            class: "input results__quick-filter-value",
+                                                            value: "{quick_filter_value()}",
+                                                            placeholder: "Filter value",
+                                                            oninput: move |event| quick_filter_value.set(event.value()),
+                                                            onkeydown: move |event| {
+                                                                if event.key() == Key::Enter {
+                                                                    apply_quick_filter(
+                                                                        tabs,
+                                                                        active_tab_id,
+                                                                        filter_draft,
+                                                                        quick_filter_column,
+                                                                        quick_filter_operator,
+                                                                        quick_filter_value,
+                                                                    );
+                                                                }
+                                                            },
+                                                        }
+                                                    }
+                                                    IconButton {
+                                                        icon: ActionIcon::FilterApply,
+                                                        label: "Apply quick filter".to_string(),
+                                                        small: true,
+                                                        onclick: {
+                                                            let columns = page.columns.clone();
+                                                            move |_| {
+                                                                apply_quick_filter_with_columns(
+                                                                    tabs,
+                                                                    active_tab_id,
+                                                                    filter_draft,
+                                                                    quick_filter_column,
+                                                                    quick_filter_operator,
+                                                                    quick_filter_value,
+                                                                    &columns,
+                                                                );
+                                                            }
+                                                        },
+                                                        disabled: !quick_filter_is_meaningful(quick_filter_operator(), &quick_filter_value()),
+                                                    }
+                                                    IconButton {
+                                                        icon: ActionIcon::FilterClear,
+                                                        label: "Clear quick filter".to_string(),
+                                                        small: true,
+                                                        onclick: move |_| {
+                                                            quick_filter_value.set(String::new());
+                                                            clear_active_tab_filter(tabs, active_tab_id());
+                                                        },
+                                                        disabled: !has_active_filter && quick_filter_value().is_empty(),
+                                                    }
+                                                }
+                                            }
                                             div {
                                                 class: "results__filters-topbar",
                                                 select {
@@ -754,6 +930,187 @@ pub fn ResultTable(
                                             }
                                         }
                                     }
+
+                                    if view_mode() == ResultViewMode::Records {
+                                        div {
+                                            class: "results__records",
+                                            "aria-label": "Records list",
+                                            if display_rows.is_empty() {
+                                                p {
+                                                    class: "results__records-empty",
+                                                    "No rows to display."
+                                                }
+                                            } else {
+                                                for (row_index, display_row) in display_rows.iter().cloned().enumerate() {
+                                                    {
+                                                        let row_label = display_row_label(page.offset, draft_rows, row_index, &display_row);
+                                                        let is_selected = selected_row_index() == Some(row_index);
+                                                        let is_draft = matches!(display_row.row_ref, EditableRowRef::PendingInsert(_));
+                                                        rsx! {
+                                                            button {
+                                                                class: if is_selected {
+                                                                    "button button--ghost results__records-row results__records-row--selected"
+                                                                } else {
+                                                                    "button button--ghost results__records-row"
+                                                                },
+                                                                key: "{display_row_key(&display_row)}",
+                                                                "aria-label": "{row_label}",
+                                                                onclick: {
+                                                                    let row_ref = display_row.row_ref.clone();
+                                                                    let values: Vec<(usize, String)> = display_row.values.iter().cloned().enumerate().map(|(i, v)| (i, v)).collect();
+                                                                    move |_| {
+                                                                        selected_row_index.set(Some(row_index));
+                                                                        editing_row_values.set(values.clone());
+                                                                        editing_row_ref.set(Some(row_ref.clone()));
+                                                                        if view_mode() == ResultViewMode::Details {
+                                                                            show_row_details.set(true);
+                                                                        }
+                                                                    }
+                                                                },
+                                                                div {
+                                                                    class: "results__records-row-label",
+                                                                    span { class: "results__records-row-index", "{row_index + 1}" }
+                                                                    span { class: "results__records-row-name", "{row_label}" }
+                                                                    if is_draft {
+                                                                        span { class: "results__records-row-draft", "draft" }
+                                                                    }
+                                                                }
+                                                                div {
+                                                                    class: "results__records-row-cells",
+                                                                    for (col_index, column_name) in visible_columns.iter().cloned() {
+                                                                        {
+                                                                            let cell_value = display_row.values.get(col_index).cloned().unwrap_or_default();
+                                                                            rsx! {
+                                                                                span {
+                                                                                    class: "results__records-row-cell",
+                                                                                    span { class: "results__records-row-cell-label", "{column_name}" }
+                                                                                    span { class: "results__records-row-cell-value", "{cell_value}" }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else if view_mode() == ResultViewMode::Single {
+                                        {
+                                            let total_rows = display_rows.len();
+                                            let current_index = selected_row_index().unwrap_or(0);
+                                            let safe_index = if total_rows == 0 { 0 } else { current_index.min(total_rows - 1) };
+                                            let single_row = display_rows.get(safe_index).cloned();
+                                            let single_label = single_row
+                                                .as_ref()
+                                                .map(|row| display_row_label(page.offset, draft_rows, safe_index, row));
+                                            let single_json = single_row
+                                                .as_ref()
+                                                .map(|row| format_row_json(&page.columns, &row.values))
+                                                .unwrap_or_default();
+                                            let has_prev = safe_index > 0;
+                                            let has_next = total_rows > 0 && safe_index + 1 < total_rows;
+                                            rsx! {
+                                                div {
+                                                    class: "results__single",
+                                                    "aria-label": "Single record view",
+                                                    div {
+                                                        class: "results__single-toolbar",
+                                                        button {
+                                                            class: "button button--ghost button--small",
+                                                            "aria-label": "Previous record",
+                                                            disabled: !has_prev,
+                                                            onclick: move |_| {
+                                                                if let Some(prev) = selected_row_index() {
+                                                                    if prev > 0 {
+                                                                        selected_row_index.set(Some(prev - 1));
+                                                                    }
+                                                                } else if total_rows > 0 {
+                                                                    selected_row_index.set(Some(total_rows - 1));
+                                                                }
+                                                            },
+                                                            IconGlyph { icon: ActionIcon::Previous }
+                                                            span { "Prev" }
+                                                        }
+                                                        span {
+                                                            class: "results__single-counter",
+                                                            if total_rows == 0 {
+                                                                "0 / 0"
+                                                            } else {
+                                                                "{safe_index + 1} / {total_rows}"
+                                                            }
+                                                        }
+                                                        button {
+                                                            class: "button button--ghost button--small",
+                                                            "aria-label": "Next record",
+                                                            disabled: !has_next,
+                                                            onclick: move |_| {
+                                                                if let Some(curr) = selected_row_index() {
+                                                                    if curr + 1 < total_rows {
+                                                                        selected_row_index.set(Some(curr + 1));
+                                                                    }
+                                                                } else if total_rows > 0 {
+                                                                    selected_row_index.set(Some(0));
+                                                                }
+                                                            },
+                                                            IconGlyph { icon: ActionIcon::Next }
+                                                            span { "Next" }
+                                                        }
+                                                    }
+                                                    if let Some(row) = single_row.as_ref() {
+                                                        {
+                                                            let is_draft = matches!(row.row_ref, EditableRowRef::PendingInsert(_));
+                                                            rsx! {
+                                                                div {
+                                                                    class: "results__single-card",
+                                                                    div {
+                                                                        class: "results__single-header",
+                                                                        h3 {
+                                                                            class: "results__single-title",
+                                                                            if let Some(label) = single_label.as_ref() {
+                                                                                "{label}"
+                                                                            } else {
+                                                                                "Row"
+                                                                            }
+                                                                        }
+                                                                        if is_draft {
+                                                                            span { class: "results__single-draft", "draft" }
+                                                                        }
+                                                                    }
+                                                                    div {
+                                                                        class: "results__single-fields",
+                                                                        for (col_index, column_name) in visible_columns.iter().cloned() {
+                                                                            {
+                                                                                let cell_value = row.values.get(col_index).cloned().unwrap_or_default();
+                                                                                rsx! {
+                                                                                    div {
+                                                                                        class: "results__single-field",
+                                                                                        p { class: "results__single-field-label", "{column_name}" }
+                                                                                        p { class: "results__single-field-value", "{cell_value}" }
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    div {
+                                                                        class: "results__single-json",
+                                                                        h4 { "JSON" }
+                                                                        pre { "{single_json}" }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    } else {
+                                                        p {
+                                                            class: "results__single-empty",
+                                                            "No row selected."
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
 
                                     div {
                                         class: "results__table-wrap",
@@ -1066,6 +1423,7 @@ pub fn ResultTable(
                                                 }
                                             }
                                         }
+                                    }
                                     }
 
                                     if is_loading_more {
@@ -1904,6 +2262,81 @@ fn apply_filter_for_value(
             value,
         }],
     };
+    apply_active_tab_filter(tabs, active_tab_id(), filter);
+}
+
+fn quick_filter_is_meaningful(operator: QueryFilterOperator, value: &str) -> bool {
+    if operator.is_nullary() {
+        true
+    } else {
+        !value.is_empty()
+    }
+}
+
+fn build_quick_filter(column: String, operator: QueryFilterOperator, value: String) -> QueryFilter {
+    QueryFilter {
+        mode: QueryFilterMode::And,
+        rules: vec![QueryFilterRule {
+            column_name: column,
+            operator,
+            value,
+        }],
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_quick_filter(
+    tabs: Signal<Vec<QueryTabState>>,
+    active_tab_id: Signal<u64>,
+    mut filter_draft: Signal<QueryFilter>,
+    quick_filter_column: Signal<String>,
+    quick_filter_operator: Signal<QueryFilterOperator>,
+    quick_filter_value: Signal<String>,
+) {
+    let column = quick_filter_column();
+    if column.is_empty() {
+        return;
+    }
+    let operator = quick_filter_operator();
+    let value = quick_filter_value();
+    if !quick_filter_is_meaningful(operator, &value) {
+        return;
+    }
+    filter_draft.with_mut(|filter| {
+        *filter = build_quick_filter(column.clone(), operator, value.clone());
+    });
+    let filter = build_quick_filter(column, operator, value);
+    apply_active_tab_filter(tabs, active_tab_id(), filter);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_quick_filter_with_columns(
+    tabs: Signal<Vec<QueryTabState>>,
+    active_tab_id: Signal<u64>,
+    mut filter_draft: Signal<QueryFilter>,
+    quick_filter_column: Signal<String>,
+    quick_filter_operator: Signal<QueryFilterOperator>,
+    quick_filter_value: Signal<String>,
+    columns: &[String],
+) {
+    let column = quick_filter_column();
+    let column = if column.is_empty() && !columns.is_empty() {
+        columns[0].clone()
+    } else {
+        column
+    };
+    if column.is_empty() {
+        return;
+    }
+    let operator = quick_filter_operator();
+    let value = quick_filter_value();
+    if !quick_filter_is_meaningful(operator, &value) {
+        return;
+    }
+    filter_draft.with_mut(|filter| {
+        *filter = build_quick_filter(column.clone(), operator, value.clone());
+    });
+    let filter = build_quick_filter(column, operator, value);
     apply_active_tab_filter(tabs, active_tab_id(), filter);
 }
 
