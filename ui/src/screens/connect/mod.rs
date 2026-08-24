@@ -76,6 +76,10 @@ pub fn DbConnect() -> Element {
                     saved_connections_revision,
                 }
 
+                if cfg!(debug_assertions) {
+                    MockDataToggle {}
+                }
+
                 div {
                     class: "connect-screen__section",
                     KindSelector { selected_kind }
@@ -87,6 +91,46 @@ pub fn DbConnect() -> Element {
                         DatabaseKind::ClickHouse => rsx! { ClickHouseForm { saved_connections_revision } },
                     }
                 }
+            }
+        }
+    }
+}
+
+// Dev-only button on the connect screen that boots the mock
+// repository's fake session. Gated behind `debug_assertions` at the
+// call site so release builds drop it entirely.
+#[cfg(debug_assertions)]
+#[component]
+fn MockDataToggle() -> Element {
+    let mut status = use_signal(String::new);
+    rsx! {
+        section {
+            class: "connect-screen__dev",
+            h2 { class: "connect-screen__section-title", "Developer" }
+            p {
+                class: "connect-screen__dev-hint",
+                "Boot a fake session backed by hand-crafted data. Useful for UI work without a running database."
+            }
+            div {
+                class: "connect-screen__dev-actions",
+                button {
+                    class: "button button--ghost",
+                    onclick: move |_| {
+                        spawn(async move {
+                            let id = crate::dev::install_mock_explorer().await;
+                            if id == 0 {
+                                status.set("Mock install failed".to_string());
+                            } else {
+                                status.set(format!("Mock session ready (#{id})"));
+                                show_workspace();
+                            }
+                        });
+                    },
+                    "Load mock data"
+                }
+            }
+            if !status().is_empty() {
+                p { class: "connect-screen__status connect-screen__status--success", "{status}" }
             }
         }
     }

@@ -276,6 +276,25 @@ pub async fn load_explorer_section(
         models::DatabaseKind::ClickHouse => "ClickHouse".to_string(),
     };
 
+    // Dev-only: the mock session uses a `:memory:` SQLite pool but
+    // ships a hand-crafted tree. We short-circuit before the real
+    // `services::load_connection_tree` so the in-memory pool's
+    // (empty) schema does not overwrite the mock sections.
+    #[cfg(debug_assertions)]
+    {
+        let is_mock = session.request.identity_key() == crate::dev::MOCK_CONNECTION_IDENTITY_KEY;
+        if is_mock {
+            let mut sections = crate::dev::mock_sections(session.id);
+            if let Some(section) = sections.first_mut() {
+                section.is_active = Some(session.id) == active_session_id;
+            }
+            if let Some(section) = sections.into_iter().next() {
+                crate::app_state::cache_explorer(session.id, vec![section.clone()]).await;
+                return section;
+            }
+        }
+    }
+
     if use_cache
         && let Some(cached) = crate::app_state::get_cached_explorer(session.id).await
         && let Some(section) = cached.into_iter().next()

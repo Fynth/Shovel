@@ -361,6 +361,7 @@ fn ExplorerObjectRow(
                     let qualified_name = node.qualified_name.clone();
                     move |_| {
                         selected_node.set(qualified_name.clone());
+                        crate::app_state::set_explorer_selected_node(qualified_name.clone());
                         activate_session(session_id);
                     }
                 },
@@ -369,6 +370,7 @@ fn ExplorerObjectRow(
                     let qualified_name = node.qualified_name.clone();
                     move |_| {
                         selected_node.set(qualified_name.clone());
+                        crate::app_state::set_explorer_selected_node(qualified_name.clone());
                         let current_id =
                             ensure_tab_for_session(tabs, active_tab_id, next_tab_id, session_id);
                         let current_tab = tabs
@@ -1175,6 +1177,7 @@ async fn confirm_and_drop_table(
         Ok(()) => {
             if selected_node() == selected_qualified_name {
                 selected_node.set(String::new());
+                crate::app_state::set_explorer_selected_node(String::new());
             }
             mark_table_deleted(tabs, session_id, source.clone());
             tree_reload += 1;

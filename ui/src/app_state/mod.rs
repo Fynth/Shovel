@@ -59,6 +59,7 @@ pub mod keyboard;
 // `APP_COMMAND_PALETTE` is exposed today.
 pub use global_search::{
     APP_GLOBAL_SEARCH_OBJECTS,
+    APP_GLOBAL_SEARCH_OPEN,
     APP_GLOBAL_SEARCH_REQUEST,
     APP_GLOBAL_SEARCH_REQUEST_KIND,
     APP_GLOBAL_SEARCH_REQUEST_PAYLOAD,
@@ -193,6 +194,12 @@ pub const RECENTLY_CLOSED_TABS_LIMIT: usize = 8;
 pub static APP_LAST_QUERY: GlobalSignal<Option<LastQuerySummary>> = Signal::global(|| None);
 pub static APP_FOCUS_EDITOR_REQUEST: GlobalSignal<u64> = Signal::global(|| 0);
 pub static APP_FOCUS_FILTER_PANEL_REQUEST: GlobalSignal<u64> = Signal::global(|| 0);
+/// Qualified name of the explorer node the user most recently
+/// selected. Mirrors the local `selected_node` signal inside
+/// `SidebarConnectionTree` so the workspace-level keyboard
+/// dispatcher (F2 rename, Delete drop) can act on the same target
+/// without a callback chain through the tree.
+pub static APP_EXPLORER_SELECTED_NODE: GlobalSignal<String> = Signal::global(String::new);
 
 /// Push a tab onto the "recently closed" stack. The tab is
 /// prepended (newest first) and the stack is capped at
@@ -539,6 +546,26 @@ pub fn session_connection(session_id: u64) -> Option<DatabaseConnection> {
     APP_STATE.read().session_connection(session_id).cloned()
 }
 
+/// Equality-guarded setter for [`APP_EXPLORER_SELECTED_NODE`]. The
+/// tree clicks fire on every render, so a plain `write()` would
+/// re-render the workspace root on each click; the guard keeps the
+/// notification count to one per actual selection change.
+pub fn set_explorer_selected_node(qualified_name: String) {
+    if APP_EXPLORER_SELECTED_NODE.peek().as_str() == qualified_name.as_str() {
+        return;
+    }
+    *APP_EXPLORER_SELECTED_NODE.write() = qualified_name;
+}
+
+/// Pure guard predicate. Returns `true` when the proposed selection
+/// differs from the current value, so a `write()` would actually
+/// notify subscribers. Extracted so the rule is unit-testable
+/// without a Dioxus runtime.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn explorer_selection_changed(current: &str, proposed: &str) -> bool {
+    current != proposed
+}
+
 pub fn add_connection_session(request: ConnectionRequest, connection: DatabaseConnection) -> u64 {
     let session_name = request.display_name();
     let session_kind = request.kind();
@@ -861,5 +888,14 @@ mod tests {
         assert_eq!(stack[0].title, "Q11");
         assert_eq!(stack[0].session_id, 42);
         assert_eq!(stack[0].sql, "select 1");
+    }
+
+    #[test]
+    fn explorer_selection_changed_detects_different_values() {
+        assert!(explorer_selection_changed("public.users", "public.orders"));
+        assert!(explorer_selection_changed("", "public.users"));
+        assert!(explorer_selection_changed("public.users", ""));
+        assert!(!explorer_selection_changed("public.users", "public.users"));
+        assert!(!explorer_selection_changed("", ""));
     }
 }

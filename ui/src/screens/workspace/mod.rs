@@ -11,6 +11,7 @@ use crate::{
         APP_BOTTOM_PANEL_HEIGHT,
         APP_COMMAND_REQUEST,
         APP_COMMAND_REQUEST_KIND,
+        APP_EXPLORER_SELECTED_NODE,
         APP_GLOBAL_SEARCH_OBJECTS,
         APP_GLOBAL_SEARCH_REQUEST,
         APP_GLOBAL_SEARCH_REQUEST_KIND,
@@ -1253,21 +1254,30 @@ pub fn Workspace() -> Element {
                         open_global_search_with_snapshots(tab_snapshot, object_snapshot);
                     }
                     // F2 rename / Delete drop act on the selected explorer
-                    // object, which lives deep inside the explorer tree
-                    // (not reachable from this dispatcher). Surfacing a
-                    // toast here keeps the key from silently no-op'ing
-                    // while the per-node wiring lands in the explorer.
+                    // object. The global [`APP_EXPLORER_SELECTED_NODE`]
+                    // signal mirrors the tree's local selection, so we
+                    // can name the target in the toast. Rename and drop
+                    // both go through context-menu runners that already
+                    // exist; the keyboard shortcut is a discoverable
+                    // alias that announces its target until the per-node
+                    // modal lands.
                     ShortcutAction::RenameSelected => {
-                        crate::app_state::show_toast(
-                            "Rename — select a table or column in the explorer".to_string(),
-                            ToastKind::Info,
-                        );
+                        let target = APP_EXPLORER_SELECTED_NODE();
+                        let message = if target.is_empty() {
+                            "Rename — focus a table or column in the explorer".to_string()
+                        } else {
+                            format!("Rename '{target}' — open the explorer context menu to rename")
+                        };
+                        crate::app_state::show_toast(message, ToastKind::Info);
                     }
                     ShortcutAction::DeleteSelected => {
-                        crate::app_state::show_toast(
-                            "Delete — select a table in the explorer to drop it".to_string(),
-                            ToastKind::Info,
-                        );
+                        let target = APP_EXPLORER_SELECTED_NODE();
+                        let message = if target.is_empty() {
+                            "Delete — focus a table in the explorer to drop it".to_string()
+                        } else {
+                            format!("Delete '{target}' — open the explorer context menu to drop")
+                        };
+                        crate::app_state::show_toast(message, ToastKind::Info);
                     }
                     ShortcutAction::CloseOverlay => {
                         close_topmost_overlay();
@@ -1324,8 +1334,24 @@ pub fn Workspace() -> Element {
 pub(crate) use self::components::SqlFormatSettingsFields;
 
 fn close_topmost_overlay() {
-    // The settings surface lives in its own native window now, so the Esc
-    // shortcut on the main window only needs to clear the context menu.
+    // Safety net for the case where focus has drifted onto the
+    // workspace root: dismiss the most recently opened overlay. Each
+    // overlay also has its own Esc handler, so this is the second
+    // line of defence. Z-order: palette > global search > context menu.
+    use crate::app_state::{
+        APP_COMMAND_PALETTE,
+        APP_GLOBAL_SEARCH_OPEN,
+        close_command_palette,
+        close_global_search,
+    };
+    if APP_COMMAND_PALETTE() {
+        close_command_palette();
+        return;
+    }
+    if APP_GLOBAL_SEARCH_OPEN() {
+        close_global_search();
+        return;
+    }
     if context_menu::CONTEXT_MENU().is_some() {
         context_menu::close_context_menu();
     }

@@ -7,6 +7,8 @@ mod app;
 mod app_state;
 mod completion;
 mod components;
+#[cfg(debug_assertions)]
+mod dev;
 mod layout;
 mod screens;
 pub mod windows;

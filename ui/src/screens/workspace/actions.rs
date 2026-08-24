@@ -382,6 +382,42 @@ pub fn run_query_for_tab(
     page_size: u32,
     history: Option<QueryHistorySignals>,
 ) {
+    // Dev-only: short-circuit to the mock repo so the empty
+    // :memory: pool never has to answer a SQL statement.
+    #[cfg(debug_assertions)]
+    {
+        let tab_session_id = tabs
+            .read()
+            .iter()
+            .find(|tab| tab.id == current_id)
+            .map(|tab| tab.session_id);
+        if let Some(session_id) = tab_session_id
+            && crate::dev::is_mock_session(session_id)
+            && let Some(output) = crate::dev::mock_query_for(&sql)
+        {
+            let status = match &output {
+                QueryOutput::Table(page) => format_loaded_rows_status(page.offset, page.rows.len()),
+                QueryOutput::AffectedRows(rows) => format!("Rows affected: {rows}"),
+            };
+            tabs.with_mut(|all_tabs| {
+                if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
+                    tab.result = Some(output);
+                    tab.status = status;
+                    tab.current_offset = 0;
+                    tab.page_size = page_size;
+                    tab.last_run_sql = Some(sql.clone());
+                    tab.preview_source = None;
+                    tab.is_loading_more = false;
+                    tab.pending_table_changes = PendingTableChanges::default();
+                    tab.last_duration_ms = Some(0);
+                }
+            });
+            let _ = connection;
+            let _ = history;
+            return;
+        }
+    }
+    // Многооператорные скрипты уходят в пакетный исполнитель, который
     // Многооператорные скрипты уходят в пакетный исполнитель, который
     // показывает пооператорные результаты. Однооператорные запросы
     // остаются на существующем пути с пагинацией/фильтрами.
@@ -841,6 +877,38 @@ pub fn run_table_preview_for_tab(
     offset: u64,
     page_size: u32,
 ) {
+    // Dev-only: short-circuit to the mock repo so the empty
+    // :memory: pool never has to answer a SQL statement.
+    #[cfg(debug_assertions)]
+    {
+        if let Some(output) = crate::dev::mock_preview_for(&source) {
+            let status = match &output {
+                QueryOutput::Table(page) => format_loaded_rows_from_source_status(
+                    page.offset,
+                    page.rows.len(),
+                    &source.table_name,
+                ),
+                QueryOutput::AffectedRows(rows) => format!("Rows affected: {rows}"),
+            };
+            tabs.with_mut(|all_tabs| {
+                if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
+                    tab.preview_source = Some(source.clone());
+                    tab.tab_kind = WorkspaceTabKind::TablePreview;
+                    tab.result = Some(output);
+                    tab.status = status;
+                    tab.current_offset = offset;
+                    tab.page_size = page_size;
+                    tab.last_run_sql = Some(format!(
+                        "select * from {} limit {};",
+                        source.qualified_name, page_size
+                    ));
+                    tab.is_loading_more = false;
+                }
+            });
+            let _ = connection;
+            return;
+        }
+    }
     let filter = tabs
         .read()
         .iter()
