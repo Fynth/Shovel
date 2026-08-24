@@ -65,10 +65,122 @@
   line-height: $line-height-normal;
 }
 
+// Horizontal flex: category nav on the left, scrollable content on the right.
+// The `min-height: 0` allows `.settings-modal__content` to scroll inside the
+// bounded modal height instead of expanding it. The nav itself is its own
+// column and never scrolls horizontally — category buttons fit on one line.
 .settings-modal__body {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: $spacing-md;
+  min-height: 0;
+}
+
+// Category sidebar: fixed-width column listing every settings category. The
+// nav scrolls vertically only when there are more categories than fit on
+// screen — today there are six, so overflow stays hidden at typical heights.
+.settings-modal__nav {
+  flex: 0 0 auto;
+  width: 196px;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-2xs;
+  padding: $spacing-xs;
+  border: 1px solid color-mix(in srgb, var(--glass-border) 48%, var(--color-border));
+  border-radius: 18px;
+  background: color-mix(
+    in srgb,
+    var(--color-surface-contrast, var(--color-panel-2)) 46%,
+    transparent
+  );
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+  align-self: flex-start;
+}
+
+.settings-modal__nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: $spacing-sm $spacing-md;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: $font-size-md;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  transition:
+    background-color $motion-fast ease,
+    border-color $motion-fast ease,
+    box-shadow $motion-fast ease,
+    transform $motion-fast ease;
+
+  &:hover:not(.settings-modal__nav-item--active) {
+    background: color-mix(
+      in srgb,
+      var(--color-surface-contrast, var(--color-panel-2)) 70%,
+      transparent
+    );
+    border-color: color-mix(in srgb, var(--color-primary) 12%, var(--color-border));
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+
+  &--active {
+    background: color-mix(
+      in srgb,
+      var(--color-primary) 22%,
+      var(--color-surface-contrast, var(--color-panel-2)) 60%
+    );
+    border-color: color-mix(in srgb, var(--color-primary) 36%, transparent);
+    box-shadow:
+      inset 0 1px 0 var(--glass-highlight),
+      0 6px 14px rgba(8, 10, 20, 0.06);
+
+    .settings-modal__nav-label {
+      color: var(--color-text);
+    }
+    .settings-modal__nav-description {
+      color: color-mix(in srgb, var(--color-text) 80%, transparent);
+    }
+  }
+}
+
+.settings-modal__nav-label {
+  font-weight: 700;
+  font-size: $font-size-md;
+  letter-spacing: -0.01em;
+  color: var(--color-text);
+}
+
+.settings-modal__nav-description {
+  font-size: $font-size-xs;
+  line-height: $line-height-normal;
+  color: var(--color-text-muted);
+}
+
+// Right pane: stacks the sections belonging to the active category. The pane
+// is the scrollable surface inside the bounded modal (the modal itself is the
+// outer scroll container via `overflow: auto`), so the content can grow as
+// tall as it needs to without forcing the nav to stretch.
+.settings-modal__content {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: $spacing-md;
+}
+
+// Empty-state variant for categories without sections yet. Reuses the section
+// card frame so the empty state reads as a normal panel — not a missing page.
+.settings-modal__section--empty {
+  align-items: stretch;
 }
 
 .settings-modal__section {
@@ -230,6 +342,24 @@
     width: 100%;
     max-height: 100%;
     border-radius: 14px;
+  }
+
+  // Collapse the horizontal nav+content layout into a vertical stack so a
+  // narrow window still fits every category. The category buttons become a
+  // compact horizontal strip with wrapping rather than a tall sidebar.
+  .settings-modal__body {
+    flex-direction: column;
+  }
+
+  .settings-modal__nav {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .settings-modal__nav-item {
+    width: auto;
+    flex: 1 1 calc(50% - #{$spacing-2xs});
   }
 
   .settings-modal__segmented {

@@ -18,6 +18,73 @@ use crate::{components::tooltip_target::TooltipTarget, screens::SqlFormatSetting
 use dioxus::prelude::*;
 use models::{AppThemePreference, AppUiSettings, SqlFormatSettings, UiDensity};
 
+/// Top-level categories shown in the left navigation sidebar.
+///
+/// Each variant groups one or more section helpers together. The active
+/// category is tracked in a local [`Signal`] in [`SettingsModal`] — the modal
+/// never reads or writes the category to globals, because it has to work in
+/// the standalone native settings window (its own VirtualDom, no shared
+/// globals) and inside the in-app overlay host alike.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum SettingsCategory {
+    Appearance,
+    Database,
+    Editor,
+    Grid,
+    Navigation,
+    Advanced,
+}
+
+impl SettingsCategory {
+    /// Stable id used for `key=` attributes + list iteration. Mirrors the
+    /// variant name in lowercase so Dioxus diffs are stable across rebuilds.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Appearance => "appearance",
+            Self::Database => "database",
+            Self::Editor => "editor",
+            Self::Grid => "grid",
+            Self::Navigation => "navigation",
+            Self::Advanced => "advanced",
+        }
+    }
+
+    /// Short label rendered inside the nav button.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Appearance => "Appearance",
+            Self::Database => "Database",
+            Self::Editor => "Editor",
+            Self::Grid => "Grid",
+            Self::Navigation => "Navigation",
+            Self::Advanced => "Advanced",
+        }
+    }
+
+    /// One-line description shown beneath the nav label. Helps users pick the
+    /// right category without opening it first.
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Appearance => "Theme, density, and visual styling",
+            Self::Database => "Connection and data-handling defaults",
+            Self::Editor => "SQL editor formatting and completions",
+            Self::Grid => "Result-grid and row-rendering options",
+            Self::Navigation => "Explorer, sidebar, and panel layout",
+            Self::Advanced => "Agent API keys, workspace defaults, and resets",
+        }
+    }
+
+    /// All categories in render order (stable, sidebar visual order).
+    pub const ALL: &'static [SettingsCategory] = &[
+        Self::Appearance,
+        Self::Database,
+        Self::Editor,
+        Self::Grid,
+        Self::Navigation,
+        Self::Advanced,
+    ];
+}
+
 /// Props for [`SettingsModal`].
 #[derive(Props, Clone, PartialEq)]
 pub struct SettingsModalProps {
@@ -39,6 +106,30 @@ pub struct SettingsModalProps {
     pub on_close: Callback<()>,
 }
 
+/// Section-level props shared by every section helper.
+///
+/// Each helper accepts the current settings + sql pair plus the shared
+/// `on_change` callback. Sections own these values (not a `Signal<...>`)
+/// because Dioxus 0.7's `#[component]` macro does not auto-derive
+/// `Properties` for `Signal<T>` where `T` is itself a `Props` struct — the
+/// type-family it understands (`ReadSignal`, `ReadOnlySignal`, `WriteSignal`)
+/// does not include the wrapping `Signal<T>` form. Cloning the pair is cheap
+/// relative to the rest of the diff work and keeps every helper `#[component]`.
+#[derive(Props, Clone, PartialEq)]
+pub struct SettingsSectionProps {
+    pub settings: AppUiSettings,
+    pub sql_settings: SqlFormatSettings,
+    pub on_change: Callback<(AppUiSettings, SqlFormatSettings)>,
+}
+
+/// Props for the empty-state placeholder used by categories that have no
+/// sections yet.
+#[derive(Props, Clone, PartialEq)]
+struct CategoryEmptyStateProps {
+    category: SettingsCategory,
+    hint: String,
+}
+
 #[component]
 pub fn SettingsModal(props: SettingsModalProps) -> Element {
     // Wrap `props` in a `Signal` so every per-control closure below can take a
@@ -54,6 +145,23 @@ pub fn SettingsModal(props: SettingsModalProps) -> Element {
     // The render body never reads the SQL formatter settings directly — those
     // flow through `SqlFormatFieldsAdapter`, which owns its own signal.
     let settings = props.read().settings.clone();
+    let sql_settings = props.read().sql_settings.clone();
+
+    // Local-only category switcher — does NOT escape the component. The
+    // native settings window is a separate VirtualDom, so writing this to a
+    // global would silently not propagate back. Keeping it as a local signal
+    // is what allows the same SettingsModal to mount in both the in-app
+    // overlay and the standalone window.
+    let mut active_category = use_signal(|| SettingsCategory::Appearance);
+
+    // Common section props — cloned for every section helper so each one has
+    // its own owned `on_change` callback (it is `Clone`) and its own read-only
+    // snapshot of the current settings.
+    let section_props = SettingsSectionProps {
+        settings: settings.clone(),
+        sql_settings: sql_settings.clone(),
+        on_change,
+    };
 
     rsx! {
         div {
@@ -64,645 +172,782 @@ pub fn SettingsModal(props: SettingsModalProps) -> Element {
                 onclick: move |event| event.stop_propagation(),
                 div {
                     class: "settings-modal__body",
-                    section {
-                        class: "settings-modal__section",
-                        div {
-                            class: "settings-modal__section-header",
-                            h3 { class: "settings-modal__section-title", "Appearance" }
-                        }
-                        div {
-                            class: "settings-modal__segmented",
-                            role: "group",
-                            aria_label: "Theme preference",
+                    nav {
+                        class: "settings-modal__nav",
+                        aria_label: "Settings categories",
+                        for category in SettingsCategory::ALL.iter().copied() {
                             button {
-                                class: if settings.theme == AppThemePreference::Dark {
-                                    "button button--ghost button--small button--active"
+                                key: "{category.id()}",
+                                class: if *active_category.read() == category {
+                                    "settings-modal__nav-item settings-modal__nav-item--active"
                                 } else {
-                                    "button button--ghost button--small"
+                                    "settings-modal__nav-item"
                                 },
-                                aria_pressed: settings.theme == AppThemePreference::Dark,
+                                aria_pressed: *active_category.read() == category,
                                 onclick: move |_| {
-                                    let mut next = props.read().settings.clone();
-                                    next.theme = AppThemePreference::Dark;
-                                    on_change.call((next, props.read().sql_settings.clone()));
+                                    active_category.set(category);
                                 },
-                                "Dark"
-                            }
-                            button {
-                                class: if settings.theme == AppThemePreference::Light {
-                                    "button button--ghost button--small button--active"
-                                } else {
-                                    "button button--ghost button--small"
-                                },
-                                aria_pressed: settings.theme == AppThemePreference::Light,
-                                onclick: move |_| {
-                                    let mut next = props.read().settings.clone();
-                                    next.theme = AppThemePreference::Light;
-                                    on_change.call((next, props.read().sql_settings.clone()));
-                                },
-                                "Light"
-                            }
-                        }
-                        div {
-                            class: "settings-modal__segmented settings-modal__segmented--density",
-                            role: "group",
-                            aria_label: "UI density",
-                            for variant in UiDensity::ALL {
-                                button {
-                                    key: "{variant.css_class()}",
-                                    class: if settings.density == variant {
-                                        "button button--ghost button--small button--active"
-                                    } else {
-                                        "button button--ghost button--small"
-                                    },
-                                    aria_pressed: settings.density == variant,
-                                    onclick: move |_| {
-                                        let mut next = props.read().settings.clone();
-                                        next.density = variant;
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                    "{variant.label()}"
+                                span {
+                                    class: "settings-modal__nav-label",
+                                    "{category.label()}"
                                 }
-                            }
-                        }
-                        p {
-                            class: "settings-modal__section-hint",
-                            "Compact for an IDE-style dense workspace; Comfortable for larger tap targets."
-                        }
-                    }
-
-                    section {
-                        class: "settings-modal__section",
-                        div {
-                            class: "settings-modal__section-header",
-                            h3 { class: "settings-modal__section-title", "DeepSeek Agent" }
-                            p {
-                                class: "settings-modal__section-hint",
-                                "Primary API-key agent for database chat, SQL generation and SQL fixes."
-                            }
-                        }
-                        label {
-                            class: "settings-modal__toggle",
-                            input {
-                                r#type: "checkbox",
-                                checked: settings.deepseek.enabled,
-                                disabled: settings.deepseek.api_key.is_empty(),
-                                oninput: move |event| {
-                                    let mut next = props.read().settings.clone();
-                                    next.deepseek.enabled = event.checked();
-                                    on_change.call((next, props.read().sql_settings.clone()));
-                                },
-                            }
-                            span { "Use DeepSeek as the default embedded SQL agent" }
-                        }
-                        div {
-                            class: "settings-modal__grid",
-                            div {
-                                class: "field",
-                                span { class: "field__label", "API Key" }
-                                input {
-                                    class: "input",
-                                    r#type: "password",
-                                    placeholder: "sk-...",
-                                    value: "{settings.deepseek.api_key}",
-                                    oninput: move |event| {
-                                        let mut next = props.read().settings.clone();
-                                        let value = event.value();
-                                        next.deepseek.api_key = value.clone();
-                                        if value.trim().is_empty() {
-                                            next.deepseek.enabled = false;
-                                        }
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                }
-                            }
-                            div {
-                                class: "field",
-                                span { class: "field__label", "Base URL" }
-                                input {
-                                    class: "input",
-                                    placeholder: "https://api.deepseek.com",
-                                    value: "{settings.deepseek.base_url}",
-                                    oninput: move |event| {
-                                        let mut next = props.read().settings.clone();
-                                        next.deepseek.base_url = event.value();
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                }
-                            }
-                            div {
-                                class: "field",
-                                span { class: "field__label", "Model" }
-                                select {
-                                    class: "input",
-                                    value: "{settings.deepseek.model}",
-                                    oninput: move |event| {
-                                        let mut next = props.read().settings.clone();
-                                        next.deepseek.model = event.value();
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                    option { value: "deepseek-chat", "deepseek-chat (fast, recommended)" }
-                                    option { value: "deepseek-v4-pro", "deepseek-v4-pro (reasoning)" }
-                                    option { value: "deepseek-v4-flash", "deepseek-v4-flash (reasoning, fast)" }
-                                }
-                            }
-                            div {
-                                class: "field",
-                                span { class: "field__label", "Reasoning effort" }
-                                select {
-                                    class: "input",
-                                    value: "{settings.deepseek.reasoning_effort}",
-                                    oninput: move |event| {
-                                        let mut next = props.read().settings.clone();
-                                        next.deepseek.reasoning_effort = event.value();
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                    option { value: "low", "low" }
-                                    option { value: "medium", "medium" }
-                                    option { value: "high", "high" }
-                                }
-                            }
-                        }
-                        label {
-                            class: "settings-modal__toggle",
-                            input {
-                                r#type: "checkbox",
-                                checked: settings.deepseek.thinking_enabled,
-                                oninput: move |event| {
-                                    let mut next = props.read().settings.clone();
-                                    next.deepseek.thinking_enabled = event.checked();
-                                    on_change.call((next, props.read().sql_settings.clone()));
-                                },
-                            }
-                            span { "Enable DeepSeek thinking mode when the selected model supports it" }
-                        }
-                        if settings.deepseek.api_key.is_empty() {
-                            p {
-                                class: "settings-modal__section-hint",
-                                "Enter a DeepSeek API key to enable the embedded DeepSeek agent. Get your key from "
-                                a {
-                                    href: "https://platform.deepseek.com/api_keys",
-                                    target: "_blank",
-                                    "platform.deepseek.com"
+                                span {
+                                    class: "settings-modal__nav-description",
+                                    "{category.description()}"
                                 }
                             }
                         }
                     }
-
-                    section {
-                        class: "settings-modal__section",
-                        div {
-                            class: "settings-modal__section-header",
-                            h3 { class: "settings-modal__section-title", "Workspace" }
-                            div {
-                                class: "settings-modal__section-actions",
-                                TooltipTarget {
-                                    label: "Reset workspace, panels, and AI settings to their defaults (API keys are preserved)".to_string(),
-                                    button {
-                                        class: "button button--ghost button--small",
-                                        onclick: move |_| {
-                                            // Reset to defaults, but preserve the user's
-                                            // API keys (they live in the OS keyring and
-                                            // are not part of the JSON-serialized
-                                            // AppUiSettings payload).
-                                            let mut next = AppUiSettings::default();
-                                            next.deepseek.api_key = props.read().settings.deepseek.api_key.clone();
-                                            next.codestral.api_key = props.read().settings.codestral.api_key.clone();
-                                            on_change.call((next, props.read().sql_settings.clone()));
-                                        },
-                                        "Reset UI"
-                                    }
+                    div {
+                        class: "settings-modal__content",
+                        role: "region",
+                        aria_label: "{active_category.read().label()} settings",
+                        match *active_category.read() {
+                            SettingsCategory::Appearance => rsx! {
+                                AppearanceSection { ..section_props }
+                            },
+                            SettingsCategory::Database => rsx! {
+                                CategoryEmptyState {
+                                    category: *active_category.read(),
+                                    hint: "Per-database connection preferences will live here. Today, connection defaults are managed per-connection in the connect screen.",
                                 }
-                            }
-                        }
-                        div {
-                            class: "settings-modal__group",
-                            span { class: "settings-modal__group-title", "Defaults" }
-                            div {
-                                class: "settings-modal__grid",
-                                div {
-                                    class: "field",
-                                    span { class: "field__label", "Default page size" }
-                                    input {
-                                        class: "input",
-                                        r#type: "number",
-                                        min: "10",
-                                        max: "1000",
-                                        value: "{settings.default_page_size}",
-                                        oninput: move |event| {
-                                            let mut next = props.read().settings.clone();
-                                            next.default_page_size = parse_u32_in_range(
-                                                &event.value(),
-                                                props.read().settings.default_page_size,
-                                                10,
-                                                1000,
-                                            );
-                                            on_change.call((next, props.read().sql_settings.clone()));
-                                        },
-                                    }
+                            },
+                            SettingsCategory::Editor => rsx! {
+                                SqlFormattingSection { ..section_props.clone() }
+                                CodeStralCompletionSection { ..section_props }
+                            },
+                            SettingsCategory::Grid => rsx! {
+                                CategoryEmptyState {
+                                    category: *active_category.read(),
+                                    hint: "Result-grid options (row height, virtualization buffer, column defaults) will live here.",
                                 }
-                            }
-                        }
-                        div {
-                            class: "settings-modal__group",
-                            span {
-                                class: "settings-modal__group-title",
-                                "Session and safety"
-                            }
-                            label {
-                                class: "settings-modal__toggle",
-                                input {
-                                    r#type: "checkbox",
-                                    checked: settings.restore_session_on_launch,
-                                    oninput: move |event| {
-                                        let mut next = props.read().settings.clone();
-                                        next.restore_session_on_launch = event.checked();
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
+                            },
+                            SettingsCategory::Navigation => rsx! {
+                                CategoryEmptyState {
+                                    category: *active_category.read(),
+                                    hint: "Explorer, sidebar, and keybinding defaults will live here. The explorer section underneath has the controls today.",
                                 }
-                                span { "Restore previous session on launch" }
-                            }
-                            label {
-                                class: "settings-modal__toggle",
-                                input {
-                                    r#type: "checkbox",
-                                    checked: settings.read_only_mode,
-                                    oninput: move |event| {
-                                        let mut next = props.read().settings.clone();
-                                        next.read_only_mode = event.checked();
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                }
-                                span { "Read-only mode (block write SQL, imports, and table edits)" }
-                            }
-                        }
-                        div {
-                            class: "settings-modal__group",
-                            span {
-                                class: "settings-modal__group-title",
-                                "Explorer view"
-                            }
-                            p {
-                                class: "settings-modal__section-hint",
-                                "Controls which object types the connection explorer tree renders. Changes apply immediately."
-                            }
-                            label {
-                                class: "settings-modal__toggle",
-                                input {
-                                    r#type: "checkbox",
-                                    checked: settings.explorer.show_schemas,
-                                    oninput: move |event| {
-                                        let mut next = props.read().settings.clone();
-                                        next.explorer.show_schemas = event.checked();
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                }
-                                span { "Show schemas" }
-                            }
-                            label {
-                                class: "settings-modal__toggle",
-                                input {
-                                    r#type: "checkbox",
-                                    checked: settings.explorer.show_tables,
-                                    oninput: move |event| {
-                                        let mut next = props.read().settings.clone();
-                                        next.explorer.show_tables = event.checked();
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                }
-                                span { "Show tables" }
-                            }
-                            label {
-                                class: "settings-modal__toggle",
-                                input {
-                                    r#type: "checkbox",
-                                    checked: settings.explorer.show_views,
-                                    oninput: move |event| {
-                                        let mut next = props.read().settings.clone();
-                                        next.explorer.show_views = event.checked();
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                }
-                                span { "Show views (incl. materialized views)" }
-                            }
-                            label {
-                                class: "settings-modal__toggle",
-                                input {
-                                    r#type: "checkbox",
-                                    checked: settings.explorer.show_columns,
-                                    oninput: move |event| {
-                                        let mut next = props.read().settings.clone();
-                                        next.explorer.show_columns = event.checked();
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                }
-                                span { "Show column children under tables" }
-                            }
-                            label {
-                                class: "settings-modal__toggle",
-                                input {
-                                    r#type: "checkbox",
-                                    checked: settings.explorer.show_system_objects,
-                                    oninput: move |event| {
-                                        let mut next = props.read().settings.clone();
-                                        next.explorer.show_system_objects = event.checked();
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                }
-                                span { "Show system objects (pg_catalog, information_schema, mysql, sys, system)" }
-                            }
-                            label {
-                                class: "settings-modal__toggle",
-                                input {
-                                    r#type: "checkbox",
-                                    checked: settings.explorer.show_row_counts,
-                                    oninput: move |event| {
-                                        let mut next = props.read().settings.clone();
-                                        next.explorer.show_row_counts = event.checked();
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                }
-                                span { "Show estimated row counts next to tables" }
-                            }
-                            label {
-                                class: "settings-modal__toggle",
-                                input {
-                                    r#type: "checkbox",
-                                    checked: settings.explorer.sort_alphabetical,
-                                    oninput: move |event| {
-                                        let mut next = props.read().settings.clone();
-                                        next.explorer.sort_alphabetical = event.checked();
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                }
-                                span { "Sort objects alphabetically within each group" }
-                            }
-                        }
-                        div {
-                            class: "settings-modal__group",
-                            span {
-                                class: "settings-modal__group-title",
-                                "Visible panels by default"
-                            }
-                            p {
-                                class: "settings-modal__section-hint",
-                                "Tool panels can be dragged between the left sidebar and the right inspector."
-                            }
-                            label {
-                                class: "settings-modal__toggle",
-                                input {
-                                    r#type: "checkbox",
-                                    checked: settings.show_saved_queries,
-                                    oninput: move |event| {
-                                        let mut next = props.read().settings.clone();
-                                        next.show_saved_queries = event.checked();
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                }
-                                span { "Show saved queries panel by default" }
-                            }
-                            label {
-                                class: "settings-modal__toggle",
-                                input {
-                                    r#type: "checkbox",
-                                    checked: settings.show_connections,
-                                    oninput: move |event| {
-                                        let mut next = props.read().settings.clone();
-                                        next.show_connections = event.checked();
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                }
-                                span { "Show connections panel by default" }
-                            }
-                            label {
-                                class: "settings-modal__toggle",
-                                input {
-                                    r#type: "checkbox",
-                                    checked: settings.show_explorer,
-                                    oninput: move |event| {
-                                        let mut next = props.read().settings.clone();
-                                        next.show_explorer = event.checked();
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                }
-                                span { "Show explorer by default" }
-                            }
-                            label {
-                                class: "settings-modal__toggle",
-                                input {
-                                    r#type: "checkbox",
-                                    checked: settings.show_history,
-                                    oninput: move |event| {
-                                        let mut next = props.read().settings.clone();
-                                        next.show_history = event.checked();
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                }
-                                span { "Show history by default" }
-                            }
-                            label {
-                                class: "settings-modal__toggle",
-                                input {
-                                    r#type: "checkbox",
-                                    checked: settings.show_sql_editor,
-                                    oninput: move |event| {
-                                        let mut next = props.read().settings.clone();
-                                        next.show_sql_editor = event.checked();
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                }
-                                span { "Show SQL editor by default" }
-                            }
-                            label {
-                                class: if !settings.ai_features_enabled {
-                                    "settings-modal__toggle settings-modal__toggle--disabled"
-                                } else {
-                                    "settings-modal__toggle"
-                                },
-                                aria_disabled: !settings.ai_features_enabled,
-                                input {
-                                    r#type: "checkbox",
-                                    checked: settings.show_agent_panel,
-                                    disabled: !settings.ai_features_enabled,
-                                    oninput: move |event| {
-                                        let mut next = props.read().settings.clone();
-                                        next.show_agent_panel = event.checked();
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                }
-                                span { "Show ACP agent panel by default" }
-                            }
-                        }
-                        div {
-                            class: "settings-modal__group",
-                            span {
-                                class: "settings-modal__group-title",
-                                "AI features"
-                            }
-                            label {
-                                class: "settings-modal__toggle",
-                                input {
-                                    r#type: "checkbox",
-                                    checked: settings.ai_features_enabled,
-                                    oninput: move |event| {
-                                        let mut next = props.read().settings.clone();
-                                        next.ai_features_enabled = event.checked();
-                                        if !event.checked() {
-                                            next.show_agent_panel = false;
-                                        }
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                }
-                                span { "Enable AI features (ACP panel, prompts, and SQL actions)" }
-                            }
-                            div {
-                                class: "field",
-                                label {
-                                    class: "field__label",
-                                    "AI response language"
-                                }
-                                input {
-                                    class: "input",
-                                    r#type: "text",
-                                    placeholder: "English",
-                                    value: "{settings.ai_response_language}",
-                                    disabled: !settings.ai_features_enabled,
-                                    oninput: move |event| {
-                                        let mut next = props.read().settings.clone();
-                                        next.ai_response_language = event.value();
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                }
-                            }
-                            label {
-                                class: if !settings.ai_features_enabled {
-                                    "settings-modal__toggle settings-modal__toggle--disabled"
-                                } else {
-                                    "settings-modal__toggle"
-                                },
-                                aria_disabled: !settings.ai_features_enabled,
-                                input {
-                                    r#type: "checkbox",
-                                    checked: settings.ai_auto_apply_completions,
-                                    disabled: !settings.ai_features_enabled,
-                                    oninput: move |event| {
-                                        let mut next = props.read().settings.clone();
-                                        next.ai_auto_apply_completions = event.checked();
-                                        on_change.call((next, props.read().sql_settings.clone()));
-                                    },
-                                }
-                                span { "Auto-apply inline AI completions (insert after a short idle pause; otherwise press Tab to accept)" }
-                            }
+                            },
+                            SettingsCategory::Advanced => rsx! {
+                                DeepSeekAgentSection { ..section_props.clone() }
+                                WorkspaceSection { ..section_props }
+                            },
                         }
                     }
+                }
+            }
+        }
+    }
+}
 
-                    section {
-                        class: "settings-modal__section",
-                        div {
-                            class: "settings-modal__section-header",
-                            div {
-                                h3 { class: "settings-modal__section-title", "SQL Formatting" }
-                                p {
-                                    class: "settings-modal__section-hint",
-                                    "Controls keyword case, wrapping, joins and inline arguments."
-                                }
+/// Rendered for categories that have no sections yet. Keeps the category
+/// discoverable in the nav while explicitly inviting future work.
+#[component]
+fn CategoryEmptyState(props: CategoryEmptyStateProps) -> Element {
+    let category = props.category;
+    let hint = props.hint;
+    rsx! {
+        section {
+            class: "settings-modal__section settings-modal__section--empty",
+            div {
+                class: "settings-modal__section-header",
+                h3 { class: "settings-modal__section-title", "{category.label()}" }
+            }
+            p { class: "settings-modal__section-hint", "{hint}" }
+            p { class: "settings-modal__section-hint", "More options will land here as the editor grows." }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Section components
+// ---------------------------------------------------------------------------
+//
+// Each section is rendered as a sibling of the nav inside
+// `.settings-modal__content` — only the sections belonging to the active
+// category are mounted at a given time. Every section helper takes
+// `SettingsSectionProps { settings, sql_settings, on_change }` so closures can
+// build and emit the full pair on each edit (the dialog bridge needs a
+// complete snapshot, not a partial diff).
+
+#[component]
+fn AppearanceSection(props: SettingsSectionProps) -> Element {
+    let settings = props.settings.clone();
+    let on_change = props.on_change;
+    let section_props_signal = use_signal(|| props.clone());
+
+    rsx! {
+        section {
+            class: "settings-modal__section",
+            div {
+                class: "settings-modal__section-header",
+                h3 { class: "settings-modal__section-title", "Appearance" }
+            }
+            div {
+                class: "settings-modal__segmented",
+                role: "group",
+                aria_label: "Theme preference",
+                button {
+                    class: if settings.theme == AppThemePreference::Dark {
+                        "button button--ghost button--small button--active"
+                    } else {
+                        "button button--ghost button--small"
+                    },
+                    aria_pressed: settings.theme == AppThemePreference::Dark,
+                    onclick: move |_| {
+                        let mut next = section_props_signal.read().settings.clone();
+                        next.theme = AppThemePreference::Dark;
+                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                    },
+                    "Dark"
+                }
+                button {
+                    class: if settings.theme == AppThemePreference::Light {
+                        "button button--ghost button--small button--active"
+                    } else {
+                        "button button--ghost button--small"
+                    },
+                    aria_pressed: settings.theme == AppThemePreference::Light,
+                    onclick: move |_| {
+                        let mut next = section_props_signal.read().settings.clone();
+                        next.theme = AppThemePreference::Light;
+                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                    },
+                    "Light"
+                }
+            }
+            div {
+                class: "settings-modal__segmented settings-modal__segmented--density",
+                role: "group",
+                aria_label: "UI density",
+                for variant in UiDensity::ALL {
+                    button {
+                        key: "{variant.css_class()}",
+                        class: if settings.density == variant {
+                            "button button--ghost button--small button--active"
+                        } else {
+                            "button button--ghost button--small"
+                        },
+                        aria_pressed: settings.density == variant,
+                        onclick: move |_| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.density = variant;
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                        "{variant.label()}"
+                    }
+                }
+            }
+            p {
+                class: "settings-modal__section-hint",
+                "Compact for an IDE-style dense workspace; Comfortable for larger tap targets."
+            }
+        }
+    }
+}
+
+#[component]
+fn DeepSeekAgentSection(props: SettingsSectionProps) -> Element {
+    let settings = props.settings.clone();
+    let on_change = props.on_change;
+    let section_props_signal = use_signal(|| props.clone());
+
+    rsx! {
+        section {
+            class: "settings-modal__section",
+            div {
+                class: "settings-modal__section-header",
+                h3 { class: "settings-modal__section-title", "DeepSeek Agent" }
+                p {
+                    class: "settings-modal__section-hint",
+                    "Primary API-key agent for database chat, SQL generation and SQL fixes."
+                }
+            }
+            label {
+                class: "settings-modal__toggle",
+                input {
+                    r#type: "checkbox",
+                    checked: settings.deepseek.enabled,
+                    disabled: settings.deepseek.api_key.is_empty(),
+                    oninput: move |event| {
+                        let mut next = section_props_signal.read().settings.clone();
+                        next.deepseek.enabled = event.checked();
+                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                    },
+                }
+                span { "Use DeepSeek as the default embedded SQL agent" }
+            }
+            div {
+                class: "settings-modal__grid",
+                div {
+                    class: "field",
+                    span { class: "field__label", "API Key" }
+                    input {
+                        class: "input",
+                        r#type: "password",
+                        placeholder: "sk-...",
+                        value: "{settings.deepseek.api_key}",
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            let value = event.value();
+                            next.deepseek.api_key = value.clone();
+                            if value.trim().is_empty() {
+                                next.deepseek.enabled = false;
                             }
-                            div {
-                                class: "settings-modal__section-actions",
-                                TooltipTarget {
-                                    label: "Reset SQL formatting options (keyword case, wrapping, joins, inline arguments) to defaults".to_string(),
-                                    button {
-                                        class: "button button--ghost button--small",
-                                        onclick: move |_| {
-                                            on_change.call((props.read().settings.clone(), SqlFormatSettings::default()));
-                                        },
-                                        "Reset SQL"
-                                    }
-                                }
-                            }
-                        }
-                        // `SqlFormatSettingsFields` owns a `Signal<SqlFormatSettings>`.
-                        // The adapter below owns a local signal that mirrors the
-                        // prop, hands it to the field component, and watches the
-                        // signal with `use_effect` to bubble every change through
-                        // `on_change`. This keeps the SQL formatter fields
-                        // reusable (they only need a `Signal`) while satisfying
-                        // the prop-driven contract of `SettingsModal`.
-                        SqlFormatFieldsAdapter {
-                            sql_settings: props.read().sql_settings.clone(),
-                            settings: props.read().settings.clone(),
-                            on_change,
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                }
+                div {
+                    class: "field",
+                    span { class: "field__label", "Base URL" }
+                    input {
+                        class: "input",
+                        placeholder: "https://api.deepseek.com",
+                        value: "{settings.deepseek.base_url}",
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.deepseek.base_url = event.value();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                }
+                div {
+                    class: "field",
+                    span { class: "field__label", "Model" }
+                    select {
+                        class: "input",
+                        value: "{settings.deepseek.model}",
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.deepseek.model = event.value();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                        option { value: "deepseek-chat", "deepseek-chat (fast, recommended)" }
+                        option { value: "deepseek-v4-pro", "deepseek-v4-pro (reasoning)" }
+                        option { value: "deepseek-v4-flash", "deepseek-v4-flash (reasoning, fast)" }
+                    }
+                }
+                div {
+                    class: "field",
+                    span { class: "field__label", "Reasoning effort" }
+                    select {
+                        class: "input",
+                        value: "{settings.deepseek.reasoning_effort}",
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.deepseek.reasoning_effort = event.value();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                        option { value: "low", "low" }
+                        option { value: "medium", "medium" }
+                        option { value: "high", "high" }
+                    }
+                }
+            }
+            label {
+                class: "settings-modal__toggle",
+                input {
+                    r#type: "checkbox",
+                    checked: settings.deepseek.thinking_enabled,
+                    oninput: move |event| {
+                        let mut next = section_props_signal.read().settings.clone();
+                        next.deepseek.thinking_enabled = event.checked();
+                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                    },
+                }
+                span { "Enable DeepSeek thinking mode when the selected model supports it" }
+            }
+            if settings.deepseek.api_key.is_empty() {
+                p {
+                    class: "settings-modal__section-hint",
+                    "Enter a DeepSeek API key to enable the embedded DeepSeek agent. Get your key from "
+                    a {
+                        href: "https://platform.deepseek.com/api_keys",
+                        target: "_blank",
+                        "platform.deepseek.com"
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn WorkspaceSection(props: SettingsSectionProps) -> Element {
+    let settings = props.settings.clone();
+    let on_change = props.on_change;
+    let section_props_signal = use_signal(|| props.clone());
+
+    rsx! {
+        section {
+            class: "settings-modal__section",
+            div {
+                class: "settings-modal__section-header",
+                h3 { class: "settings-modal__section-title", "Workspace" }
+                div {
+                    class: "settings-modal__section-actions",
+                    TooltipTarget {
+                        label: "Reset workspace, panels, and AI settings to their defaults (API keys are preserved)".to_string(),
+                        button {
+                            class: "button button--ghost button--small",
+                            onclick: move |_| {
+                                // Reset to defaults, but preserve the user's
+                                // API keys (they live in the OS keyring and
+                                // are not part of the JSON-serialized
+                                // AppUiSettings payload).
+                                let mut next = AppUiSettings::default();
+                                next.deepseek.api_key = section_props_signal.read().settings.deepseek.api_key.clone();
+                                next.codestral.api_key = section_props_signal.read().settings.codestral.api_key.clone();
+                                on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                            },
+                            "Reset UI"
                         }
                     }
+                }
+            }
+            div {
+                class: "settings-modal__group",
+                span { class: "settings-modal__group-title", "Defaults" }
+                div {
+                    class: "settings-modal__grid",
+                    div {
+                        class: "field",
+                        span { class: "field__label", "Default page size" }
+                        input {
+                            class: "input",
+                            r#type: "number",
+                            min: "10",
+                            max: "1000",
+                            value: "{settings.default_page_size}",
+                            oninput: move |event| {
+                                let mut next = section_props_signal.read().settings.clone();
+                                next.default_page_size = parse_u32_in_range(
+                                    &event.value(),
+                                    section_props_signal.read().settings.default_page_size,
+                                    10,
+                                    1000,
+                                );
+                                on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                            },
+                        }
+                    }
+                }
+            }
+            div {
+                class: "settings-modal__group",
+                span {
+                    class: "settings-modal__group-title",
+                    "Session and safety"
+                }
+                label {
+                    class: "settings-modal__toggle",
+                    input {
+                        r#type: "checkbox",
+                        checked: settings.restore_session_on_launch,
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.restore_session_on_launch = event.checked();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                    span { "Restore previous session on launch" }
+                }
+                label {
+                    class: "settings-modal__toggle",
+                    input {
+                        r#type: "checkbox",
+                        checked: settings.read_only_mode,
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.read_only_mode = event.checked();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                    span { "Read-only mode (block write SQL, imports, and table edits)" }
+                }
+            }
+            div {
+                class: "settings-modal__group",
+                span {
+                    class: "settings-modal__group-title",
+                    "Explorer view"
+                }
+                p {
+                    class: "settings-modal__section-hint",
+                    "Controls which object types the connection explorer tree renders. Changes apply immediately."
+                }
+                label {
+                    class: "settings-modal__toggle",
+                    input {
+                        r#type: "checkbox",
+                        checked: settings.explorer.show_schemas,
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.explorer.show_schemas = event.checked();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                    span { "Show schemas" }
+                }
+                label {
+                    class: "settings-modal__toggle",
+                    input {
+                        r#type: "checkbox",
+                        checked: settings.explorer.show_tables,
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.explorer.show_tables = event.checked();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                    span { "Show tables" }
+                }
+                label {
+                    class: "settings-modal__toggle",
+                    input {
+                        r#type: "checkbox",
+                        checked: settings.explorer.show_views,
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.explorer.show_views = event.checked();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                    span { "Show views (incl. materialized views)" }
+                }
+                label {
+                    class: "settings-modal__toggle",
+                    input {
+                        r#type: "checkbox",
+                        checked: settings.explorer.show_columns,
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.explorer.show_columns = event.checked();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                    span { "Show column children under tables" }
+                }
+                label {
+                    class: "settings-modal__toggle",
+                    input {
+                        r#type: "checkbox",
+                        checked: settings.explorer.show_system_objects,
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.explorer.show_system_objects = event.checked();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                    span { "Show system objects (pg_catalog, information_schema, mysql, sys, system)" }
+                }
+                label {
+                    class: "settings-modal__toggle",
+                    input {
+                        r#type: "checkbox",
+                        checked: settings.explorer.show_row_counts,
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.explorer.show_row_counts = event.checked();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                    span { "Show estimated row counts next to tables" }
+                }
+                label {
+                    class: "settings-modal__toggle",
+                    input {
+                        r#type: "checkbox",
+                        checked: settings.explorer.sort_alphabetical,
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.explorer.sort_alphabetical = event.checked();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                    span { "Sort objects alphabetically within each group" }
+                }
+            }
+            div {
+                class: "settings-modal__group",
+                span {
+                    class: "settings-modal__group-title",
+                    "Visible panels by default"
+                }
+                p {
+                    class: "settings-modal__section-hint",
+                    "Tool panels can be dragged between the left sidebar and the right inspector."
+                }
+                label {
+                    class: "settings-modal__toggle",
+                    input {
+                        r#type: "checkbox",
+                        checked: settings.show_saved_queries,
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.show_saved_queries = event.checked();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                    span { "Show saved queries panel by default" }
+                }
+                label {
+                    class: "settings-modal__toggle",
+                    input {
+                        r#type: "checkbox",
+                        checked: settings.show_connections,
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.show_connections = event.checked();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                    span { "Show connections panel by default" }
+                }
+                label {
+                    class: "settings-modal__toggle",
+                    input {
+                        r#type: "checkbox",
+                        checked: settings.show_explorer,
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.show_explorer = event.checked();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                    span { "Show explorer by default" }
+                }
+                label {
+                    class: "settings-modal__toggle",
+                    input {
+                        r#type: "checkbox",
+                        checked: settings.show_history,
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.show_history = event.checked();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                    span { "Show history by default" }
+                }
+                label {
+                    class: "settings-modal__toggle",
+                    input {
+                        r#type: "checkbox",
+                        checked: settings.show_sql_editor,
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.show_sql_editor = event.checked();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                    span { "Show SQL editor by default" }
+                }
+                label {
+                    class: if !settings.ai_features_enabled {
+                        "settings-modal__toggle settings-modal__toggle--disabled"
+                    } else {
+                        "settings-modal__toggle"
+                    },
+                    aria_disabled: !settings.ai_features_enabled,
+                    input {
+                        r#type: "checkbox",
+                        checked: settings.show_agent_panel,
+                        disabled: !settings.ai_features_enabled,
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.show_agent_panel = event.checked();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                    span { "Show ACP agent panel by default" }
+                }
+            }
+            div {
+                class: "settings-modal__group",
+                span {
+                    class: "settings-modal__group-title",
+                    "AI features"
+                }
+                label {
+                    class: "settings-modal__toggle",
+                    input {
+                        r#type: "checkbox",
+                        checked: settings.ai_features_enabled,
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.ai_features_enabled = event.checked();
+                            if !event.checked() {
+                                next.show_agent_panel = false;
+                            }
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                    span { "Enable AI features (ACP panel, prompts, and SQL actions)" }
+                }
+                div {
+                    class: "field",
+                    label {
+                        class: "field__label",
+                        "AI response language"
+                    }
+                    input {
+                        class: "input",
+                        r#type: "text",
+                        placeholder: "English",
+                        value: "{settings.ai_response_language}",
+                        disabled: !settings.ai_features_enabled,
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.ai_response_language = event.value();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                }
+                label {
+                    class: if !settings.ai_features_enabled {
+                        "settings-modal__toggle settings-modal__toggle--disabled"
+                    } else {
+                        "settings-modal__toggle"
+                    },
+                    aria_disabled: !settings.ai_features_enabled,
+                    input {
+                        r#type: "checkbox",
+                        checked: settings.ai_auto_apply_completions,
+                        disabled: !settings.ai_features_enabled,
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.ai_auto_apply_completions = event.checked();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                    span { "Auto-apply inline AI completions (insert after a short idle pause; otherwise press Tab to accept)" }
+                }
+            }
+        }
+    }
+}
 
-                    section {
-                        class: "settings-modal__section",
-                        div {
-                            class: "settings-modal__section-header",
-                            h3 { class: "settings-modal__section-title", "CodeStral Completion" }
-                            p {
-                                class: "settings-modal__section-hint",
-                                "AI-powered SQL code completion via CodeStral API."
-                            }
+#[component]
+fn SqlFormattingSection(props: SettingsSectionProps) -> Element {
+    let on_change = props.on_change;
+    let section_props_signal = use_signal(|| props.clone());
+
+    rsx! {
+        section {
+            class: "settings-modal__section",
+            div {
+                class: "settings-modal__section-header",
+                div {
+                    h3 { class: "settings-modal__section-title", "SQL Formatting" }
+                    p {
+                        class: "settings-modal__section-hint",
+                        "Controls keyword case, wrapping, joins and inline arguments."
+                    }
+                }
+                div {
+                    class: "settings-modal__section-actions",
+                    TooltipTarget {
+                        label: "Reset SQL formatting options (keyword case, wrapping, joins, inline arguments) to defaults".to_string(),
+                        button {
+                            class: "button button--ghost button--small",
+                            onclick: move |_| {
+                                on_change.call((section_props_signal.read().settings.clone(), SqlFormatSettings::default()));
+                            },
+                            "Reset SQL"
                         }
-                        label {
-                            class: "settings-modal__toggle",
-                            input {
-                                r#type: "checkbox",
-                                checked: settings.codestral.enabled,
-                                disabled: settings.codestral.api_key.is_empty(),
-                                oninput: move |event| {
-                                    let mut next = props.read().settings.clone();
-                                    next.codestral.enabled = event.checked();
-                                    on_change.call((next, props.read().sql_settings.clone()));
-                                },
-                            }
-                            span { "Enable CodeStral inline completion" }
+                    }
+                }
+            }
+            // `SqlFormatSettingsFields` owns a `Signal<SqlFormatSettings>`.
+            // The adapter below owns a local signal that mirrors the
+            // prop, hands it to the field component, and watches the
+            // signal with `use_effect` to bubble every change through
+            // `on_change`. This keeps the SQL formatter fields
+            // reusable (they only need a `Signal`) while satisfying
+            // the prop-driven contract of `SettingsModal`.
+            SqlFormatFieldsAdapter {
+                sql_settings: section_props_signal.read().sql_settings.clone(),
+                settings: section_props_signal.read().settings.clone(),
+                on_change,
+            }
+        }
+    }
+}
+
+#[component]
+fn CodeStralCompletionSection(props: SettingsSectionProps) -> Element {
+    let settings = props.settings.clone();
+    let on_change = props.on_change;
+    let section_props_signal = use_signal(|| props.clone());
+
+    rsx! {
+        section {
+            class: "settings-modal__section",
+            div {
+                class: "settings-modal__section-header",
+                h3 { class: "settings-modal__section-title", "CodeStral Completion" }
+                p {
+                    class: "settings-modal__section-hint",
+                    "AI-powered SQL code completion via CodeStral API."
+                }
+            }
+            label {
+                class: "settings-modal__toggle",
+                input {
+                    r#type: "checkbox",
+                    checked: settings.codestral.enabled,
+                    disabled: settings.codestral.api_key.is_empty(),
+                    oninput: move |event| {
+                        let mut next = section_props_signal.read().settings.clone();
+                        next.codestral.enabled = event.checked();
+                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                    },
+                }
+                span { "Enable CodeStral inline completion" }
+            }
+            div {
+                class: "field",
+                span { class: "field__label", "API Key" }
+                input {
+                    class: "input",
+                    r#type: "password",
+                    placeholder: "sk-...",
+                    value: "{settings.codestral.api_key}",
+                    oninput: move |event| {
+                        let mut next = section_props_signal.read().settings.clone();
+                        let value = event.value();
+                        next.codestral.api_key = value.clone();
+                        if value.trim().is_empty() {
+                            next.codestral.enabled = false;
                         }
-                        div {
-                            class: "field",
-                            span { class: "field__label", "API Key" }
-                            input {
-                                class: "input",
-                                r#type: "password",
-                                placeholder: "sk-...",
-                                value: "{settings.codestral.api_key}",
-                                oninput: move |event| {
-                                    let mut next = props.read().settings.clone();
-                                    let value = event.value();
-                                    next.codestral.api_key = value.clone();
-                                    if value.trim().is_empty() {
-                                        next.codestral.enabled = false;
-                                    }
-                                    on_change.call((next, props.read().sql_settings.clone()));
-                                },
-                            }
-                        }
-                        div {
-                            class: "field",
-                            span { class: "field__label", "Model" }
-                            input {
-                                class: "input",
-                                placeholder: "codestral-latest",
-                                value: "{settings.codestral.model}",
-                                oninput: move |event| {
-                                    let mut next = props.read().settings.clone();
-                                    next.codestral.model = event.value();
-                                    on_change.call((next, props.read().sql_settings.clone()));
-                                },
-                            }
-                        }
-                        if settings.codestral.api_key.is_empty() {
-                            p {
-                                class: "settings-modal__section-hint",
-                                "Enter an API key to enable CodeStral completion. Get your key from "
-                                a {
-                                    href: "https://codestral.mistral.ai/",
-                                    target: "_blank",
-                                    "codestral.mistral.ai"
-                                }
-                            }
-                        }
+                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                    },
+                }
+            }
+            div {
+                class: "field",
+                span { class: "field__label", "Model" }
+                input {
+                    class: "input",
+                    placeholder: "codestral-latest",
+                    value: "{settings.codestral.model}",
+                    oninput: move |event| {
+                        let mut next = section_props_signal.read().settings.clone();
+                        next.codestral.model = event.value();
+                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                    },
+                }
+            }
+            if settings.codestral.api_key.is_empty() {
+                p {
+                    class: "settings-modal__section-hint",
+                    "Enter an API key to enable CodeStral completion. Get your key from "
+                    a {
+                        href: "https://codestral.mistral.ai/",
+                        target: "_blank",
+                        "codestral.mistral.ai"
                     }
                 }
             }
@@ -840,5 +1085,40 @@ mod tests {
         assert_eq!(parse_u32_in_range("5", 50, 10, 1000), 10);
         assert_eq!(parse_u32_in_range("9999", 50, 10, 1000), 1000);
         assert_eq!(parse_u32_in_range("250", 50, 10, 1000), 250);
+    }
+
+    /// The category labels must match the variant order so the nav renders
+    /// visually stable (appearance → ... → advanced). Adding a variant in
+    /// `SettingsCategory::ALL` without updating one of these helpers will
+    /// fail this test and force the author to fix it.
+    #[test]
+    fn category_order_matches_all_constant() {
+        let labels: Vec<&str> = SettingsCategory::ALL
+            .iter()
+            .copied()
+            .map(SettingsCategory::label)
+            .collect();
+        assert_eq!(
+            labels,
+            vec![
+                "Appearance",
+                "Database",
+                "Editor",
+                "Grid",
+                "Navigation",
+                "Advanced"
+            ]
+        );
+    }
+
+    /// Each category exposes a non-empty label + description so the nav
+    /// never renders an empty button.
+    #[test]
+    fn every_category_has_label_and_description() {
+        for category in SettingsCategory::ALL.iter().copied() {
+            assert!(!category.label().is_empty());
+            assert!(!category.description().is_empty());
+            assert!(!category.id().is_empty());
+        }
     }
 }
