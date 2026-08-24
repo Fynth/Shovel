@@ -201,3 +201,10 @@ Future: AI plan explanation (needs ACP agent), mock data generator (all-driver b
 - Wrapped: toolbar New Connection/Back to Workspace + Settings buttons; settings modal Reset UI + Reset SQL buttons.
 - 0 new clippy errors in touched files; 36 test suites pass; build desktop OK. Committed.
 - fmt --check shows pre-existing nightly-rustfmt drift (163->164 diffs, +1 is my import reflow, same class); not applied to avoid churning ~60 files.
+
+## AI SLOP REMOVAL SESSION (commits 3c6ff9c, 0b06221, 6d0edfd, +split)
+- Scope: 37 session source files. Cleaned 15 files in batches 1-3: removed redundant WHAT-restating comments, dead code (dead guards, #[allow(dead_code)] on live items), pass-through wrapper (send_routed_prompt), duplication (ClickHouse engine clause, Sqlite|ClickHouse arms), test-fixture dedup (schema_node/table_node). Verified: 36 test suites green throughout.
+- Batch 4: agents produced mostly rustfmt format-noise (import reordering) — reverted all non-committed format noise. Only real value: split edit_connection_modal.rs into submodules (remote_draft/remote_fields/sqlite_fields) — committed, behavior-preserving, 36 suites green.
+- LESSON: parallel deep agents caused stash-chaos (lost uncommitted comment removals, introduced format noise). Orchestrator must verify each file's actual diff after each batch and revert non-slop noise. The remove-ai-slops agents over-report; many "changes" were format-only.
+- Remaining files not cleaned (batch 5 candidates): result_table.rs, workspace mod.rs, helpers.rs, app_state.rs, recent_connections.rs, connect mod.rs, ui mod files, explorer lib/mysql, query-core, storage — left as-is because (a) format-noise risk from agents, (b) hotspots where risk>benefit for slop removal, (c) many already polished this session.
+- Final: all slop-removal commits + CI gate green (36 suites). Worktree clean.
