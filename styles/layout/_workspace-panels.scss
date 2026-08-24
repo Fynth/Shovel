@@ -187,3 +187,216 @@
   justify-content: space-between;
   gap: $spacing-md;
 }
+
+// ── Bottom dock ───────────────────────────────────────────────────
+//
+// Sits below the sidebar + main row, spanning the full workspace width.
+// A horizontal tab strip drives which subview is rendered; the dock
+// itself is hideable and resizable, both of which are persisted via
+// AppUiSettings.
+.bottom-panel {
+  flex: 0 0 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--glass-border);
+  border-radius: 18px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-surface-inspector, var(--color-panel-2)) 88%, var(--glass-tint)),
+      color-mix(in srgb, var(--color-surface-inspector, var(--color-panel-2)) 92%, transparent)
+    );
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    var(--shadow-panel);
+  backdrop-filter: blur(24px) saturate(145%);
+  overflow: hidden;
+  height: var(--workspace-bottom-panel-height, 200px);
+}
+
+.bottom-panel__handle-row {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+  padding: 4px 8px 4px $spacing-sm;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--glass-tint-strong) 80%, var(--color-surface-inspector, var(--color-panel-2))),
+      color-mix(in srgb, var(--glass-tint) 52%, transparent)
+    );
+  backdrop-filter: blur(18px) saturate(140%);
+}
+
+.bottom-panel__tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.bottom-panel__tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.bottom-panel__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-2xs;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: $font-size-sm;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    color $motion-fast ease,
+    background $motion-fast ease,
+    border-color $motion-fast ease;
+}
+
+.bottom-panel__tab:hover {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 60%, transparent);
+}
+
+.bottom-panel__tab--active {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 88%, var(--glass-tint));
+  border-color: color-mix(in srgb, var(--color-primary) 38%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 16%, transparent);
+}
+
+.bottom-panel__tab-label {
+  font-weight: 500;
+}
+
+.bottom-panel__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: $spacing-sm;
+}
+
+.bottom-panel__view {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-2xs;
+  min-height: 0;
+}
+
+.bottom-panel__hint {
+  color: var(--color-text-muted);
+  font-size: $font-size-sm;
+  margin: 0;
+}
+
+.bottom-panel__line {
+  display: flex;
+  align-items: baseline;
+  gap: $spacing-sm;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 70%, transparent);
+  font-size: $font-size-sm;
+}
+
+.bottom-panel__line--error {
+  border-left: 3px solid var(--color-error, #e74c3c);
+}
+
+.bottom-panel__line--ok {
+  border-left: 3px solid color-mix(in srgb, var(--color-primary) 72%, transparent);
+}
+
+.bottom-panel__line-label {
+  font-weight: 500;
+}
+
+.bottom-panel__line-meta {
+  color: var(--color-text-muted);
+  font-size: $font-size-xs;
+}
+
+.bottom-panel__msg {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: $font-size-sm;
+  background: color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 60%, transparent);
+  border-left: 3px solid var(--color-border);
+}
+
+.bottom-panel__msg--info {
+  border-left-color: color-mix(in srgb, var(--color-info, #4a8bf5) 72%, transparent);
+}
+
+.bottom-panel__msg--success {
+  border-left-color: color-mix(in srgb, var(--color-primary) 72%, transparent);
+}
+
+.bottom-panel__msg--warning {
+  border-left-color: color-mix(in srgb, var(--color-warning, #f5a524) 72%, transparent);
+}
+
+.bottom-panel__msg--error {
+  border-left-color: var(--color-error, #e74c3c);
+}
+
+.bottom-panel__msg-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bottom-panel__log {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-2xs;
+}
+
+.bottom-panel__log-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 60%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--color-border) 80%, transparent);
+}
+
+.bottom-panel__log-meta {
+  display: flex;
+  align-items: baseline;
+  gap: $spacing-sm;
+  font-size: $font-size-xs;
+}
+
+.bottom-panel__log-title {
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.bottom-panel__log-outcome {
+  color: var(--color-text-muted);
+}
+
+.bottom-panel__log-sql {
+  margin: 0;
+  font-family: var(--font-mono, ui-monospace, "SFMono-Regular", monospace);
+  font-size: $font-size-xs;
+  color: var(--color-text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}

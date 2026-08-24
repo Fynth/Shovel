@@ -39,6 +39,11 @@ pub enum ActionIcon {
     Previous,
     Next,
     Close,
+    Output,
+    Messages,
+    QueryLog,
+    Transactions,
+    Problems,
 }
 
 #[component]
@@ -323,6 +328,38 @@ pub fn IconGlyph(icon: ActionIcon) -> Element {
                 ActionIcon::Close => rsx! {
                     path { d: "m4 4 16 16" }
                     path { d: "m20 4-16 16" }
+                },
+                ActionIcon::Output => rsx! {
+                    rect { x: "4", y: "5", width: "16", height: "14", rx: "2" }
+                    path { d: "M8 9h8" }
+                    path { d: "M8 12h8" }
+                    path { d: "M8 15h5" }
+                },
+                ActionIcon::Messages => rsx! {
+                    path { d: "M4 6.5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H10l-4 3.5v-3.5H6a2 2 0 0 1-2-2z" }
+                    path { d: "M8 9.5h8" }
+                    path { d: "M8 12.5h5" }
+                },
+                ActionIcon::QueryLog => rsx! {
+                    rect { x: "4", y: "4", width: "16", height: "16", rx: "2" }
+                    path { d: "M8 8h8" }
+                    path { d: "M8 12h8" }
+                    path { d: "M8 16h5" }
+                    path { d: "M5 8h.01" }
+                    path { d: "M5 12h.01" }
+                    path { d: "M5 16h.01" }
+                },
+                ActionIcon::Transactions => rsx! {
+                    path { d: "M4 7h16" }
+                    path { d: "M4 12h16" }
+                    path { d: "M4 17h16" }
+                    path { d: "M8 5l2 2-2 2" }
+                    path { d: "M16 15l-2 2 2 2" }
+                },
+                ActionIcon::Problems => rsx! {
+                    path { d: "M12 4 2 20h20z" }
+                    path { d: "M12 10v4" }
+                    path { d: "M12 17h.01" }
                 },
             }
         }

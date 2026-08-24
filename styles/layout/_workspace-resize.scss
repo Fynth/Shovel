@@ -53,3 +53,31 @@
   user-select: none;
   cursor: col-resize;
 }
+
+// Bottom-dock resize handle. Lives above the dock, drags on the Y axis.
+// Inherits the same 6px track and `::after` rail as the column handles;
+// the only difference is `row-resize` cursor and a horizontal rail.
+.workspace__resize-handle--bottom {
+  flex: 0 0 auto;
+  align-self: stretch;
+  width: 100%;
+  min-width: 0;
+  height: 6px;
+  min-height: 6px;
+  cursor: row-resize;
+}
+
+.workspace__resize-handle--bottom::after {
+  top: 50%;
+  bottom: auto;
+  left: $spacing-md;
+  right: $spacing-md;
+  width: auto;
+  height: 3px;
+  transform: translateY(-50%);
+}
+
+.workspace--resizing-y {
+  user-select: none;
+  cursor: row-resize;
+}

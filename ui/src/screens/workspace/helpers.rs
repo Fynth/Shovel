@@ -20,6 +20,8 @@ pub const SIDEBAR_MIN_WIDTH: f64 = 240.0;
 pub const SIDEBAR_MAX_WIDTH: f64 = 560.0;
 pub const INSPECTOR_MIN_WIDTH: f64 = 260.0;
 pub const INSPECTOR_MAX_WIDTH: f64 = 640.0;
+pub const BOTTOM_PANEL_MIN_HEIGHT: f64 = 96.0;
+pub const BOTTOM_PANEL_MAX_HEIGHT: f64 = 520.0;
 pub const WORKSPACE_ROOT_ID: &str = "workspace-root";
 
 pub fn format_explorer_error(err: impl std::fmt::Display) -> String {
@@ -189,6 +191,73 @@ pub fn workspace_resize_script(
                 window.addEventListener("mouseup", onUp);
                 window.addEventListener("blur", onBlur);
                 onMove({{ clientX: startX }});
+            }});
+        }})()
+        "#
+    )
+}
+
+/// Y-axis variant of [`workspace_resize_script`] used by the bottom dock
+/// resize handle. The drag axis is vertical and the delta is always
+/// inverted (dragging up = taller) because the dock grows upward from
+/// the bottom of the workspace.
+pub fn workspace_vertical_resize_script(
+    height_var: &str,
+    start_y: f64,
+    start_height: f64,
+    min_height: f64,
+    max_height: f64,
+) -> String {
+    format!(
+        r#"
+        (() => {{
+            const workspace = document.getElementById({WORKSPACE_ROOT_ID:?});
+            if (!workspace) {{
+                return {start_height};
+            }}
+
+            const startY = {start_y};
+            const startHeight = {start_height};
+            const minHeight = {min_height};
+            const maxHeight = {max_height};
+            let finished = false;
+            let lastHeight = startHeight;
+
+            const clampHeight = (clientY) => {{
+                // Drag up (clientY decreases) -> taller dock.
+                const delta = startY - clientY;
+                return Math.min(maxHeight, Math.max(minHeight, startHeight + delta));
+            }};
+
+            return new Promise((resolve) => {{
+                const finish = (clientY) => {{
+                    if (finished) {{
+                        return;
+                    }}
+                    finished = true;
+                    const height = clientY == null ? lastHeight : clampHeight(clientY);
+                    workspace.style.setProperty({height_var:?}, `${{Math.round(height)}}px`);
+                    workspace.classList.remove("workspace--resizing-y");
+                    window.removeEventListener("mousemove", onMove);
+                    window.removeEventListener("mouseup", onUp);
+                    window.removeEventListener("blur", onBlur);
+                    resolve(height);
+                }};
+
+                const onMove = (event) => {{
+                    const height = clampHeight(event.clientY);
+                    lastHeight = height;
+                    workspace.style.setProperty({height_var:?}, `${{Math.round(height)}}px`);
+                }};
+
+                const onUp = (event) => finish(event.clientY);
+                const onBlur = () => finish(startY);
+
+                workspace.classList.add("workspace--resizing-y");
+                window.addEventListener("mousemove", onMove, {{ passive: true }});
+                window.addEventListener("mouseup", onUp);
+                window.addEventListener("blur", onBlur);
+                onMove({{ clientY: startY }});
             }});
         }})()
         "#

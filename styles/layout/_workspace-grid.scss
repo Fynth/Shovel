@@ -3,11 +3,8 @@
 .workspace {
   height: 100%;
   min-height: 0;
-  display: grid;
-  grid-template-columns:
-    minmax(180px, var(--workspace-sidebar-width, clamp(200px, 19vw, 260px)))
-    6px
-    minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: $spacing-md;
   padding: $spacing-md;
   background:
@@ -21,14 +18,26 @@
   overflow: hidden;
 }
 
-.workspace--sidebar-hidden {
+.workspace__top-row {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns:
+    minmax(180px, var(--workspace-sidebar-width, clamp(200px, 19vw, 260px)))
+    6px
+    minmax(0, 1fr);
+  gap: $spacing-md;
+  min-width: 0;
+}
+
+.workspace--sidebar-hidden .workspace__top-row {
   grid-template-columns: minmax(0, 1fr);
 }
 
 // Smooth collapse: opacity + translate when the sidebar column collapses
 // (grid-template swap itself is not animatable; the sidebar element fades
 // and slides out so the toggle feels intentional rather than abrupt).
-.workspace--sidebar-hidden .workspace__sidebar {
+.workspace--sidebar-hidden .workspace__top-row .workspace__sidebar {
   opacity: 0;
   transform: translateX(-6px);
   pointer-events: none;
@@ -277,7 +286,7 @@
 }
 
 @media (max-width: 980px) {
-  .workspace {
+  .workspace__top-row {
     grid-template-columns:
       minmax(180px, var(--workspace-sidebar-width, clamp(200px, 19vw, 260px)))
       6px
@@ -300,7 +309,7 @@
 }
 
 @media (max-width: 860px) {
-  .workspace {
+  .workspace__top-row {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(0, 1fr);
   }

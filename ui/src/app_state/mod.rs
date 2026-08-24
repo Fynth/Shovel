@@ -161,6 +161,14 @@ pub static APP_SHOW_SQL_EDITOR: GlobalSignal<bool> =
     Signal::global(|| AppUiSettings::default().show_sql_editor);
 pub static APP_SHOW_AGENT_PANEL: GlobalSignal<bool> =
     Signal::global(|| AppUiSettings::default().show_agent_panel);
+pub static APP_SHOW_BOTTOM_PANEL: GlobalSignal<bool> =
+    Signal::global(|| AppUiSettings::default().show_bottom_panel);
+/// Persisted height of the bottom dock (Output / Messages / Query Log /
+/// Transactions / Problems) in CSS pixels. Mirrored from
+/// [`AppUiSettings::bottom_panel_height`] so the resize handle can read
+/// it without re-reading the full settings struct on every pointer move.
+pub static APP_BOTTOM_PANEL_HEIGHT: GlobalSignal<f64> =
+    Signal::global(|| AppUiSettings::default().bottom_panel_height);
 pub static APP_TOOLTIP: GlobalSignal<Option<AppTooltip>> = Signal::global(|| None);
 pub static APP_TOAST: GlobalSignal<Vec<AppToast>> = Signal::global(Vec::new);
 pub static APP_TAB_DRAFTS: GlobalSignal<Vec<models::TabDraft>> = Signal::global(Vec::new);
@@ -317,6 +325,18 @@ pub fn set_show_agent_panel(visible: bool) {
     });
 }
 
+pub fn set_show_bottom_panel(visible: bool) {
+    update_ui_settings(|current| {
+        current.show_bottom_panel = visible;
+    });
+}
+
+pub fn set_bottom_panel_height(height: f64) {
+    update_ui_settings(|current| {
+        current.bottom_panel_height = height;
+    });
+}
+
 pub fn set_deepseek_enabled(enabled: bool) {
     update_ui_settings(|current| {
         current.deepseek.enabled = enabled;
@@ -372,6 +392,12 @@ fn sync_density(signal: &GlobalSignal<UiDensity>, new: UiDensity) {
     }
 }
 
+fn sync_f64(signal: &GlobalSignal<f64>, new: f64) {
+    if *signal.peek() != new {
+        *signal.write() = new;
+    }
+}
+
 fn sync_runtime_ui_settings(settings: &AppUiSettings) {
     let theme_class = settings.theme.css_class().to_string();
     if *APP_THEME.peek() != theme_class {
@@ -393,6 +419,8 @@ fn sync_runtime_ui_settings(settings: &AppUiSettings) {
         &APP_SHOW_AGENT_PANEL,
         settings.ai_features_enabled && settings.show_agent_panel,
     );
+    sync_bool(&APP_SHOW_BOTTOM_PANEL, settings.show_bottom_panel);
+    sync_f64(&APP_BOTTOM_PANEL_HEIGHT, settings.bottom_panel_height);
     crate::screens::workspace::components::agent_panel::prompt::sync_ai_response_language(
         settings.ai_response_language.clone(),
     );

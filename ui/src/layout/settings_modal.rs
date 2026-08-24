@@ -763,6 +763,19 @@ fn WorkspaceSection(props: SettingsSectionProps) -> Element {
                     }
                     span { "Show ACP agent panel by default" }
                 }
+                label {
+                    class: "settings-modal__toggle",
+                    input {
+                        r#type: "checkbox",
+                        checked: settings.show_bottom_panel,
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.show_bottom_panel = event.checked();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                    span { "Show bottom dock (Output / Messages / Query Log / Transactions / Problems) by default" }
+                }
             }
             div {
                 class: "settings-modal__group",
@@ -1025,6 +1038,7 @@ mod tests {
             ShowFlag::History => ui.show_history = value,
             ShowFlag::SqlEditor => ui.show_sql_editor = value,
             ShowFlag::AgentPanel => ui.show_agent_panel = value,
+            ShowFlag::BottomPanel => ui.show_bottom_panel = value,
         }
         ui
     }
@@ -1038,6 +1052,7 @@ mod tests {
         History,
         SqlEditor,
         AgentPanel,
+        BottomPanel,
     }
 
     #[test]
@@ -1051,6 +1066,7 @@ mod tests {
         assert_eq!(after.show_history, before.show_history);
         assert_eq!(after.show_sql_editor, before.show_sql_editor);
         assert_eq!(after.show_agent_panel, before.show_agent_panel);
+        assert_eq!(after.show_bottom_panel, before.show_bottom_panel);
 
         // Target flag flipped.
         assert!(before.show_explorer);
@@ -1076,6 +1092,8 @@ mod tests {
         assert!(current.show_sql_editor);
         current = toggle_show_flag(current, ShowFlag::AgentPanel, true);
         assert!(current.show_agent_panel);
+        current = toggle_show_flag(current, ShowFlag::BottomPanel, false);
+        assert!(!current.show_bottom_panel);
     }
 
     #[test]

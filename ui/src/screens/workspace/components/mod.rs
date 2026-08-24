@@ -1,6 +1,7 @@
 pub(crate) mod agent_panel;
 mod batch_results;
 mod blob_viewer;
+mod bottom_panel;
 mod chart;
 mod copy_formats;
 mod data_diff;
@@ -38,6 +39,7 @@ pub(crate) use agent_panel::{
 };
 pub(crate) use batch_results::BatchResultsView;
 pub(crate) use blob_viewer::{BlobData, BlobViewer};
+pub use bottom_panel::{BottomPanelDock, BottomPanelTab};
 pub use chart::ResultChart;
 pub(crate) use data_diff::DataDiffViewer;
 pub(crate) use er_diagram::{ErDiagramState, ErDiagramViewer, ErRelationship, ErTable};

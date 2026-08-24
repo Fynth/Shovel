@@ -245,7 +245,7 @@ impl Default for DeepSeekSettings {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppUiSettings {
     pub theme: AppThemePreference,
@@ -271,6 +271,14 @@ pub struct AppUiSettings {
     pub ai_auto_apply_completions: bool,
 
     pub explorer: ExplorerViewSettings,
+
+    /// Bottom dock visibility (Output / Messages / Query Log / Transactions
+    /// / Problems). Persisted alongside the tool-panel toggles so the user
+    /// can decide once whether the dock starts open or closed.
+    pub show_bottom_panel: bool,
+    /// Persisted height of the bottom dock in pixels. Used to restore the
+    /// user's last resize without coupling the layout to a CSS-only value.
+    pub bottom_panel_height: f64,
 }
 
 impl Default for AppUiSettings {
@@ -294,6 +302,8 @@ impl Default for AppUiSettings {
             ai_response_language: "English".to_string(),
             ai_auto_apply_completions: true,
             explorer: ExplorerViewSettings::default(),
+            show_bottom_panel: true,
+            bottom_panel_height: 200.0,
         }
     }
 }
@@ -317,6 +327,67 @@ mod tests {
     fn fresh_default_density_is_compact() {
         assert_eq!(AppUiSettings::default().density, UiDensity::Compact);
         assert_eq!(UiDensity::default(), UiDensity::Compact);
+    }
+
+    #[test]
+    fn fresh_default_shows_bottom_panel_at_baseline_height() {
+        let defaults = AppUiSettings::default();
+        assert!(defaults.show_bottom_panel);
+        assert!(defaults.bottom_panel_height > 0.0);
+    }
+
+    #[test]
+    fn legacy_settings_missing_bottom_panel_default_to_visible_200px() {
+        let settings: AppUiSettings = serde_json::from_str(
+            r#"{
+                "theme":"Dark",
+                "ai_features_enabled":true,
+                "restore_session_on_launch":true,
+                "show_saved_queries":true,
+                "show_connections":false,
+                "show_explorer":true,
+                "show_history":false,
+                "show_sql_editor":false,
+                "show_agent_panel":false,
+                "default_page_size":100,
+                "tool_panel_layout":{
+                    "sidebar":["Connections","Explorer","SavedQueries","History"],
+                    "inspector":["Agent"]
+                }
+            }"#,
+        )
+        .expect("legacy settings fixture should deserialize");
+
+        assert!(settings.show_bottom_panel);
+        assert_eq!(settings.bottom_panel_height, 200.0);
+    }
+
+    #[test]
+    fn persisted_bottom_panel_state_is_preserved() {
+        let settings: AppUiSettings = serde_json::from_str(
+            r#"{
+                "theme":"Dark",
+                "ai_features_enabled":true,
+                "restore_session_on_launch":true,
+                "show_saved_queries":true,
+                "show_connections":false,
+                "show_explorer":true,
+                "show_history":false,
+                "show_sql_editor":false,
+                "show_agent_panel":false,
+                "default_page_size":100,
+                "tool_panel_layout":{
+                    "sidebar":["Connections","Explorer","SavedQueries","History"],
+                    "inspector":["Agent"]
+                },
+                "show_bottom_panel":false,
+                "bottom_panel_height":312.5
+            }"#,
+        )
+        .expect("settings fixture should deserialize");
+
+        assert!(!settings.show_bottom_panel);
+        assert!((settings.bottom_panel_height - 312.5).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -605,6 +676,10 @@ mod tests {
                 show_row_counts: false,
                 sort_alphabetical: true,
             },
+            // Bottom dock starts visible by default; flip to false so the
+            // round-trip also exercises the persisted `show_bottom_panel`.
+            show_bottom_panel: false,
+            bottom_panel_height: 320.5,
             ..AppUiSettings::default()
         };
         settings.codestral.enabled = true;
@@ -636,6 +711,10 @@ mod tests {
             ("show_sql_editor", Box::new(|s| s.show_sql_editor = false)),
             ("show_agent_panel", Box::new(|s| s.show_agent_panel = false)),
             ("default_page_size", Box::new(|s| s.default_page_size = 500)),
+            (
+                "show_bottom_panel",
+                Box::new(|s| s.show_bottom_panel = true),
+            ),
         ];
 
         for (field_name, mutate) in toggle_mutations {
@@ -735,6 +814,14 @@ mod tests {
             assert_eq!(
                 reloaded.explorer, settings.explorer,
                 "{field_name} toggle dropped explorer view settings"
+            );
+            assert_eq!(
+                reloaded.show_bottom_panel, settings.show_bottom_panel,
+                "{field_name} toggle dropped show_bottom_panel"
+            );
+            assert_eq!(
+                reloaded.bottom_panel_height, settings.bottom_panel_height,
+                "{field_name} toggle dropped bottom_panel_height"
             );
         }
     }
