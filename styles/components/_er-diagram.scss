@@ -1,0 +1,481 @@
+@use "../base/tokens" as *;
+@use "../base/states" as *;
+
+// ---------------------------------------------------------------------------
+// ER-diagram viewer (lives in its own native OS window).
+//
+// The window has its own webview + theme class (set by
+// `ErDiagramWindowRoot`); the `.er-diagram-window-shell` only has to fill
+// the viewport and provide a non-transparent background so the window is not
+// blank when no styles reach it. Every visual style below resolves to design
+// tokens (`--color-*`, `--glass-*`, `$spacing-*`, `$radius-*`, `$motion-*`)
+// so light / dark themes stay consistent with the rest of the app.
+// ---------------------------------------------------------------------------
+
+.er-diagram-window-shell {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--color-text);
+  background: var(--color-surface-main, var(--color-bg));
+}
+
+.er-diagram {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 100vh;
+  isolation: isolate;
+  font-family: $font-family-sans;
+  font-size: $font-size-sm;
+  color: var(--color-text);
+}
+
+// ---------------------------------------------------------------------------
+// Header bar (title + zoom controls)
+// ---------------------------------------------------------------------------
+
+.er-diagram__header {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  padding: $spacing-md $spacing-lg;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--glass-border) 72%, var(--color-border));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(
+        in srgb,
+        var(--color-surface-elevated, var(--color-panel-2)) 82%,
+        var(--glass-tint-strong)
+      ),
+      color-mix(
+        in srgb,
+        var(--color-surface-main, var(--color-panel)) 92%,
+        transparent
+      )
+    );
+  backdrop-filter: blur(18px) saturate(140%);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+
+.er-diagram__title {
+  font-size: $font-size-md;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  letter-spacing: 0.01em;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.er-diagram__controls {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  flex-shrink: 0;
+}
+
+// ---------------------------------------------------------------------------
+// Zoom buttons (+ / -, Reset)
+// ---------------------------------------------------------------------------
+
+.er-diagram__zoom-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+  font-size: $font-size-sm;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--color-text-dim);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(
+        in srgb,
+        var(--color-surface-elevated, var(--color-panel-2)) 80%,
+        transparent
+      ),
+      color-mix(
+        in srgb,
+        var(--color-surface-main, var(--color-panel)) 92%,
+        transparent
+      )
+    );
+  border: 1px solid
+    color-mix(in srgb, var(--glass-border) 64%, var(--color-border));
+  border-radius: $radius-sm;
+  cursor: pointer;
+  user-select: none;
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 4px 12px rgba(2, 8, 20, 0.12);
+  backdrop-filter: blur(12px) saturate(130%);
+  transition:
+    color $motion-fast ease,
+    background-color $motion-fast ease,
+    border-color $motion-fast ease,
+    box-shadow $motion-fast ease;
+
+  &:hover {
+    color: var(--color-text);
+    background: var(--color-hover);
+    border-color: color-mix(
+      in srgb,
+      var(--glass-border) 80%,
+      var(--color-border-strong)
+    );
+  }
+
+  &:active {
+    background: var(--color-active);
+    color: var(--color-text);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Canvas (pan + zoom surface)
+// ---------------------------------------------------------------------------
+
+.er-diagram__canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+  background-color: color-mix(
+    in srgb,
+    var(--color-bg) 60%,
+    var(--color-surface-main, var(--color-bg))
+  );
+  // Subtle dotted grid that reinforces the canvas as a pannable surface
+  // without competing with the table cards on top of it.
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    color-mix(in srgb, var(--color-border) 70%, transparent) 1px,
+    transparent 0
+  );
+  background-size: 22px 22px;
+
+  &:active {
+    cursor: grabbing;
+  }
+}
+
+// SVG layer sits above the dotted grid and below the table cards. The
+// relationship lines use `var(--color-primary)` and `marker_end="url(#arrowhead)"`
+// in the rsx, so we only need to make sure the svg fills the canvas without
+// intercepting mouse events (the canvas owns drag/pan).
+.er-diagram__svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+// Holds every absolutely-positioned table card; sized to the canvas so that
+// the card's `left` / `top` inline styles resolve against it. The pan/zoom
+// transform is applied to the SVG sibling, so this container does not need
+// its own transform — cards stay aligned with the relationship lines.
+.er-diagram__tables {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+}
+
+// ---------------------------------------------------------------------------
+// Table card
+// ---------------------------------------------------------------------------
+
+.er-table-card {
+  position: absolute;
+  width: 200px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid
+    color-mix(in srgb, var(--glass-border) 76%, var(--color-border));
+  border-radius: $radius-md;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(
+        in srgb,
+        var(--color-surface-elevated, var(--color-panel-2)) 86%,
+        var(--glass-tint-strong)
+      ),
+      color-mix(
+        in srgb,
+        var(--color-surface-main, var(--color-panel)) 94%,
+        transparent
+      )
+    );
+  box-shadow:
+    var(--shadow-panel),
+    inset 0 1px 0 var(--glass-highlight);
+  backdrop-filter: blur(18px) saturate(140%);
+  cursor: pointer;
+  overflow: hidden;
+  transition:
+    transform $motion-fast ease,
+    border-color $motion-fast ease,
+    box-shadow $motion-fast ease;
+
+  &:hover {
+    border-color: color-mix(
+      in srgb,
+      var(--color-primary) 40%,
+      var(--glass-border)
+    );
+    box-shadow:
+      var(--shadow-panel),
+      inset 0 1px 0 var(--glass-highlight),
+      0 0 0 1px color-mix(in srgb, var(--color-primary) 18%, transparent);
+    transform: translateY(-1px);
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
+}
+
+.er-table-card__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: $spacing-sm;
+  padding: $spacing-sm $spacing-md;
+  border-bottom: 1px solid var(--glass-border);
+  // Subtle primary tint so the header reads as the table's "title bar".
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-primary) 16%, transparent),
+      color-mix(in srgb, var(--color-primary) 4%, transparent)
+    );
+}
+
+.er-table-card__name {
+  font-size: $font-size-md;
+  font-weight: 600;
+  color: var(--color-text);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.er-table-card__schema {
+  flex-shrink: 0;
+  font-size: $font-size-xs;
+  color: var(--color-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60%;
+}
+
+.er-table-card__columns {
+  display: flex;
+  flex-direction: column;
+  // Long column lists scroll inside the card instead of overflowing the
+  // canvas — keeps relationship lines from being covered by oversized cards.
+  max-height: 200px;
+  overflow-y: auto;
+  padding: $spacing-2xs 0;
+}
+
+.er-table-card__column {
+  display: flex;
+  align-items: center;
+  padding: $spacing-2xs $spacing-md;
+  transition: background-color $motion-fast ease;
+
+  &:hover {
+    background: var(--color-hover);
+  }
+}
+
+.er-table-card__column-name {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-xs;
+  font-size: $font-size-sm;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.er-table-card__column-type {
+  flex-shrink: 0;
+  margin-left: $spacing-sm;
+  font-family: $font-family-mono;
+  font-size: $font-size-xs;
+  color: var(--color-text-dim);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+// PK badge rendered inside a column row when the column is a primary key.
+// The rsx also renders an empty span with `class=""` for non-PK columns; the
+// `:empty` rule collapses that placeholder so it does not push the column
+// name off-center.
+.er-table-card__pk-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 14px;
+  padding: 0 5px;
+  flex-shrink: 0;
+  font-family: $font-family-sans;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: color-mix(
+    in srgb,
+    var(--color-primary-hover) 92%,
+    white
+  );
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-primary) 86%, white 8%),
+      color-mix(
+        in srgb,
+        var(--color-primary-active) 90%,
+        var(--color-primary)
+      )
+    );
+  border-radius: 4px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    0 4px 10px color-mix(in srgb, var(--color-primary) 24%, transparent);
+
+  &:empty {
+    display: none;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Legend (bottom-right floating panel)
+// ---------------------------------------------------------------------------
+
+.er-diagram__legend {
+  position: absolute;
+  right: $spacing-lg;
+  bottom: $spacing-lg;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+  padding: $spacing-sm $spacing-md;
+  border: 1px solid
+    color-mix(in srgb, var(--glass-border) 72%, var(--color-border));
+  border-radius: $radius-md;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(
+        in srgb,
+        var(--color-surface-elevated, var(--color-panel-2)) 82%,
+        var(--glass-tint-strong)
+      ),
+      color-mix(
+        in srgb,
+        var(--color-surface-main, var(--color-panel)) 92%,
+        transparent
+      )
+    );
+  box-shadow:
+    var(--shadow-panel),
+    inset 0 1px 0 var(--glass-highlight);
+  backdrop-filter: blur(18px) saturate(140%);
+  pointer-events: none;
+}
+
+.er-diagram__legend-item {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  font-size: $font-size-xs;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+// Short horizontal line that previews the foreign-key relationship color
+// (`var(--color-primary)`, matching the SVG <line> stroke in the rsx).
+.er-diagram__legend-line {
+  display: inline-block;
+  width: 22px;
+  height: 0;
+  border-top: 2px solid var(--color-primary);
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+// Compact "PK" chip that matches the inline PK badge in the table cards.
+.er-diagram__legend-pk {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 14px;
+  padding: 0 5px;
+  flex-shrink: 0;
+  font-family: $font-family-sans;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: color-mix(
+    in srgb,
+    var(--color-primary-hover) 92%,
+    white
+  );
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-primary) 86%, white 8%),
+      color-mix(
+        in srgb,
+        var(--color-primary-active) 90%,
+        var(--color-primary)
+      )
+    );
+  border-radius: 4px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    0 4px 10px color-mix(in srgb, var(--color-primary) 24%, transparent);
+}

@@ -5693,6 +5693,302 @@ select.input:focus-visible {
   text-align: center;
 }
 
+.er-diagram-window-shell {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--color-text);
+  background: var(--color-surface-main, var(--color-bg));
+}
+
+.er-diagram {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 100vh;
+  isolation: isolate;
+  font-family: "SF Pro Text", "SF Pro Display", "IBM Plex Sans", "Segoe UI Variable", "Segoe UI", sans-serif;
+  font-size: 11px;
+  color: var(--color-text);
+}
+
+.er-diagram__header {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--glass-border) 72%, var(--color-border));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-surface-elevated, var(--color-panel-2)) 82%, var(--glass-tint-strong)), color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 92%, transparent));
+  backdrop-filter: blur(18px) saturate(140%);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+
+.er-diagram__title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  letter-spacing: 0.01em;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.er-diagram__controls {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.er-diagram__zoom-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--color-text-dim);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-surface-elevated, var(--color-panel-2)) 80%, transparent), color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 92%, transparent));
+  border: 1px solid color-mix(in srgb, var(--glass-border) 64%, var(--color-border));
+  border-radius: 7px;
+  cursor: pointer;
+  user-select: none;
+  box-shadow: inset 0 1px 0 var(--glass-highlight), 0 4px 12px rgba(2, 8, 20, 0.12);
+  backdrop-filter: blur(12px) saturate(130%);
+  transition: color 100ms ease, background-color 100ms ease, border-color 100ms ease, box-shadow 100ms ease;
+}
+.er-diagram__zoom-btn:hover {
+  color: var(--color-text);
+  background: var(--color-hover);
+  border-color: color-mix(in srgb, var(--glass-border) 80%, var(--color-border-strong));
+}
+.er-diagram__zoom-btn:active {
+  background: var(--color-active);
+  color: var(--color-text);
+}
+.er-diagram__zoom-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.er-diagram__canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+  background-color: color-mix(in srgb, var(--color-bg) 60%, var(--color-surface-main, var(--color-bg)));
+  background-image: radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--color-border) 70%, transparent) 1px, transparent 0);
+  background-size: 22px 22px;
+}
+.er-diagram__canvas:active {
+  cursor: grabbing;
+}
+
+.er-diagram__svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.er-diagram__tables {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+}
+
+.er-table-card {
+  position: absolute;
+  width: 200px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid color-mix(in srgb, var(--glass-border) 76%, var(--color-border));
+  border-radius: 11px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-surface-elevated, var(--color-panel-2)) 86%, var(--glass-tint-strong)), color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 94%, transparent));
+  box-shadow: var(--shadow-panel), inset 0 1px 0 var(--glass-highlight);
+  backdrop-filter: blur(18px) saturate(140%);
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 100ms ease, border-color 100ms ease, box-shadow 100ms ease;
+}
+.er-table-card:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 40%, var(--glass-border));
+  box-shadow: var(--shadow-panel), inset 0 1px 0 var(--glass-highlight), 0 0 0 1px color-mix(in srgb, var(--color-primary) 18%, transparent);
+  transform: translateY(-1px);
+}
+.er-table-card:active {
+  transform: translateY(0);
+}
+.er-table-card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.er-table-card__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--glass-border);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-primary) 16%, transparent), color-mix(in srgb, var(--color-primary) 4%, transparent));
+}
+
+.er-table-card__name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.er-table-card__schema {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--color-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60%;
+}
+
+.er-table-card__columns {
+  display: flex;
+  flex-direction: column;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 1px 0;
+}
+
+.er-table-card__column {
+  display: flex;
+  align-items: center;
+  padding: 1px 8px;
+  transition: background-color 100ms ease;
+}
+.er-table-card__column:hover {
+  background: var(--color-hover);
+}
+
+.er-table-card__column-name {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.er-table-card__column-type {
+  flex-shrink: 0;
+  margin-left: 6px;
+  font-family: "SF Mono", "JetBrains Mono", "Cascadia Code", monospace;
+  font-size: 10px;
+  color: var(--color-text-dim);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.er-table-card__pk-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 14px;
+  padding: 0 5px;
+  flex-shrink: 0;
+  font-family: "SF Pro Text", "SF Pro Display", "IBM Plex Sans", "Segoe UI Variable", "Segoe UI", sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: color-mix(in srgb, var(--color-primary-hover) 92%, white);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-primary) 86%, white 8%), color-mix(in srgb, var(--color-primary-active) 90%, var(--color-primary)));
+  border-radius: 4px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32), 0 4px 10px color-mix(in srgb, var(--color-primary) 24%, transparent);
+}
+.er-table-card__pk-badge:empty {
+  display: none;
+}
+
+.er-diagram__legend {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--glass-border) 72%, var(--color-border));
+  border-radius: 11px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-surface-elevated, var(--color-panel-2)) 82%, var(--glass-tint-strong)), color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 92%, transparent));
+  box-shadow: var(--shadow-panel), inset 0 1px 0 var(--glass-highlight);
+  backdrop-filter: blur(18px) saturate(140%);
+  pointer-events: none;
+}
+
+.er-diagram__legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.er-diagram__legend-line {
+  display: inline-block;
+  width: 22px;
+  height: 0;
+  border-top: 2px solid var(--color-primary);
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.er-diagram__legend-pk {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 14px;
+  padding: 0 5px;
+  flex-shrink: 0;
+  font-family: "SF Pro Text", "SF Pro Display", "IBM Plex Sans", "Segoe UI Variable", "Segoe UI", sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: color-mix(in srgb, var(--color-primary-hover) 92%, white);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-primary) 86%, white 8%), color-mix(in srgb, var(--color-primary-active) 90%, var(--color-primary)));
+  border-radius: 4px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32), 0 4px 10px color-mix(in srgb, var(--color-primary) 24%, transparent);
+}
+
 .u-hidden {
   display: none !important;
 }
