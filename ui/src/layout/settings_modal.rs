@@ -16,7 +16,7 @@
 
 use crate::{components::tooltip_target::TooltipTarget, screens::SqlFormatSettingsFields};
 use dioxus::prelude::*;
-use models::{AppThemePreference, AppUiSettings, SqlFormatSettings, UiDensity};
+use models::{AppThemePreference, AppUiSettings, SqlFormatSettings, UiDensity, WorkspaceSplitMode};
 
 /// Top-level categories shown in the left navigation sidebar.
 ///
@@ -743,6 +743,36 @@ fn WorkspaceSection(props: SettingsSectionProps) -> Element {
                         },
                     }
                     span { "Show SQL editor by default" }
+                }
+                div {
+                    class: "field",
+                    span { class: "field__label", "Editor / result split" }
+                    div {
+                        class: "settings-modal__segmented settings-modal__segmented--split-mode",
+                        role: "group",
+                        aria_label: "Editor and result split mode",
+                        for variant in WorkspaceSplitMode::ALL {
+                            button {
+                                key: "{variant.css_class()}",
+                                class: if settings.split_mode == variant {
+                                    "button button--ghost button--small button--active"
+                                } else {
+                                    "button button--ghost button--small"
+                                },
+                                aria_pressed: settings.split_mode == variant,
+                                onclick: move |_| {
+                                    let mut next = section_props_signal.read().settings.clone();
+                                    next.split_mode = variant;
+                                    on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                                },
+                                "{variant.short_label()}"
+                            }
+                        }
+                    }
+                    p {
+                        class: "settings-modal__section-hint",
+                        "Single pane stacks the editor and result vertically. Side by side puts them in two columns. Stacked split keeps the stacked geometry with an explicit split divider."
+                    }
                 }
                 label {
                     class: if !settings.ai_features_enabled {

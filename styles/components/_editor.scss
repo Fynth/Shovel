@@ -16,6 +16,92 @@
   border-top: 0;
 }
 
+// Horizontal split: editor on the left, result column on the right.
+// The two columns are separated by .editor-shell__col-resize, which the
+// tabs.rs component renders only in this mode (and only when the SQL
+// editor is visible). The result column hosts the .editor__actions bar
+// and .workspace__results; the wrapper is always rendered so the layout
+// stays stable when toggling split mode at runtime.
+.editor-shell--split-horizontal {
+  flex-direction: row;
+}
+
+.editor-shell--split-horizontal .editor {
+  flex: 0 0 var(--editor-pane-width, clamp(280px, 38vw, 520px));
+  min-width: 0;
+  min-height: 0;
+  // Reset the fixed-height rule that the stacked layout applies via
+  // `--editor-pane-height`. The horizontal layout uses width instead.
+  flex-basis: var(--editor-pane-width, clamp(280px, 38vw, 520px));
+}
+
+.editor-shell--split-horizontal .editor-shell__bottom {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+// Vertical split is geometry-identical to the default stacked layout;
+// we keep a dedicated class so the divider can render a more explicit
+// "split" affordance (gradient halo + grip bar) when the user opts in.
+.editor-shell--split-vertical .editor-shell__resize-handle::after {
+  height: 6px;
+  background: color-mix(
+    in srgb,
+    var(--color-primary) 38%,
+    var(--color-border-strong) 62%
+  );
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-primary) 22%, transparent),
+    0 6px 12px rgba(2, 8, 18, 0.08);
+}
+
+.editor-shell__bottom {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-shell__col-resize {
+  position: relative;
+  flex: 0 0 6px;
+  min-width: 6px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background $motion-fast ease;
+}
+
+.editor-shell__col-resize::after {
+  content: "";
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  left: 50%;
+  width: 4px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-border-strong) 88%, transparent);
+}
+
+.editor-shell__col-resize:hover,
+.editor-shell__col-resize--active {
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+
+.editor-shell__col-resize:hover::after,
+.editor-shell__col-resize--active::after {
+  background: color-mix(in srgb, var(--color-primary) 72%, white 10%);
+}
+
+.editor-shell--resizing-x {
+  user-select: none;
+  cursor: col-resize;
+}
+
 .editor {
   flex: 0 0 var(--editor-pane-height, clamp(160px, 30vh, 260px));
   min-height: 120px;
@@ -348,8 +434,17 @@
 }
 
 @media (max-width: 760px) {
-  .editor-shell__resize-handle {
+  .editor-shell__resize-handle,
+  .editor-shell__col-resize {
     display: none;
+  }
+
+  .editor-shell--split-horizontal {
+    flex-direction: column;
+  }
+
+  .editor-shell--split-horizontal .editor {
+    flex-basis: var(--editor-pane-height, clamp(160px, 30vh, 260px));
   }
 }
 

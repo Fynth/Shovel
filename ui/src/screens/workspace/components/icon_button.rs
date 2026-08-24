@@ -41,6 +41,7 @@ pub enum ActionIcon {
     Close,
     Output,
     Messages,
+    Split,
     QueryLog,
     Transactions,
     Problems,
@@ -334,6 +335,11 @@ pub fn IconGlyph(icon: ActionIcon) -> Element {
                     path { d: "M8 9h8" }
                     path { d: "M8 12h8" }
                     path { d: "M8 15h5" }
+                },
+                ActionIcon::Split => rsx! {
+                    rect { x: "4", y: "5", width: "6.5", height: "14", rx: "1.6" }
+                    rect { x: "13.5", y: "5", width: "6.5", height: "14", rx: "1.6" }
+                    path { d: "M12 9v6" }
                 },
                 ActionIcon::Messages => rsx! {
                     path { d: "M4 6.5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H10l-4 3.5v-3.5H6a2 2 0 0 1-2-2z" }

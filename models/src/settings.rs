@@ -126,6 +126,73 @@ pub enum UiDensity {
     Comfortable,
 }
 
+/// How the central editor area (SQL editor + result grid) of the active
+/// query tab is laid out. Mirrors DBeaver's editor / result layout
+/// switcher:
+/// - `Off` keeps the default single-pane stack: editor on top, result
+///   below, with the existing vertical resize handle between them.
+/// - `Horizontal` places the SQL editor on the left and the result
+///   grid on the right, side-by-side, with a column-resize handle
+///   between them.
+/// - `Vertical` is identical to `Off` in geometry but renders an
+///   explicit "split" affordance (divider + grab bar) so the user
+///   sees the layout as a true split rather than a single pane with
+///   a drag handle.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkspaceSplitMode {
+    #[default]
+    Off,
+    Horizontal,
+    Vertical,
+}
+
+impl WorkspaceSplitMode {
+    /// All variants in display order. Used by the settings modal's
+    /// segmented control so adding a new variant only needs a code
+    /// change here.
+    pub const ALL: [Self; 3] = [Self::Off, Self::Horizontal, Self::Vertical];
+
+    /// CSS class applied to the active tab body. The class is a
+    /// no-op for `Off` (default behavior) so legacy layouts render
+    /// unchanged.
+    pub fn css_class(self) -> &'static str {
+        match self {
+            Self::Off => "split-mode-off",
+            Self::Horizontal => "split-mode-horizontal",
+            Self::Vertical => "split-mode-vertical",
+        }
+    }
+
+    /// Human-readable label for the settings modal segmented control
+    /// and the toolbar cycle button.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Off => "Single pane",
+            Self::Horizontal => "Side by side",
+            Self::Vertical => "Stacked split",
+        }
+    }
+
+    /// Short, dense label suitable for a toolbar button.
+    pub fn short_label(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::Horizontal => "Side",
+            Self::Vertical => "Stack",
+        }
+    }
+
+    /// Next mode in the cycle, used by the toolbar button to step
+    /// through `Off -> Horizontal -> Vertical -> Off` on each click.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Off => Self::Horizontal,
+            Self::Horizontal => Self::Vertical,
+            Self::Vertical => Self::Off,
+        }
+    }
+}
+
 /// Per-object-type display options for the connection explorer tree
 /// (left panel). Mirrors the view-settings pane in DBeaver / DataGrip:
 /// each toggle gates a slice of the rendered tree without re-querying
@@ -279,6 +346,13 @@ pub struct AppUiSettings {
     /// Persisted height of the bottom dock in pixels. Used to restore the
     /// user's last resize without coupling the layout to a CSS-only value.
     pub bottom_panel_height: f64,
+
+    /// Layout of the central editor area (SQL editor + result grid) inside
+    /// the active query tab. Mirrors DBeaver's editor / result switcher
+    /// (`Off` = single stacked pane, `Horizontal` = side-by-side,
+    /// `Vertical` = stacked with explicit split affordance). The default
+    /// is `Off` so existing installs are visually unchanged.
+    pub split_mode: WorkspaceSplitMode,
 }
 
 impl Default for AppUiSettings {
@@ -304,13 +378,20 @@ impl Default for AppUiSettings {
             explorer: ExplorerViewSettings::default(),
             show_bottom_panel: true,
             bottom_panel_height: 200.0,
+            split_mode: WorkspaceSplitMode::default(),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{AppThemePreference, AppUiSettings, ExplorerViewSettings, UiDensity};
+    use super::{
+        AppThemePreference,
+        AppUiSettings,
+        ExplorerViewSettings,
+        UiDensity,
+        WorkspaceSplitMode,
+    };
 
     #[test]
     fn fresh_default_keeps_sql_editor_collapsed() {
@@ -680,6 +761,9 @@ mod tests {
             // round-trip also exercises the persisted `show_bottom_panel`.
             show_bottom_panel: false,
             bottom_panel_height: 320.5,
+            // Split mode defaults to Off; flip to Horizontal so the
+            // round-trip exercises the persisted `split_mode`.
+            split_mode: WorkspaceSplitMode::Horizontal,
             ..AppUiSettings::default()
         };
         settings.codestral.enabled = true;
@@ -823,6 +907,10 @@ mod tests {
                 reloaded.bottom_panel_height, settings.bottom_panel_height,
                 "{field_name} toggle dropped bottom_panel_height"
             );
+            assert_eq!(
+                reloaded.split_mode, settings.split_mode,
+                "{field_name} toggle dropped split_mode"
+            );
         }
     }
 
@@ -874,5 +962,76 @@ mod tests {
         let reloaded: ExplorerViewSettings =
             serde_json::from_str(&serialized).expect("settings should deserialize");
         assert_eq!(reloaded, settings);
+    }
+
+    #[test]
+    fn fresh_default_split_mode_is_off() {
+        let defaults = AppUiSettings::default();
+        assert_eq!(defaults.split_mode, WorkspaceSplitMode::Off);
+        assert_eq!(WorkspaceSplitMode::default(), WorkspaceSplitMode::Off);
+    }
+
+    #[test]
+    fn legacy_settings_missing_split_mode_default_to_off() {
+        // Settings written before the split-mode feature shipped should
+        // still deserialize — the missing field must default to `Off` so
+        // existing users keep the single-pane stack on first launch.
+        let settings: AppUiSettings = serde_json::from_str(
+            r#"{
+                "theme":"Dark",
+                "ai_features_enabled":true,
+                "restore_session_on_launch":true,
+                "show_saved_queries":true,
+                "show_connections":false,
+                "show_explorer":true,
+                "show_history":false,
+                "show_sql_editor":false,
+                "show_agent_panel":false,
+                "default_page_size":100,
+                "tool_panel_layout":{
+                    "sidebar":["Connections","Explorer","SavedQueries","History"],
+                    "inspector":["Agent"]
+                }
+            }"#,
+        )
+        .expect("legacy settings fixture should deserialize");
+
+        assert_eq!(settings.split_mode, WorkspaceSplitMode::Off);
+    }
+
+    #[test]
+    fn split_mode_round_trips_via_json() {
+        for variant in WorkspaceSplitMode::ALL {
+            let serialized = serde_json::to_string(&variant).expect("split mode should serialize");
+            let reloaded: WorkspaceSplitMode =
+                serde_json::from_str(&serialized).expect("split mode should deserialize");
+            assert_eq!(reloaded, variant);
+        }
+    }
+
+    #[test]
+    fn split_mode_css_class_matches_each_variant() {
+        assert_eq!(WorkspaceSplitMode::Off.css_class(), "split-mode-off");
+        assert_eq!(
+            WorkspaceSplitMode::Horizontal.css_class(),
+            "split-mode-horizontal"
+        );
+        assert_eq!(
+            WorkspaceSplitMode::Vertical.css_class(),
+            "split-mode-vertical"
+        );
+    }
+
+    #[test]
+    fn split_mode_next_cycles_through_all_variants() {
+        assert_eq!(
+            WorkspaceSplitMode::Off.next(),
+            WorkspaceSplitMode::Horizontal
+        );
+        assert_eq!(
+            WorkspaceSplitMode::Horizontal.next(),
+            WorkspaceSplitMode::Vertical
+        );
+        assert_eq!(WorkspaceSplitMode::Vertical.next(), WorkspaceSplitMode::Off);
     }
 }

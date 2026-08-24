@@ -2,6 +2,7 @@ use crate::{
     app_state::{
         APP_AI_FEATURES_ENABLED,
         APP_SHOW_SQL_EDITOR,
+        APP_SPLIT_MODE,
         APP_SQL_FORMAT_SETTINGS,
         APP_STATE,
         context_menu::{ContextMenuItem, open_context_menu},
@@ -31,6 +32,7 @@ use models::{
     QueryTabState,
     SqlFormatSettings,
     TablePreviewSource,
+    WorkspaceSplitMode,
     WorkspaceTabKind,
 };
 use rfd::AsyncFileDialog;
@@ -51,11 +53,20 @@ use super::{
 const EDITOR_MIN_HEIGHT: f64 = 160.0;
 const EDITOR_MAX_HEIGHT: f64 = 720.0;
 const EDITOR_DEFAULT_HEIGHT: f64 = 180.0;
+const EDITOR_MIN_WIDTH: f64 = 280.0;
+const EDITOR_MAX_WIDTH: f64 = 960.0;
+const EDITOR_DEFAULT_WIDTH: f64 = 520.0;
 
 #[derive(Clone, Copy, PartialEq)]
 struct EditorResizeState {
     start_y: f64,
     start_height: f64,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct EditorWidthResizeState {
+    start_x: f64,
+    start_width: f64,
 }
 
 #[derive(Clone, Copy)]
@@ -106,6 +117,8 @@ pub fn TabsManager(
 ) -> Element {
     let mut editor_height = use_signal(|| EDITOR_DEFAULT_HEIGHT);
     let mut editor_resize = use_signal(|| None::<EditorResizeState>);
+    let mut editor_width = use_signal(|| EDITOR_DEFAULT_WIDTH);
+    let mut editor_width_resize = use_signal(|| None::<EditorWidthResizeState>);
     let mut show_generate_sql_window = use_signal(|| false);
     let mut generate_sql_prompt = use_signal(String::new);
     let mut generate_sql_input_revision = use_signal(|| 0_u64);
@@ -141,34 +154,87 @@ pub fn TabsManager(
                     "editor-shell editor-shell--editor-hidden".to_string()
                 };
 
+                match APP_SPLIT_MODE() {
+                    WorkspaceSplitMode::Horizontal => {
+                        class_name.push_str(" editor-shell--split-horizontal");
+                    }
+                    WorkspaceSplitMode::Vertical => {
+                        class_name.push_str(" editor-shell--split-vertical");
+                    }
+                    WorkspaceSplitMode::Off => {}
+                }
+
                 if editor_resize().is_some() {
                     class_name.push_str(" editor-shell--resizing");
+                }
+                if editor_width_resize().is_some() {
+                    class_name.push_str(" editor-shell--resizing-x");
                 }
 
                 class_name
             },
-            style: if APP_SHOW_SQL_EDITOR() {
-                format!("--editor-pane-height: {:.0}px;", editor_height())
-            } else {
-                String::new()
+            style: {
+                let mut style = String::new();
+                if APP_SHOW_SQL_EDITOR() {
+                    match APP_SPLIT_MODE() {
+                        WorkspaceSplitMode::Horizontal => {
+                            style.push_str(&format!(
+                                "--editor-pane-width: {:.0}px;",
+                                editor_width()
+                            ));
+                        }
+                        _ => {
+                            style.push_str(&format!(
+                                "--editor-pane-height: {:.0}px;",
+                                editor_height()
+                            ));
+                        }
+                    }
+                }
+                style
             },
             onmousemove: move |event| {
-                let Some(resize) = editor_resize() else {
-                    return;
-                };
+                if let Some(resize) = editor_resize() {
+                    if event.held_buttons().is_empty() {
+                        editor_resize.set(None);
+                        return;
+                    }
 
-                if event.held_buttons().is_empty() {
-                    editor_resize.set(None);
+                    let delta_y = event.client_coordinates().y - resize.start_y;
+                    let next_height = (resize.start_height + delta_y)
+                        .clamp(EDITOR_MIN_HEIGHT, EDITOR_MAX_HEIGHT);
+                    editor_height.set(next_height);
                     return;
                 }
 
-                let delta_y = event.client_coordinates().y - resize.start_y;
-                let next_height =
-                    (resize.start_height + delta_y).clamp(EDITOR_MIN_HEIGHT, EDITOR_MAX_HEIGHT);
-                editor_height.set(next_height);
+                if let Some(resize) = editor_width_resize() {
+                    if event.held_buttons().is_empty() {
+                        editor_width_resize.set(None);
+                        return;
+                    }
+
+                    let delta_x = event.client_coordinates().x - resize.start_x;
+                    let next_width = (resize.start_width + delta_x)
+                        .clamp(EDITOR_MIN_WIDTH, EDITOR_MAX_WIDTH);
+                    editor_width.set(next_width);
+                }
             },
-            onmouseup: move |_| editor_resize.set(None),
-            onmouseleave: move |_| editor_resize.set(None),
+            onmouseup: move |_| {
+                if editor_resize().is_some() {
+                    editor_resize.set(None);
+                }
+                if editor_width_resize().is_some() {
+                    editor_width_resize.set(None);
+                }
+            },
+            onmouseleave: move |_| {
+                if editor_resize().is_some() {
+                    editor_resize.set(None);
+                }
+                if editor_width_resize().is_some() {
+                    editor_width_resize.set(None);
+                }
+            },
             div {
                 class: "tabbar",
                 for tab in tabs() {
@@ -323,23 +389,43 @@ pub fn TabsManager(
                             explorer_sections,
                         }
                     }
-                    div {
-                        class: if editor_resize().is_some() {
-                            "editor-shell__resize-handle editor-shell__resize-handle--active"
-                        } else {
-                            "editor-shell__resize-handle"
-                        },
-                        onmousedown: move |event| {
-                            event.prevent_default();
-                            editor_resize.set(Some(EditorResizeState {
-                                start_y: event.client_coordinates().y,
-                                start_height: editor_height(),
-                            }));
+                    if matches!(APP_SPLIT_MODE(), WorkspaceSplitMode::Horizontal) {
+                        div {
+                            class: if editor_width_resize().is_some() {
+                                "editor-shell__col-resize editor-shell__col-resize--active"
+                            } else {
+                                "editor-shell__col-resize"
+                            },
+                            onmousedown: move |event| {
+                                event.prevent_default();
+                                editor_width_resize.set(Some(EditorWidthResizeState {
+                                    start_x: event.client_coordinates().x,
+                                    start_width: editor_width(),
+                                }));
+                            }
+                        }
+                    } else {
+                        div {
+                            class: if editor_resize().is_some() {
+                                "editor-shell__resize-handle editor-shell__resize-handle--active"
+                            } else {
+                                "editor-shell__resize-handle"
+                            },
+                            onmousedown: move |event| {
+                                event.prevent_default();
+                                editor_resize.set(Some(EditorResizeState {
+                                    start_y: event.client_coordinates().y,
+                                    start_height: editor_height(),
+                                }));
+                            }
                         }
                     }
                 }
-                div {
-                    class: "editor__actions",
+                if matches!(APP_SPLIT_MODE(), WorkspaceSplitMode::Horizontal) {
+                    div {
+                        class: "editor-shell__bottom",
+                        div {
+                            class: "editor__actions",
                     IconButton {
                         icon: ActionIcon::Run,
                         label: "Run SQL".to_string(),
@@ -391,7 +477,6 @@ pub fn TabsManager(
                             );
                         },
                     }
-
                     IconButton {
                         icon: ActionIcon::Format,
                         label: "Format SQL".to_string(),
@@ -681,6 +766,8 @@ pub fn TabsManager(
                             active_tab_id,
                         }
                     }
+                }
+                }
                 }
             } else {
                 div {

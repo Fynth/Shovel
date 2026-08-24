@@ -22,6 +22,7 @@ use crate::{
         APP_SHOW_HISTORY,
         APP_SHOW_SAVED_QUERIES,
         APP_SHOW_SQL_EDITOR,
+        APP_SPLIT_MODE,
         APP_SQL_FORMAT_SETTINGS,
         APP_STATE,
         APP_THEME,
@@ -60,6 +61,7 @@ use crate::{
         set_show_history,
         set_show_saved_queries,
         set_show_sql_editor,
+        set_split_mode,
         show_toast,
         update_ui_settings,
     },
@@ -74,6 +76,7 @@ use models::{
     QueryTabState,
     SavedQuery,
     TablePreviewSource,
+    WorkspaceSplitMode,
     WorkspaceToolDock,
     WorkspaceToolPanel,
 };
@@ -707,6 +710,13 @@ fn WorkspaceBody(
                         active: APP_SHOW_SQL_EDITOR(),
                         small: true,
                         onclick: move |_| set_show_sql_editor(!APP_SHOW_SQL_EDITOR()),
+                    }
+                    IconButton {
+                        icon: ActionIcon::Split,
+                        label: format!("Editor layout: {}", APP_SPLIT_MODE().label()),
+                        active: !matches!(APP_SPLIT_MODE(), WorkspaceSplitMode::Off),
+                        small: true,
+                        onclick: move |_| set_split_mode(APP_SPLIT_MODE().next()),
                     }
                     if ai_features_enabled {
                         IconButton {

@@ -37,6 +37,7 @@ use models::{
     DatabaseConnection,
     SqlFormatSettings,
     UiDensity,
+    WorkspaceSplitMode,
 };
 use std::{
     collections::HashMap,
@@ -169,6 +170,13 @@ pub static APP_SHOW_BOTTOM_PANEL: GlobalSignal<bool> =
 /// it without re-reading the full settings struct on every pointer move.
 pub static APP_BOTTOM_PANEL_HEIGHT: GlobalSignal<f64> =
     Signal::global(|| AppUiSettings::default().bottom_panel_height);
+/// Active-tab body split mode (Off / Horizontal / Vertical). Mirrored
+/// from [`AppUiSettings::split_mode`] so the tab body and the workspace
+/// toolbar can both read it without re-reading the full settings struct
+/// on every render. Equality-guarded in `sync_runtime_ui_settings` so
+/// unrelated settings toggles do not invalidate the tab body.
+pub static APP_SPLIT_MODE: GlobalSignal<WorkspaceSplitMode> =
+    Signal::global(|| AppUiSettings::default().split_mode);
 pub static APP_TOOLTIP: GlobalSignal<Option<AppTooltip>> = Signal::global(|| None);
 pub static APP_TOAST: GlobalSignal<Vec<AppToast>> = Signal::global(Vec::new);
 pub static APP_TAB_DRAFTS: GlobalSignal<Vec<models::TabDraft>> = Signal::global(Vec::new);
@@ -337,6 +345,12 @@ pub fn set_bottom_panel_height(height: f64) {
     });
 }
 
+pub fn set_split_mode(mode: WorkspaceSplitMode) {
+    update_ui_settings(|current| {
+        current.split_mode = mode;
+    });
+}
+
 pub fn set_deepseek_enabled(enabled: bool) {
     update_ui_settings(|current| {
         current.deepseek.enabled = enabled;
@@ -398,6 +412,12 @@ fn sync_f64(signal: &GlobalSignal<f64>, new: f64) {
     }
 }
 
+fn sync_split_mode(signal: &GlobalSignal<WorkspaceSplitMode>, new: WorkspaceSplitMode) {
+    if *signal.peek() != new {
+        *signal.write() = new;
+    }
+}
+
 fn sync_runtime_ui_settings(settings: &AppUiSettings) {
     let theme_class = settings.theme.css_class().to_string();
     if *APP_THEME.peek() != theme_class {
@@ -421,6 +441,7 @@ fn sync_runtime_ui_settings(settings: &AppUiSettings) {
     );
     sync_bool(&APP_SHOW_BOTTOM_PANEL, settings.show_bottom_panel);
     sync_f64(&APP_BOTTOM_PANEL_HEIGHT, settings.bottom_panel_height);
+    sync_split_mode(&APP_SPLIT_MODE, settings.split_mode);
     crate::screens::workspace::components::agent_panel::prompt::sync_ai_response_language(
         settings.ai_response_language.clone(),
     );
