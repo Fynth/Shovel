@@ -19,13 +19,11 @@ pub async fn execute_explain(
 
     match connection {
         DatabaseConnection::Sqlite(pool) => execute_sqlite_explain(&pool, trimmed).await,
-        DatabaseConnection::Postgres(pool) => {
-            execute_postgres_explain(&pool, trimmed, analyze).await
-        }
+        DatabaseConnection::Postgres(pool) =>
+            execute_postgres_explain(&pool, trimmed, analyze).await,
         DatabaseConnection::MySql(pool) => execute_mysql_explain(&pool, trimmed).await,
-        DatabaseConnection::ClickHouse(config) => {
-            execute_clickhouse_explain(&config, trimmed).await
-        }
+        DatabaseConnection::ClickHouse(config) =>
+            execute_clickhouse_explain(&config, trimmed).await,
     }
 }
 

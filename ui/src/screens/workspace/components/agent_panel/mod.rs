@@ -11,8 +11,13 @@ use dioxus::prelude::*;
 use models::{AcpMessageKind, AcpPanelState, ChatArtifact, ChatThreadSummary, QueryTabState};
 
 use crate::app_state::{
-    APP_UI_SETTINGS, set_deepseek_api_key, set_deepseek_base_url, set_deepseek_enabled,
-    set_deepseek_model, set_deepseek_reasoning_effort, set_deepseek_thinking_enabled,
+    APP_UI_SETTINGS,
+    set_deepseek_api_key,
+    set_deepseek_base_url,
+    set_deepseek_enabled,
+    set_deepseek_model,
+    set_deepseek_reasoning_effort,
+    set_deepseek_thinking_enabled,
 };
 
 use super::{ActionIcon, IconButton};
@@ -20,17 +25,29 @@ use super::{ActionIcon, IconButton};
 use self::{
     composer::AgentComposer,
     messages::{
-        AGENT_MESSAGE_BATCH, MessageChunk, acp_registry_loading_text, acp_registry_preparing_text,
-        artifact_title, build_thread_meta, code_chunk_sql, compact_header_title,
-        copy_text_to_clipboard, is_visible_message, parse_message_chunks,
-        render_message_markdown_html, should_render_message_text,
+        AGENT_MESSAGE_BATCH,
+        MessageChunk,
+        acp_registry_loading_text,
+        acp_registry_preparing_text,
+        artifact_title,
+        build_thread_meta,
+        code_chunk_sql,
+        compact_header_title,
+        copy_text_to_clipboard,
+        is_visible_message,
+        parse_message_chunks,
+        render_message_markdown_html,
+        should_render_message_text,
     },
     prompt::insert_sql_into_editor,
     registry_card::RegistryAgentCard,
     requests::can_execute_agent_sql,
     setup::{AgentSetupMode, connect_embedded_deepseek, setup_mode_button_class},
     state::{
-        message_kind_avatar, message_kind_class, message_kind_label, permission_button_class,
+        message_kind_avatar,
+        message_kind_class,
+        message_kind_label,
+        permission_button_class,
         push_message,
     },
 };
@@ -38,8 +55,11 @@ use self::{
 pub(crate) use self::{
     prompt::{extract_sql_candidate, preferred_sql_target_tab_id},
     requests::{
-        execute_agent_sql_request, send_describe_object_request, send_sql_explanation_request,
-        send_sql_generation_request, send_sql_plan_request,
+        execute_agent_sql_request,
+        send_describe_object_request,
+        send_sql_explanation_request,
+        send_sql_generation_request,
+        send_sql_plan_request,
     },
     setup::ensure_default_sql_agent_connected,
     state::{apply_acp_events, default_acp_panel_state, replace_messages},

@@ -24,7 +24,11 @@ use crate::{
     screens::{
         connect::edit_connection_modal::EditConnectionModal,
         workspace::components::{
-            BlobData, BlobViewer, DataDiffViewer, ErDiagramState, ErDiagramViewer,
+            BlobData,
+            BlobViewer,
+            DataDiffViewer,
+            ErDiagramState,
+            ErDiagramViewer,
             explorer::{
                 create_table_modal,
                 create_table_modal::{CreateTableModal, CreateTableTarget},

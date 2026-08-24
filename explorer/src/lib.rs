@@ -8,16 +8,25 @@ mod postgres;
 mod sqlite;
 
 pub use mysql::{
-    describe_table_mysql, load_connection_tree_mysql, load_foreign_keys_mysql,
-    load_object_ddl_mysql, load_table_columns_mysql,
+    describe_table_mysql,
+    load_connection_tree_mysql,
+    load_foreign_keys_mysql,
+    load_object_ddl_mysql,
+    load_table_columns_mysql,
 };
 pub use postgres::{
-    describe_table_postgres, load_connection_tree_postgres, load_foreign_keys_postgres,
-    load_object_ddl_postgres, load_table_columns_postgres,
+    describe_table_postgres,
+    load_connection_tree_postgres,
+    load_foreign_keys_postgres,
+    load_object_ddl_postgres,
+    load_table_columns_postgres,
 };
 pub use sqlite::{
-    describe_table_sqlite, load_connection_tree_sqlite, load_foreign_keys_sqlite,
-    load_object_ddl_sqlite, load_table_columns_sqlite,
+    describe_table_sqlite,
+    load_connection_tree_sqlite,
+    load_foreign_keys_sqlite,
+    load_object_ddl_sqlite,
+    load_table_columns_sqlite,
 };
 
 pub async fn describe_table(
@@ -156,9 +165,8 @@ pub async fn load_table_columns(
 ) -> Result<Vec<String>, DatabaseError> {
     match connection {
         DatabaseConnection::Sqlite(pool) => load_table_columns_sqlite(&pool, schema, table).await,
-        DatabaseConnection::Postgres(pool) => {
-            load_table_columns_postgres(&pool, schema, table).await
-        }
+        DatabaseConnection::Postgres(pool) =>
+            load_table_columns_postgres(&pool, schema, table).await,
         DatabaseConnection::MySql(pool) => load_table_columns_mysql(&pool, schema, table).await,
         DatabaseConnection::ClickHouse(config) => {
             let schema_name = schema.unwrap_or_else(|| config.database.clone());
@@ -275,12 +283,10 @@ pub async fn load_object_ddl(
     kind: models::ExplorerNodeKind,
 ) -> Result<Option<String>, DatabaseError> {
     match connection {
-        DatabaseConnection::Sqlite(pool) => {
-            load_object_ddl_sqlite(&pool, schema, object, kind).await
-        }
-        DatabaseConnection::Postgres(pool) => {
-            load_object_ddl_postgres(&pool, schema, object, kind).await
-        }
+        DatabaseConnection::Sqlite(pool) =>
+            load_object_ddl_sqlite(&pool, schema, object, kind).await,
+        DatabaseConnection::Postgres(pool) =>
+            load_object_ddl_postgres(&pool, schema, object, kind).await,
         DatabaseConnection::MySql(pool) => load_object_ddl_mysql(&pool, schema, object, kind).await,
         DatabaseConnection::ClickHouse(config) => {
             let schema_name = schema.unwrap_or_else(|| config.database.clone());
@@ -425,9 +431,8 @@ fn clickhouse_json_value_to_string(value: &serde_json::Value) -> String {
         serde_json::Value::Bool(value) => value.to_string(),
         serde_json::Value::Number(value) => value.to_string(),
         serde_json::Value::String(value) => value.clone(),
-        serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
-            serde_json::to_string(value).unwrap_or_else(|_| "<unsupported>".to_string())
-        }
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) =>
+            serde_json::to_string(value).unwrap_or_else(|_| "<unsupported>".to_string()),
     }
 }
 

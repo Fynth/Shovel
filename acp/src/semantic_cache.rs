@@ -283,14 +283,13 @@ impl SemanticCache {
 
                 // Attempt cleanup, log errors but don't panic
                 match store.cleanup_expired(ttl_seconds).await {
-                    Ok(deleted) => {
+                    Ok(deleted) =>
                         if deleted > 0 {
                             tracing::debug!(
                                 "Cleaned up {} expired semantic cache entries",
                                 deleted
                             );
-                        }
-                    }
+                        },
                     Err(e) => {
                         tracing::warn!("Semantic cache cleanup failed: {}", e);
                     }

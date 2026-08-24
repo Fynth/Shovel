@@ -1,6 +1,12 @@
 use models::{
-    AcpConnectionInfo, AcpEvent, AcpLaunchRequest, AcpMessageKind, AcpOllamaConfig, AcpPanelState,
-    AcpUiMessage, ChatArtifact,
+    AcpConnectionInfo,
+    AcpEvent,
+    AcpLaunchRequest,
+    AcpMessageKind,
+    AcpOllamaConfig,
+    AcpPanelState,
+    AcpUiMessage,
+    ChatArtifact,
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -45,13 +51,12 @@ pub(crate) fn apply_acp_events(state: &mut AcpPanelState, events: Vec<AcpEvent>)
             AcpEvent::Status(status) => {
                 state.status = status;
             }
-            AcpEvent::Message { kind, text } => {
+            AcpEvent::Message { kind, text } =>
                 if state.suppress_transcript {
                     buffer_hidden_message(state, kind, text);
                 } else {
                     push_or_append_message(state, kind, text);
-                }
-            }
+                },
             AcpEvent::PermissionRequested(request) => {
                 state.pending_permission = Some(request);
                 state.busy = true;
@@ -253,7 +258,12 @@ fn unix_timestamp() -> i64 {
 mod tests {
     use super::{apply_acp_events, prompt_finished_status, replace_messages};
     use models::{
-        AcpEvent, AcpLaunchRequest, AcpMessageKind, AcpOllamaConfig, AcpPanelState, AcpUiMessage,
+        AcpEvent,
+        AcpLaunchRequest,
+        AcpMessageKind,
+        AcpOllamaConfig,
+        AcpPanelState,
+        AcpUiMessage,
     };
 
     fn test_state() -> AcpPanelState {

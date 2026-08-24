@@ -12,7 +12,11 @@
 //! breaks, every Shovel user who upgrades will see reset settings.
 
 use crate::{
-    AppThemePreference, AppUiSettings, SqlFormatSettings, WorkspaceToolDock, WorkspaceToolLayout,
+    AppThemePreference,
+    AppUiSettings,
+    SqlFormatSettings,
+    WorkspaceToolDock,
+    WorkspaceToolLayout,
     WorkspaceToolPanel,
 };
 use serde_json::{Value, json};

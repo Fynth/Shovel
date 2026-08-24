@@ -25,7 +25,11 @@ const TEXT_INPUT_MENU_SCRIPT: &str = include_str!("../../../app/assets/text-inpu
 
 use crate::{
     app_state::context_menu::{
-        CONTEXT_MENU, ContextMenuState, clamp_to_viewport, close_context_menu, invoke_callback,
+        CONTEXT_MENU,
+        ContextMenuState,
+        clamp_to_viewport,
+        close_context_menu,
+        invoke_callback,
     },
     screens::workspace::ActionIcon,
 };

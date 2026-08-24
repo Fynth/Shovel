@@ -1,12 +1,28 @@
 use crate::app_state::{
-    APP_READ_ONLY_MODE, APP_STATE, APP_UI_SETTINGS, LastQuerySummary, activate_session,
-    session_connection, set_last_query,
+    APP_READ_ONLY_MODE,
+    APP_STATE,
+    APP_UI_SETTINGS,
+    LastQuerySummary,
+    activate_session,
+    session_connection,
+    set_last_query,
 };
 use dioxus::prelude::*;
 use models::{
-    BatchOutcome, BatchResult, BatchRunState, BatchTransactionState, DatabaseConnection,
-    PendingTableChanges, QueryFilter, QueryFilterMode, QueryHistoryItem, QueryOutput, QuerySort,
-    QueryTabState, TablePreviewSource, WorkspaceTabKind,
+    BatchOutcome,
+    BatchResult,
+    BatchRunState,
+    BatchTransactionState,
+    DatabaseConnection,
+    PendingTableChanges,
+    QueryFilter,
+    QueryFilterMode,
+    QueryHistoryItem,
+    QueryOutput,
+    QuerySort,
+    QueryTabState,
+    TablePreviewSource,
+    WorkspaceTabKind,
 };
 use std::time::Instant;
 
@@ -858,6 +874,7 @@ pub fn run_table_preview_for_tab(
                 tab.pending_table_changes = PendingTableChanges::default();
             }
             tab.preview_source = Some(source.clone());
+            tab.tab_kind = WorkspaceTabKind::TablePreview;
         }
     });
 
@@ -1792,14 +1809,28 @@ pub(crate) fn indent_segment(sql: &str, direction: IndentDirection) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        IndentDirection, append_query_page, apply_indent, comment_segment,
-        format_loaded_rows_from_source_status, format_loaded_rows_status, indent_segment,
-        preview_statement, redact_sql, rows_toolbar_summary, strip_line_comment,
-        sync_tab_sql_draft, toggle_cached_execution_plan, uncomment_segment,
+        IndentDirection,
+        append_query_page,
+        apply_indent,
+        comment_segment,
+        format_loaded_rows_from_source_status,
+        format_loaded_rows_status,
+        indent_segment,
+        preview_statement,
+        redact_sql,
+        rows_toolbar_summary,
+        strip_line_comment,
+        sync_tab_sql_draft,
+        toggle_cached_execution_plan,
+        uncomment_segment,
     };
 
     use models::{
-        EditableTableContext, ExecutionPlan, QueryPage, QueryTabState, TablePreviewSource,
+        EditableTableContext,
+        ExecutionPlan,
+        QueryPage,
+        QueryTabState,
+        TablePreviewSource,
         WorkspaceTabKind,
     };
 

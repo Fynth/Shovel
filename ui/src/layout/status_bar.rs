@@ -1,5 +1,7 @@
-use crate::app_state::{APP_LAST_QUERY, APP_STATE, LastQuerySummary};
-use crate::screens::workspace::helpers::format_duration;
+use crate::{
+    app_state::{APP_LAST_QUERY, APP_STATE, LastQuerySummary},
+    screens::workspace::helpers::format_duration,
+};
 use dioxus::prelude::*;
 use models::DatabaseKind;
 

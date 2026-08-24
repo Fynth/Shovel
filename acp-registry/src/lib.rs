@@ -611,8 +611,13 @@ fn join_args(args: &[String]) -> String {
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{
-        RegistryAgentRecord, RegistryBinaryTarget, RegistryDistribution, RegistryDocument,
-        built_in_registry, merge_with_built_in_registry, response_excerpt,
+        RegistryAgentRecord,
+        RegistryBinaryTarget,
+        RegistryDistribution,
+        RegistryDocument,
+        built_in_registry,
+        merge_with_built_in_registry,
+        response_excerpt,
     };
     use std::collections::HashMap;
 

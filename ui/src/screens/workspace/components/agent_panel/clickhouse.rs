@@ -81,13 +81,12 @@ fn clickhouse_catalog_contains_source(
 ) -> bool {
     let expected_schema = source.schema.as_deref().unwrap_or(default_schema);
     nodes.iter().any(|node| match node.kind {
-        models::ExplorerNodeKind::Schema => {
+        models::ExplorerNodeKind::Schema =>
             node.name == expected_schema
                 && node.children.iter().any(|child| {
                     child.schema.as_deref() == Some(expected_schema)
                         && child.name == source.table_name
-                })
-        }
+                }),
         _ => node.schema.as_deref() == Some(expected_schema) && node.name == source.table_name,
     })
 }
@@ -224,8 +223,10 @@ fn rewrite_simple_select_source(
 #[cfg(test)]
 mod tests {
     use super::{
-        clickhouse_catalog_contains_source, clickhouse_match_is_confident,
-        clickhouse_source_display_name, ranked_clickhouse_source_matches,
+        clickhouse_catalog_contains_source,
+        clickhouse_match_is_confident,
+        clickhouse_source_display_name,
+        ranked_clickhouse_source_matches,
         rewrite_simple_select_source,
     };
     use models::{ExplorerNode, ExplorerNodeKind, TablePreviewSource};
@@ -254,7 +255,10 @@ mod tests {
 
     #[test]
     fn clickhouse_catalog_lookup_uses_default_schema_for_unqualified_sql() {
-        let tree = vec![schema_node("dwh_ogs", vec![table_node("source_statistics")])];
+        let tree = vec![schema_node(
+            "dwh_ogs",
+            vec![table_node("source_statistics")],
+        )];
         let source = TablePreviewSource {
             schema: None,
             table_name: "source_statistics".to_string(),
@@ -272,7 +276,10 @@ mod tests {
 
     #[test]
     fn clickhouse_catalog_lookup_rejects_missing_relation_names() {
-        let tree = vec![schema_node("dwh_ogs", vec![table_node("dag_source_statistics")])];
+        let tree = vec![schema_node(
+            "dwh_ogs",
+            vec![table_node("dag_source_statistics")],
+        )];
         let source = TablePreviewSource {
             schema: Some("dwh_ogs".to_string()),
             table_name: "dag_source_statistics_kafka_buffer".to_string(),

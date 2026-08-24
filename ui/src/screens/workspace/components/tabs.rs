@@ -31,6 +31,7 @@ use models::{
     QueryTabState,
     SqlFormatSettings,
     TablePreviewSource,
+    WorkspaceTabKind,
 };
 use rfd::AsyncFileDialog;
 
@@ -42,6 +43,7 @@ use super::{
     IconButton,
     ResultTable,
     SqlEditor,
+    TableEditor,
     ensure_default_sql_agent_connected,
     send_sql_generation_request,
 };
@@ -664,6 +666,13 @@ pub fn TabsManager(
                                 tabs,
                                 active_tab_id,
                             }
+                        }
+                    } else if tab.tab_kind == WorkspaceTabKind::TablePreview
+                        && tab.preview_source.is_some()
+                    {
+                        TableEditor {
+                            tabs,
+                            active_tab_id,
                         }
                     } else {
                         ResultTable {

@@ -1,12 +1,12 @@
 use crate::app_state::{
-    APP_STATE, activate_session,
+    APP_STATE,
+    activate_session,
     context_menu::{ContextMenuItem, open_context_menu},
 };
 use dioxus::prelude::*;
 use models::{QueryHistoryItem, QueryTabState};
 
-use crate::screens::workspace::actions::set_active_tab_sql;
-use crate::screens::workspace::helpers::format_duration;
+use crate::screens::workspace::{actions::set_active_tab_sql, helpers::format_duration};
 
 const PAGE_SIZE: usize = 50;
 
@@ -683,9 +683,8 @@ fn build_history_context_menu(
                         format!("Cleared {n} history entries"),
                         crate::app_state::ToastKind::Info,
                     ),
-                    Err(err) => {
-                        crate::app_state::toast_error(format!("Failed to clear history: {err}"))
-                    }
+                    Err(err) =>
+                        crate::app_state::toast_error(format!("Failed to clear history: {err}")),
                 }
             });
         })

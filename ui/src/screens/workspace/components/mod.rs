@@ -15,7 +15,9 @@ mod saved_queries;
 mod session_rail;
 mod sql_editor;
 mod sql_format_settings;
+mod table_ddl_builder;
 mod table_editor;
+mod table_structure;
 mod tabs;
 
 pub(crate) use agent_panel::{
@@ -48,4 +50,5 @@ pub use saved_queries::SavedQueriesPanel;
 pub use session_rail::SessionRail;
 pub use sql_editor::SqlEditor;
 pub use sql_format_settings::SqlFormatSettingsFields;
+pub use table_editor::TableEditor;
 pub use tabs::TabsManager;

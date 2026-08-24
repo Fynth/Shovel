@@ -3,7 +3,10 @@ use dioxus::prelude::*;
 use models::{ConnectionRequest, PostgresFormData, SshTunnelConfig};
 
 use super::{
-    SshTunnelFields, connection_status_class, format_connection_error, validate_required_fields,
+    SshTunnelFields,
+    connection_status_class,
+    format_connection_error,
+    validate_required_fields,
 };
 
 #[component]

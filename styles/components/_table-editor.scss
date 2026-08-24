@@ -1,0 +1,268 @@
+@use "../base/tokens" as *;
+
+// Table editor shell — wraps a previewed table with sub-tabs
+// (Data | Structure | DDL | Indexes | Relations) and hosts the
+// matching panel. Visually lighter than the workspace panes so the
+// data grid stays the focus; the sub-tab strip is a compact
+// horizontal bar with the active pill tinted by --color-primary.
+.table-editor {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.table-editor__tabs {
+  display: flex;
+  align-items: stretch;
+  gap: $spacing-2xs;
+  flex: 0 0 auto;
+  padding: 0 $spacing-sm;
+  height: var(--ui-tab-height, 28px);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
+  background: color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 64%, transparent);
+}
+
+.table-editor__tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  padding: 0 $spacing-md;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--ui-font-size, 12px);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color $motion-fast ease, border-color $motion-fast ease, background $motion-fast ease;
+
+  &:hover {
+    color: var(--color-text);
+    background: color-mix(in srgb, var(--color-hover) 100%, transparent);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+    border-radius: $radius-sm;
+  }
+}
+
+.table-editor__tab--active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+
+  &:hover {
+    color: var(--color-primary-hover);
+  }
+}
+
+.table-editor__body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
+.table-editor__meta {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  flex: 0 0 auto;
+  padding: $spacing-2xs $spacing-md;
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
+  background: color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 50%, transparent);
+  color: var(--color-text-dim);
+  font-size: $font-size-sm;
+}
+
+.table-editor__meta-name {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.table-editor__meta-schema {
+  color: var(--color-text-dim);
+  font-family: $font-family-mono;
+}
+
+// Panel containers — every sub-tab renders its content into a
+// `.table-editor__panel` wrapper. Default flow is stacked (so the
+// Data grid can grow) with internal scroll; panels are free to
+// override.
+.table-editor__panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  padding: $spacing-md;
+  gap: $spacing-sm;
+  overflow: auto;
+}
+
+.table-editor__panel-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: $font-size-md;
+  line-height: $line-height-normal;
+}
+
+.table-editor__panel-hint--muted {
+  color: var(--color-text-dim);
+  font-size: $font-size-sm;
+}
+
+.table-editor__panel-error {
+  margin: 0;
+  padding: $spacing-sm $spacing-md;
+  border: 1px solid color-mix(in srgb, var(--color-error) 38%, transparent);
+  border-radius: $radius-md;
+  background: color-mix(in srgb, var(--color-error) 10%, transparent);
+  color: color-mix(in srgb, var(--color-error) 84%, white 16%);
+  font-size: $font-size-sm;
+  line-height: $line-height-normal;
+}
+
+.table-editor__empty {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+  padding: $spacing-lg;
+  border: 1px dashed color-mix(in srgb, var(--color-border) 86%, transparent);
+  border-radius: $radius-md;
+  background: color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 50%, transparent);
+}
+
+// Structure grid — read-only columns table. CSS grid rather than
+// `<table>` so the rows can scroll independently and we don't fight
+// the virtualized data grid for the same selectors.
+.table-editor__structure-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1px;
+  background: color-mix(in srgb, var(--color-border) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+  border-radius: $radius-md;
+  overflow: hidden;
+  font-size: $font-size-sm;
+}
+
+.table-editor__structure-header,
+.table-editor__structure-row {
+  display: contents;
+}
+
+.table-editor__structure-cell {
+  padding: $spacing-xs $spacing-sm;
+  background: color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 92%, transparent);
+  color: var(--color-text);
+  font-family: $font-family-mono;
+  font-size: $font-size-sm;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.table-editor__structure-cell--head {
+  background: color-mix(in srgb, var(--color-surface-contrast, var(--color-panel-2)) 80%, transparent);
+  color: var(--color-text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: $font-size-xs;
+}
+
+// DDL pre — monospace, scrollable horizontally for long CREATE
+// statements.
+.table-editor__ddl {
+  margin: 0;
+  padding: $spacing-md;
+  border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+  border-radius: $radius-md;
+  background: color-mix(
+    in srgb,
+    var(--color-surface-contrast, var(--color-panel-2)) 78%,
+    transparent
+  );
+  color: var(--color-text);
+  font-family: $font-family-mono;
+  font-size: $font-size-sm;
+  line-height: 1.5;
+  white-space: pre;
+  overflow: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+// Relations grid — constraint | from | to. Mirrors the structure
+// grid pattern for visual consistency.
+.table-editor__relations-grid {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-2xs;
+  border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+  border-radius: $radius-md;
+  background: color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 72%, transparent);
+  overflow: hidden;
+}
+
+.table-editor__relations-header,
+.table-editor__relations-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(160px, 1.4fr) minmax(160px, 1.4fr);
+  gap: $spacing-sm;
+  padding: $spacing-xs $spacing-md;
+}
+
+.table-editor__relations-header {
+  background: color-mix(in srgb, var(--color-surface-contrast, var(--color-panel-2)) 80%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
+  color: var(--color-text-muted);
+  font-size: $font-size-xs;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.table-editor__relations-row {
+  color: var(--color-text);
+  font-size: $font-size-sm;
+  font-family: $font-family-mono;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+
+  &:last-child {
+    border-bottom: 0;
+  }
+}
+
+.table-editor__relations-cell {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-editor__relations-cell--head {
+  font-family: $font-family-sans;
+}
+
+.table-editor__relations-cell--name {
+  color: var(--color-primary);
+}
+
+@media (max-width: 760px) {
+  .table-editor__tabs {
+    overflow-x: auto;
+  }
+
+  .table-editor__relations-header,
+  .table-editor__relations-row {
+    grid-template-columns: 1fr;
+    gap: $spacing-2xs;
+  }
+}
