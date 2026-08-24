@@ -5,36 +5,81 @@ mod context;
 pub mod helpers;
 mod hooks;
 
-use crate::app_state::keyboard::{ShortcutAction, match_key_combination};
-use crate::app_state::{
-    APP_AI_FEATURES_ENABLED, APP_SHOW_AGENT_PANEL, APP_SHOW_CONNECTIONS, APP_SHOW_EXPLORER,
-    APP_SHOW_HISTORY, APP_SHOW_SAVED_QUERIES, APP_SHOW_SQL_EDITOR, APP_SQL_FORMAT_SETTINGS,
-    APP_STATE, APP_THEME, APP_UI_SETTINGS, ToastKind, context_menu, open_connection_screen,
-    request_focus_editor, request_focus_filter_panel, set_show_agent_panel, set_show_connections,
-    set_show_explorer, set_show_history, set_show_saved_queries, set_show_sql_editor, show_toast,
-    update_ui_settings,
+use crate::{
+    app_state::{
+        APP_AI_FEATURES_ENABLED,
+        APP_SHOW_AGENT_PANEL,
+        APP_SHOW_CONNECTIONS,
+        APP_SHOW_EXPLORER,
+        APP_SHOW_HISTORY,
+        APP_SHOW_SAVED_QUERIES,
+        APP_SHOW_SQL_EDITOR,
+        APP_SQL_FORMAT_SETTINGS,
+        APP_STATE,
+        APP_THEME,
+        APP_UI_SETTINGS,
+        ToastKind,
+        context_menu,
+        keyboard::{ShortcutAction, match_key_combination},
+        open_connection_screen,
+        request_focus_editor,
+        request_focus_filter_panel,
+        set_show_agent_panel,
+        set_show_connections,
+        set_show_explorer,
+        set_show_history,
+        set_show_saved_queries,
+        set_show_sql_editor,
+        show_toast,
+        update_ui_settings,
+    },
+    windows,
 };
-use crate::windows;
 use dioxus::{html::input_data::MouseButton, prelude::*};
 use models::{
-    AcpPanelState, ChatThreadSummary, QueryHistoryItem, QueryTabState, SavedQuery,
-    WorkspaceToolDock, WorkspaceToolPanel,
+    AcpPanelState,
+    ChatThreadSummary,
+    QueryHistoryItem,
+    QueryTabState,
+    SavedQuery,
+    WorkspaceToolDock,
+    WorkspaceToolPanel,
 };
 
 use self::{
     chat::{create_chat_thread, delete_chat_thread, select_chat_thread},
     components::{
-        AcpAgentPanel, IconButton, QueryHistoryPanel, SavedQueriesPanel, SessionRail,
-        SidebarConnectionTree, TabsManager,
+        AcpAgentPanel,
+        IconButton,
+        QueryHistoryPanel,
+        SavedQueriesPanel,
+        SessionRail,
+        SidebarConnectionTree,
+        TabsManager,
     },
     helpers::{
-        DockDropTarget, INSPECTOR_MAX_WIDTH, INSPECTOR_MIN_WIDTH, SIDEBAR_MAX_WIDTH,
-        SIDEBAR_MIN_WIDTH, WORKSPACE_ROOT_ID, apply_tool_panel_drop, should_render_explorer_status,
-        tool_panel_class, visible_tool_panels, workspace_resize_script,
+        DockDropTarget,
+        INSPECTOR_MAX_WIDTH,
+        INSPECTOR_MIN_WIDTH,
+        SIDEBAR_MAX_WIDTH,
+        SIDEBAR_MIN_WIDTH,
+        WORKSPACE_ROOT_ID,
+        apply_tool_panel_drop,
+        should_render_explorer_status,
+        tool_panel_class,
+        visible_tool_panels,
+        workspace_resize_script,
     },
     hooks::{
-        AcpState, AcpStateInputs, ChatState, ExplorerState, QueryTabsState, use_acp_state,
-        use_chat_state, use_explorer_state, use_query_tabs,
+        AcpState,
+        AcpStateInputs,
+        ChatState,
+        ExplorerState,
+        QueryTabsState,
+        use_acp_state,
+        use_chat_state,
+        use_explorer_state,
+        use_query_tabs,
     },
 };
 

@@ -14,8 +14,7 @@
 //!
 //! [`on_change`]: SettingsModalProps::on_change
 
-use crate::screens::SqlFormatSettingsFields;
-use crate::components::tooltip_target::TooltipTarget;
+use crate::{components::tooltip_target::TooltipTarget, screens::SqlFormatSettingsFields};
 use dioxus::prelude::*;
 use models::{AppThemePreference, AppUiSettings, SqlFormatSettings};
 
@@ -446,6 +445,25 @@ pub fn SettingsModal(props: SettingsModalProps) -> Element {
                                         on_change.call((next, props.read().sql_settings.clone()));
                                     },
                                 }
+                            }
+                            label {
+                                class: if !settings.ai_features_enabled {
+                                    "settings-modal__toggle settings-modal__toggle--disabled"
+                                } else {
+                                    "settings-modal__toggle"
+                                },
+                                aria_disabled: !settings.ai_features_enabled,
+                                input {
+                                    r#type: "checkbox",
+                                    checked: settings.ai_auto_apply_completions,
+                                    disabled: !settings.ai_features_enabled,
+                                    oninput: move |event| {
+                                        let mut next = props.read().settings.clone();
+                                        next.ai_auto_apply_completions = event.checked();
+                                        on_change.call((next, props.read().sql_settings.clone()));
+                                    },
+                                }
+                                span { "Auto-apply inline AI completions (insert after a short idle pause; otherwise press Tab to accept)" }
                             }
                         }
                     }

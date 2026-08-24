@@ -177,6 +177,10 @@ pub struct AppUiSettings {
     pub codestral: CodeStralSettings,
     pub deepseek: DeepSeekSettings,
     pub ai_response_language: String,
+    /// When `true`, inline AI completions are inserted automatically
+    /// after the user stops typing for a short idle pause; otherwise
+    /// completions stay as ghost text until the user presses Tab.
+    pub ai_auto_apply_completions: bool,
 }
 
 impl Default for AppUiSettings {
@@ -197,6 +201,7 @@ impl Default for AppUiSettings {
             codestral: CodeStralSettings::default(),
             deepseek: DeepSeekSettings::default(),
             ai_response_language: "English".to_string(),
+            ai_auto_apply_completions: true,
         }
     }
 }
@@ -227,6 +232,39 @@ mod tests {
     fn fresh_default_keeps_read_only_mode_disabled() {
         let defaults = AppUiSettings::default();
         assert!(!defaults.read_only_mode);
+    }
+
+    #[test]
+    fn fresh_default_ai_auto_apply_completions_is_enabled() {
+        assert!(AppUiSettings::default().ai_auto_apply_completions);
+    }
+
+    #[test]
+    fn legacy_settings_missing_ai_auto_apply_completions_defaults_to_true() {
+        // Settings written before the auto-apply feature shipped should
+        // still deserialize — the missing field must default to `true` so
+        // existing users get auto-apply behaviour on first launch.
+        let settings: AppUiSettings = serde_json::from_str(
+            r#"{
+                "theme":"Dark",
+                "ai_features_enabled":true,
+                "restore_session_on_launch":true,
+                "show_saved_queries":true,
+                "show_connections":false,
+                "show_explorer":true,
+                "show_history":false,
+                "show_sql_editor":false,
+                "show_agent_panel":false,
+                "default_page_size":100,
+                "tool_panel_layout":{
+                    "sidebar":["Connections","Explorer","SavedQueries","History"],
+                    "inspector":["Agent"]
+                }
+            }"#,
+        )
+        .expect("legacy settings fixture should deserialize");
+
+        assert!(settings.ai_auto_apply_completions);
     }
 
     #[test]
@@ -405,6 +443,9 @@ mod tests {
             show_sql_editor: true,
             show_agent_panel: true,
             default_page_size: 250,
+            // Default for ai_auto_apply_completions is `true`; flip it so the
+            // round-trip explicitly exercises the new field.
+            ai_auto_apply_completions: false,
             ..AppUiSettings::default()
         };
         settings.codestral.enabled = true;
@@ -523,6 +564,10 @@ mod tests {
             assert_eq!(
                 reloaded.tool_panel_layout, settings.tool_panel_layout,
                 "{field_name} toggle dropped tool_panel_layout"
+            );
+            assert_eq!(
+                reloaded.ai_auto_apply_completions, settings.ai_auto_apply_completions,
+                "{field_name} toggle dropped ai_auto_apply_completions"
             );
         }
     }

@@ -29,8 +29,13 @@
 
 use dioxus::prelude::*;
 use models::{
-    AppState, AppThemePreference, AppUiSettings, ConnectionRequest, ConnectionSession,
-    DatabaseConnection, SqlFormatSettings,
+    AppState,
+    AppThemePreference,
+    AppUiSettings,
+    ConnectionRequest,
+    ConnectionSession,
+    DatabaseConnection,
+    SqlFormatSettings,
 };
 use std::{
     collections::HashMap,
@@ -122,6 +127,8 @@ pub static APP_SQL_FORMAT_SETTINGS: GlobalSignal<SqlFormatSettings> =
     Signal::global(SqlFormatSettings::default);
 pub static APP_AI_FEATURES_ENABLED: GlobalSignal<bool> =
     Signal::global(|| AppUiSettings::default().ai_features_enabled);
+pub static APP_AI_AUTO_APPLY_COMPLETIONS: GlobalSignal<bool> =
+    Signal::global(|| AppUiSettings::default().ai_auto_apply_completions);
 pub static APP_READ_ONLY_MODE: GlobalSignal<bool> =
     Signal::global(|| AppUiSettings::default().read_only_mode);
 pub static APP_SHOW_SAVED_QUERIES: GlobalSignal<bool> =
@@ -260,6 +267,10 @@ fn sync_runtime_ui_settings(settings: &AppUiSettings) {
         *APP_THEME.write() = theme_class;
     }
     sync_bool(&APP_AI_FEATURES_ENABLED, settings.ai_features_enabled);
+    sync_bool(
+        &APP_AI_AUTO_APPLY_COMPLETIONS,
+        settings.ai_auto_apply_completions,
+    );
     sync_bool(&APP_READ_ONLY_MODE, settings.read_only_mode);
     sync_bool(&APP_SHOW_SAVED_QUERIES, settings.show_saved_queries);
     sync_bool(&APP_SHOW_CONNECTIONS, settings.show_connections);
@@ -517,11 +528,10 @@ fn persist_session_state() {
         .await;
 
         match result {
-            Ok(Ok(())) => {
+            Ok(Ok(())) =>
                 if let Ok(mut last_error) = LAST_SESSION_PERSIST_ERROR.lock() {
                     *last_error = None;
-                }
-            }
+                },
             Ok(Err(err)) => {
                 eprintln!("Failed to persist session state: {}", err);
                 let should_toast = if let Ok(mut last_error) = LAST_SESSION_PERSIST_ERROR.lock() {

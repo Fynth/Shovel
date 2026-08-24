@@ -5,20 +5,29 @@ mod selection;
 
 use crate::{
     app_state::{
-        APP_SQL_FORMAT_SETTINGS, APP_UI_SETTINGS,
+        APP_AI_AUTO_APPLY_COMPLETIONS,
+        APP_AI_FEATURES_ENABLED,
+        APP_SQL_FORMAT_SETTINGS,
+        APP_UI_SETTINGS,
         context_menu::{ContextMenuItem, open_context_menu},
         toast_error,
     },
     completion::{CompletionService, CompletionToken},
     screens::workspace::{
         actions::{
-            IndentDirection, clear_active_tab_sql, format_active_tab, indent_lines_in_active_tab,
-            replace_active_tab_sql, run_active_tab, run_active_tab_explain,
-            save_active_tab_as_saved_query, sync_active_tab_sql_draft,
+            IndentDirection,
+            clear_active_tab_sql,
+            format_active_tab,
+            indent_lines_in_active_tab,
+            replace_active_tab_sql,
+            run_active_tab,
+            run_active_tab_explain,
+            save_active_tab_as_saved_query,
+            sync_active_tab_sql_draft,
             toggle_line_comments_in_active_tab,
         },
-        components::explorer::ExplorerConnectionSection,
-        context::WorkspaceQueryContext,
+        components::{explorer::ExplorerConnectionSection, send_sql_explanation_request},
+        context::{WorkspaceAcpContext, WorkspaceQueryContext},
     },
 };
 use dioxus::prelude::*;
@@ -28,14 +37,21 @@ use std::time::Duration;
 use self::{
     highlight::SqlHighlightContent,
     selection::{
-        EditorSelection, current_token_range, editor_value_and_selection_query_script,
-        set_editor_value_script, sync_editor_selection, sync_editor_selection_debounced,
+        EditorSelection,
+        current_token_range,
+        editor_value_and_selection_query_script,
+        set_editor_value_script,
+        sync_editor_selection,
+        sync_editor_selection_debounced,
     },
 };
 
 const SQL_EDITOR_TEXTAREA_ID: &str = "workspace-sql-editor";
 const COMPLETION_DEBOUNCE_MS: u64 = 180;
 const HIGHLIGHT_IDLE_MS: u64 = 90;
+/// Idle pause before a finished inline completion is auto-inserted.
+/// Typing during this window cancels the auto-apply.
+const AUTO_APPLY_IDLE_MS: u64 = 400;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct InlineCompletion {
@@ -131,6 +147,168 @@ fn is_completion_accept_key(event: &KeyboardEvent) -> bool {
     event.key() == Key::Tab || event.code() == Code::Tab
 }
 
+/// Insert the active inline completion into the editor. Used by both
+/// the Tab accept handler and the auto-apply idle timer so the two
+/// insertion paths stay byte-identical (same trim rules, same clause
+/// space handling, same DOM/state sync).
+///
+/// `source` is a short tag used only for logging and tracing
+/// (`"tab"` vs `"auto"`).
+#[allow(clippy::too_many_arguments)]
+fn apply_inline_completion(
+    completion_runtime: Signal<CompletionRuntime>,
+    tabs: Signal<Vec<QueryTabState>>,
+    active_tab_id_value: u64,
+    mut draft_sql: Signal<String>,
+    mut editor_selection: Signal<EditorSelection>,
+    mut is_typing: Signal<bool>,
+    mut editor_revision: Signal<u64>,
+    completion_text_raw: String,
+    source: &'static str,
+) {
+    spawn(async move {
+        log_completion(&format!("apply_inline_completion ({source})"));
+        // Read current SQL from DOM (most accurate), fall back to signal.
+        let actual_sql = if let Ok((sql, _, _)) = document::eval(
+            &editor_value_and_selection_query_script(SQL_EDITOR_TEXTAREA_ID),
+        )
+        .join::<(String, usize, usize)>()
+        .await
+        {
+            sql
+        } else {
+            draft_sql.peek().clone()
+        };
+        let cursor = actual_sql.len();
+        let mut completion_text =
+            trim_completion_for_cursor(&actual_sql, cursor, &completion_text_raw);
+        let prev = actual_sql[..cursor].chars().last().unwrap_or(' ');
+        let next = completion_text.chars().next().unwrap_or(' ');
+        let next_is_new_clause = completion_text
+            .split_whitespace()
+            .next()
+            .is_some_and(is_sql_clause_start);
+        if !prev.is_whitespace()
+            && !next.is_whitespace()
+            && next_is_new_clause
+            && !completion_text.is_empty()
+        {
+            completion_text = format!(" {completion_text}");
+        }
+        if completion_text.is_empty() {
+            return;
+        }
+        let new_cursor = cursor + completion_text.len();
+        let new_sql = format!(
+            "{}{}{}",
+            &actual_sql[..cursor],
+            completion_text,
+            &actual_sql[cursor..]
+        );
+        draft_sql.set(new_sql.clone());
+        editor_selection.set(EditorSelection::collapsed(new_cursor));
+        is_typing.set(false);
+        reset_completion_to_snapshot(
+            completion_runtime,
+            hash_completion_snapshot(&new_sql, new_cursor),
+        );
+        editor_revision += 1;
+        let new_sql_for_dom = new_sql.clone();
+        replace_active_tab_sql(tabs, active_tab_id_value, new_sql, "Ready".to_string());
+        spawn(async move {
+            let _ = document::eval(&set_editor_value_script(
+                SQL_EDITOR_TEXTAREA_ID,
+                &new_sql_for_dom,
+                new_cursor,
+                true,
+            ))
+            .join::<bool>()
+            .await;
+        });
+    });
+}
+
+/// Schedule an automatic insert for the active inline completion. After
+/// `AUTO_APPLY_IDLE_MS` of idle time (no typing, no newer request, no
+/// dismissal) the completion is applied via the same path Tab uses.
+///
+/// The timer is keyed on the editor's `editor_revision` plus the
+/// completion snapshot: any typing (which bumps `editor_revision`)
+/// cancels the pending insert, so the editor never "fights" a user
+/// who's still editing.
+///
+/// The setting `ai_auto_apply_completions` gates the timer; when it
+/// is off, the timer is a no-op and completions stay as ghost text
+/// until the user accepts manually.
+#[allow(clippy::too_many_arguments)]
+fn schedule_auto_apply(
+    completion_runtime: Signal<CompletionRuntime>,
+    tabs: Signal<Vec<QueryTabState>>,
+    active_tab_id_value: u64,
+    draft_sql: Signal<String>,
+    editor_selection: Signal<EditorSelection>,
+    is_typing: Signal<bool>,
+    editor_revision: Signal<u64>,
+    snapshot: usize,
+) {
+    if !APP_AI_AUTO_APPLY_COMPLETIONS() {
+        log_completion("auto-apply: disabled by setting");
+        return;
+    }
+
+    // Snapshot the completion text now so a later request (e.g. the user
+    // hitting Tab and triggering another fetch) can't race us into
+    // inserting the wrong completion.
+    let completion_text = {
+        let state = completion_runtime.peek();
+        match state.active.as_ref() {
+            Some(active) if state.last_completed_snapshot == Some(snapshot) => active.text.clone(),
+            _ => return,
+        }
+    };
+
+    // Re-check after taking the snapshot: if the user typed between the
+    // Done token and us reaching this point, editor_revision already
+    // moved on and there is nothing to auto-apply.
+    let revision_at_schedule = *editor_revision.peek();
+    spawn(async move {
+        tokio::time::sleep(Duration::from_millis(AUTO_APPLY_IDLE_MS)).await;
+
+        // Typing (or any other revision bump) during the idle window
+        // cancels the auto-apply — the user is still editing.
+        if *editor_revision.peek() != revision_at_schedule {
+            log_completion("auto-apply: cancelled by typing");
+            return;
+        }
+
+        // Confirm the same completion is still active and the
+        // completion runtime hasn't been invalidated (e.g. by a newer
+        // request or an explicit Esc dismiss).
+        let should_apply = {
+            let state = completion_runtime.peek();
+            state.last_completed_snapshot == Some(snapshot)
+                && state.active.is_some()
+                && state.pending_snapshot.is_none()
+        };
+        if !should_apply {
+            log_completion("auto-apply: cancelled (completion no longer active)");
+            return;
+        }
+
+        apply_inline_completion(
+            completion_runtime,
+            tabs,
+            active_tab_id_value,
+            draft_sql,
+            editor_selection,
+            is_typing,
+            editor_revision,
+            completion_text,
+            "auto",
+        );
+    });
+}
+
 /// Returns true if the word looks like it starts a new SQL clause.
 fn is_sql_clause_start(word: &str) -> bool {
     matches!(
@@ -216,6 +394,7 @@ fn open_sql_editor_context_menu(
     next_saved_query_id: Signal<u64>,
     history: Signal<Vec<QueryHistoryItem>>,
     next_history_id: Signal<u64>,
+    acp_ctx: Option<WorkspaceAcpContext>,
 ) {
     // We snapshot the current SQL and selection once at open time
     // so the callbacks don't race the editor while the user is
@@ -349,6 +528,31 @@ fn open_sql_editor_context_menu(
         explain_item = explain_item.disabled();
     }
     items.push(explain_item);
+
+    // ── AI actions ──────────────────────────────────────────────
+    let ai_enabled = APP_AI_FEATURES_ENABLED();
+    if ai_enabled && let Some(acp_ctx) = acp_ctx {
+        let panel_state = acp_ctx.acp_panel_state;
+        let chat_revision = acp_ctx.chat_revision;
+        let allow_db_read = acp_ctx.allow_agent_db_read;
+        let label = acp_ctx.connection_label.clone();
+        let mut explain_ai_item =
+            ContextMenuItem::new("Explain with AI\t\tCtrl+Shift+E", move || {
+                send_sql_explanation_request(
+                    panel_state,
+                    tabs,
+                    active_tab_id,
+                    label.clone(),
+                    chat_revision,
+                    allow_db_read(),
+                );
+            })
+            .separator();
+        if !can_run {
+            explain_ai_item = explain_ai_item.disabled();
+        }
+        items.push(explain_ai_item);
+    }
 
     let mut save_item = ContextMenuItem::new(save_label, move || {
         let status = save_active_tab_as_saved_query(
@@ -642,6 +846,12 @@ pub fn SqlEditor(
     // without having to thread extra props through `TabsManager`.
     let query_ctx = use_context::<WorkspaceQueryContext>();
 
+    // The ACP context may not be provided in every render path
+    // (e.g. when the editor is shown in isolation). Treat absence as
+    // "no ACP explain available" and surface that as a disabled menu
+    // item rather than a runtime panic.
+    let acp_ctx = try_use_context::<WorkspaceAcpContext>();
+
     // Make the signals `Copy`-friendly inside the closures below
     // by binding them once at the top of the component body. The
     // `move` closures would otherwise move the same signal twice.
@@ -912,6 +1122,16 @@ pub fn SqlEditor(
                                     accumulated,
                                 );
                             });
+                            schedule_auto_apply(
+                                completion_runtime,
+                                tabs,
+                                active_tab_id_value,
+                                draft_sql,
+                                editor_selection,
+                                is_typing,
+                                editor_revision,
+                                sql_hash,
+                            );
                         }
                         return;
                     }
@@ -997,6 +1217,7 @@ pub fn SqlEditor(
                         next_saved_query_id_for_editor,
                         history_for_editor,
                         next_history_id_for_editor,
+                        acp_ctx.clone(),
                     );
                 },
 
@@ -1131,82 +1352,17 @@ pub fn SqlEditor(
                     {
                         event.prevent_default();
                         let completion_text_raw = completion_state.text.clone();
-                        spawn(async move {
-                        // Read current SQL from DOM, always complete at the end.
-                        let actual_sql = if let Ok((sql, _, _)) = document::eval(
-                            &editor_value_and_selection_query_script(
-                                SQL_EDITOR_TEXTAREA_ID,
-                            ),
-                        )
-                        .join::<(String, usize, usize)>()
-                        .await
-                        {
-                            sql
-                        } else {
-                            draft_sql.peek().clone()
-                        };
-                        let cursor = actual_sql.len();
-                        let mut completion_text = trim_completion_for_cursor(
-                            &actual_sql,
-                            cursor,
-                            &completion_text_raw,
-                        );
-                        // Prepend a space when the completion starts a new SQL
-                        // clause/keyword (e.g. "users" + "WHERE" → "users WHERE").
-                        // Don't add space when continuing the same word
-                        // (e.g. "sel" + "ect" → "select").
-                        let prev = actual_sql[..cursor]
-                            .chars()
-                            .last()
-                            .unwrap_or(' ');
-                        let next = completion_text.chars().next().unwrap_or(' ');
-                        let next_is_new_clause = completion_text
-                            .split_whitespace()
-                            .next()
-                            .is_some_and(is_sql_clause_start);
-                        if !prev.is_whitespace()
-                            && !next.is_whitespace()
-                            && next_is_new_clause
-                            && !completion_text.is_empty()
-                        {
-                            completion_text = format!(" {completion_text}");
-                        }
-                        if completion_text.is_empty() {
-                            return;
-                        }
-                        let new_cursor = cursor + completion_text.len();
-                        let new_sql = format!(
-                            "{}{}{}",
-                            &actual_sql[..cursor],
-                            completion_text,
-                            &actual_sql[cursor..]
-                        );
-                        draft_sql.set(new_sql.clone());
-                        editor_selection.set(EditorSelection::collapsed(new_cursor));
-                        is_typing.set(false);
-                        reset_completion_to_snapshot(
+                        apply_inline_completion(
                             completion_runtime,
-                            hash_completion_snapshot(&new_sql, new_cursor),
-                        );
-                        editor_revision += 1;
-                        let new_sql_for_dom = new_sql.clone();
-                        replace_active_tab_sql(
                             tabs,
                             active_tab_id_value,
-                            new_sql,
-                            "Ready".to_string(),
+                            draft_sql,
+                            editor_selection,
+                            is_typing,
+                            editor_revision,
+                            completion_text_raw,
+                            "tab",
                         );
-                        spawn(async move {
-                            let _ = document::eval(&set_editor_value_script(
-                                SQL_EDITOR_TEXTAREA_ID,
-                                &new_sql_for_dom,
-                                new_cursor,
-                                true,
-                            ))
-                            .join::<bool>()
-                            .await;
-                        });
-                    });
                     }
                 },
 
