@@ -7,17 +7,14 @@ use models::SavedConnection;
 
 use super::forms::connection_status_class;
 
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn recent_connections_loading_text() -> &'static str {
     "Loading connections…"
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn recent_connections_empty_text() -> &'static str {
     "No saved connections yet."
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn format_connection_failed_error(err: impl std::fmt::Display) -> String {
     format!("Connection failed: {err}")
 }
@@ -73,7 +70,7 @@ pub fn RecentConnections(
             h2 { class: "connect-screen__section-title", "Recent Connections" }
             match saved_connections {
                 Some(connections) if connections.is_empty() => rsx! {
-                    p { class: "empty-state", "No saved connections yet." }
+                    p { class: "empty-state", "{recent_connections_empty_text()}" }
                 },
                 Some(connections) => rsx! {
                     div {
@@ -129,7 +126,7 @@ pub fn RecentConnections(
                                                             }
                                                         }
                                                         Err(err) => {
-                                                            status.set(format!("Connection failed: {err}"));
+                                                            status.set(format_connection_failed_error(err));
                                                         }
                                                     }
                                                 });
@@ -143,7 +140,7 @@ pub fn RecentConnections(
                     }
                 },
                 None => rsx! {
-                    p { class: "empty-state", "Loading connections…" }
+                    p { class: "empty-state", "{recent_connections_loading_text()}" }
                 },
             }
             if !status().is_empty() {
