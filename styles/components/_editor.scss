@@ -103,7 +103,7 @@
 }
 
 .editor {
-  flex: 0 0 var(--editor-pane-height, clamp(160px, 30vh, 260px));
+  flex: 0 0 var(--editor-pane-height, clamp(96px, 22vh, 200px));
   min-height: 120px;
   padding: 10px;
   background:
@@ -430,6 +430,19 @@
     padding: 12px 14px;
     font-size: 14px;
     line-height: 1.5;
+  }
+}
+
+@media (max-height: 720px) {
+  .editor {
+    min-height: 80px;
+  }
+
+  .sql-editor__highlight,
+  .sql-editor__input {
+    padding: 8px 13px;
+    font-size: 13px;
+    line-height: 1.45;
   }
 }
 

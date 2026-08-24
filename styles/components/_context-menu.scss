@@ -1,0 +1,177 @@
+@use "../base/tokens" as *;
+
+// Compact, token-based style for the global context menu overlay
+// rendered by `ui/src/components/context_menu.rs`. The same class
+// names are also used by `app/assets/text-input-menu.js` for the
+// embedded text-input suggestion menu, so every rule here must
+// stay generic enough to work for both surfaces.
+.context-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  // Sits below the menu itself, but above the rest of the
+  // workspace chrome. Lower than the command-palette backdrop
+  // (130) so the palette can still appear on top.
+  z-index: 120;
+  background: transparent;
+}
+
+.context-menu {
+  position: fixed;
+  // Above its own backdrop and the workspace chrome. Lower than
+  // the command palette (140) so a palette opened mid-menu wins.
+  z-index: 140;
+  min-width: 220px;
+  max-width: 320px;
+  max-height: 480px;
+  overflow-y: auto;
+  padding: 4px;
+  background: color-mix(
+    in srgb,
+    var(--color-panel) 96%,
+    transparent
+  );
+  border: 1px solid
+    color-mix(in srgb, var(--color-border-strong, var(--color-border)) 70%, var(--color-border));
+  border-radius: $radius-md;
+  box-shadow: $shadow-md;
+  font-family: inherit;
+  color: var(--color-text);
+  // Subtle entrance; respect prefers-reduced-motion below.
+  animation: context-menu-in $motion-fast ease-out;
+  transform-origin: top left;
+}
+
+.context-menu__separator {
+  height: 1px;
+  background: var(--color-border);
+  margin: $spacing-xs 0;
+  border: 0;
+  padding: 0;
+}
+
+.context-menu__item {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  // Use the density tokens when available so the menu shrinks /
+  // grows with the rest of the chrome; fall back to compact
+  // defaults if density is not set on the root.
+  min-height: var(--ui-row-height, 24px);
+  padding: var(--ui-row-padding-y, 2px) var(--ui-row-padding-x, 8px);
+  font-size: var(--ui-font-size, 12px);
+  line-height: $line-height-tight;
+  width: 100%;
+  // Reset native <button> chrome; the menu renders items as
+  // buttons for keyboard activation.
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: $radius-sm;
+  color: var(--color-text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background-color $motion-fast ease,
+    border-color $motion-fast ease,
+    color $motion-fast ease;
+
+  &:hover,
+  &:focus-visible {
+    background: color-mix(
+      in srgb,
+      var(--color-primary) 16%,
+      var(--color-panel-2)
+    );
+    border-color: color-mix(
+      in srgb,
+      var(--color-primary) 28%,
+      transparent
+    );
+    outline: none;
+  }
+
+  &:active {
+    background: color-mix(
+      in srgb,
+      var(--color-primary) 26%,
+      var(--color-panel-2)
+    );
+  }
+}
+
+.context-menu__item--danger {
+  color: var(--color-danger);
+
+  &:hover,
+  &:focus-visible {
+    background: color-mix(in srgb, var(--color-danger) 18%, var(--color-panel-2));
+    border-color: color-mix(in srgb, var(--color-danger) 32%, transparent);
+    color: var(--color-danger);
+  }
+
+  &:active {
+    background: color-mix(in srgb, var(--color-danger) 28%, var(--color-panel-2));
+  }
+
+  .context-menu__item-icon {
+    color: var(--color-danger);
+  }
+}
+
+.context-menu__item--disabled {
+  opacity: 0.5;
+  cursor: default;
+  pointer-events: none;
+}
+
+.context-menu__item-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.context-menu__item-shortcut {
+  flex-shrink: 0;
+  margin-left: $spacing-lg;
+  font-size: $font-size-xs;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+}
+
+.context-menu__item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ui-icon-size, 14px);
+  height: var(--ui-icon-size, 14px);
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+
+  svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+}
+
+@keyframes context-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .context-menu {
+    animation: none;
+  }
+}

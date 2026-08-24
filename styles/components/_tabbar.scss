@@ -5,11 +5,11 @@
   position: relative;
   z-index: 1;
   flex: 0 0 auto;
-  min-height: 38px;
+  min-height: var(--ui-tab-height, 28px);
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px 0;
+  padding: 4px 8px 0;
   margin-bottom: -1px;
   background:
     linear-gradient(
@@ -123,5 +123,10 @@
 @media (max-width: 760px) {
   .tabbar__tab {
     max-width: 150px;
+    padding: 0 6px;
+  }
+
+  .tabbar__add {
+    padding: 0 6px;
   }
 }

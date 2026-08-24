@@ -212,7 +212,7 @@
     var(--shadow-panel);
   backdrop-filter: blur(24px) saturate(145%);
   overflow: hidden;
-  height: var(--workspace-bottom-panel-height, 200px);
+  height: var(--workspace-bottom-panel-height, 120px);
 }
 
 .bottom-panel__handle-row {
@@ -249,7 +249,7 @@
   display: inline-flex;
   align-items: center;
   gap: $spacing-2xs;
-  padding: 4px 10px;
+  padding: 3px 8px;
   border: 1px solid transparent;
   border-radius: 999px;
   background: transparent;

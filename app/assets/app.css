@@ -746,7 +746,7 @@ textarea {
   box-shadow: inset 0 1px 0 var(--glass-highlight), var(--shadow-panel);
   backdrop-filter: blur(24px) saturate(145%);
   overflow: hidden;
-  height: var(--workspace-bottom-panel-height, 200px);
+  height: var(--workspace-bottom-panel-height, 120px);
 }
 
 .bottom-panel__handle-row {
@@ -778,7 +778,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 1px;
-  padding: 4px 10px;
+  padding: 3px 8px;
   border: 1px solid transparent;
   border-radius: 999px;
   background: transparent;
@@ -1026,8 +1026,8 @@ textarea {
 }
 
 .toolbar__logo {
-  width: 28px;
-  height: 28px;
+  width: calc(var(--ui-icon-size, 16px) + 8px);
+  height: calc(var(--ui-icon-size, 16px) + 8px);
   display: block;
   flex: 0 0 auto;
   filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.18));
@@ -1056,7 +1056,7 @@ textarea {
 }
 
 .toolbar__title {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   line-height: 1.05;
 }
@@ -1067,7 +1067,7 @@ textarea {
   gap: 4px;
   min-width: 0;
   max-width: min(48vw, 760px);
-  padding: 6px 12px;
+  padding: var(--ui-row-padding-y, 4px) var(--ui-row-padding-x, 8px);
   border: 1px solid color-mix(in srgb, var(--glass-border) 72%, var(--color-border));
   border-radius: 999px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 82%, var(--glass-tint-strong)), color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 86%, transparent));
@@ -1226,6 +1226,7 @@ textarea {
 .statusbar {
   display: flex;
   align-items: center;
+  min-height: var(--ui-statusbar-height, 20px);
   gap: 6px;
   padding: 0 6px;
   border-top: 1px solid var(--color-border);
@@ -2687,15 +2688,145 @@ select.input:focus-visible {
   font-size: 11px;
 }
 
+.context-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: transparent;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 140;
+  min-width: 220px;
+  max-width: 320px;
+  max-height: 480px;
+  overflow-y: auto;
+  padding: 4px;
+  background: color-mix(in srgb, var(--color-panel) 96%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border-strong, var(--color-border)) 70%, var(--color-border));
+  border-radius: 11px;
+  box-shadow: 0 22px 58px rgba(3, 9, 20, 0.26);
+  font-family: inherit;
+  color: var(--color-text);
+  animation: context-menu-in 100ms ease-out;
+  transform-origin: top left;
+}
+
+.context-menu__separator {
+  height: 1px;
+  background: var(--color-border);
+  margin: 3px 0;
+  border: 0;
+  padding: 0;
+}
+
+.context-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--ui-row-height, 24px);
+  padding: var(--ui-row-padding-y, 2px) var(--ui-row-padding-x, 8px);
+  font-size: var(--ui-font-size, 12px);
+  line-height: 1.2;
+  width: 100%;
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--color-text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 100ms ease, border-color 100ms ease, color 100ms ease;
+}
+.context-menu__item:hover, .context-menu__item:focus-visible {
+  background: color-mix(in srgb, var(--color-primary) 16%, var(--color-panel-2));
+  border-color: color-mix(in srgb, var(--color-primary) 28%, transparent);
+  outline: none;
+}
+.context-menu__item:active {
+  background: color-mix(in srgb, var(--color-primary) 26%, var(--color-panel-2));
+}
+
+.context-menu__item--danger {
+  color: var(--color-danger);
+}
+.context-menu__item--danger:hover, .context-menu__item--danger:focus-visible {
+  background: color-mix(in srgb, var(--color-danger) 18%, var(--color-panel-2));
+  border-color: color-mix(in srgb, var(--color-danger) 32%, transparent);
+  color: var(--color-danger);
+}
+.context-menu__item--danger:active {
+  background: color-mix(in srgb, var(--color-danger) 28%, var(--color-panel-2));
+}
+.context-menu__item--danger .context-menu__item-icon {
+  color: var(--color-danger);
+}
+
+.context-menu__item--disabled {
+  opacity: 0.5;
+  cursor: default;
+  pointer-events: none;
+}
+
+.context-menu__item-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.context-menu__item-shortcut {
+  flex-shrink: 0;
+  margin-left: 12px;
+  font-size: 10px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+}
+
+.context-menu__item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ui-icon-size, 14px);
+  height: var(--ui-icon-size, 14px);
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+.context-menu__item-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+@keyframes context-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .context-menu {
+    animation: none;
+  }
+}
 .tabbar {
   position: relative;
   z-index: 1;
   flex: 0 0 auto;
-  min-height: 38px;
+  min-height: var(--ui-tab-height, 28px);
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px 0;
+  padding: 4px 8px 0;
   margin-bottom: -1px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 82%, var(--glass-tint)), color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 88%, transparent));
   backdrop-filter: blur(16px) saturate(135%);
@@ -2811,6 +2942,10 @@ select.input:focus-visible {
 @media (max-width: 760px) {
   .tabbar__tab {
     max-width: 150px;
+    padding: 0 6px;
+  }
+  .tabbar__add {
+    padding: 0 6px;
   }
 }
 .table-editor {
@@ -3985,7 +4120,7 @@ select.input:focus-visible {
 }
 
 .editor {
-  flex: 0 0 var(--editor-pane-height, clamp(160px, 30vh, 260px));
+  flex: 0 0 var(--editor-pane-height, clamp(96px, 22vh, 200px));
   min-height: 120px;
   padding: 10px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 82%, var(--glass-tint)), color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 90%, transparent));
@@ -4275,6 +4410,17 @@ select.input:focus-visible {
     padding: 12px 14px;
     font-size: 14px;
     line-height: 1.5;
+  }
+}
+@media (max-height: 720px) {
+  .editor {
+    min-height: 80px;
+  }
+  .sql-editor__highlight,
+.sql-editor__input {
+    padding: 8px 13px;
+    font-size: 13px;
+    line-height: 1.45;
   }
 }
 @media (max-width: 760px) {

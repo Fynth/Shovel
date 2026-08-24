@@ -50,9 +50,9 @@ use super::{
     send_sql_generation_request,
 };
 
-const EDITOR_MIN_HEIGHT: f64 = 160.0;
+const EDITOR_MIN_HEIGHT: f64 = 96.0;
 const EDITOR_MAX_HEIGHT: f64 = 720.0;
-const EDITOR_DEFAULT_HEIGHT: f64 = 180.0;
+const EDITOR_DEFAULT_HEIGHT: f64 = 120.0;
 const EDITOR_MIN_WIDTH: f64 = 280.0;
 const EDITOR_MAX_WIDTH: f64 = 960.0;
 const EDITOR_DEFAULT_WIDTH: f64 = 520.0;

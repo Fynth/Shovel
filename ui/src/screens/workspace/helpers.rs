@@ -20,7 +20,7 @@ pub const SIDEBAR_MIN_WIDTH: f64 = 240.0;
 pub const SIDEBAR_MAX_WIDTH: f64 = 560.0;
 pub const INSPECTOR_MIN_WIDTH: f64 = 260.0;
 pub const INSPECTOR_MAX_WIDTH: f64 = 640.0;
-pub const BOTTOM_PANEL_MIN_HEIGHT: f64 = 96.0;
+pub const BOTTOM_PANEL_MIN_HEIGHT: f64 = 72.0;
 pub const BOTTOM_PANEL_MAX_HEIGHT: f64 = 520.0;
 pub const WORKSPACE_ROOT_ID: &str = "workspace-root";
 

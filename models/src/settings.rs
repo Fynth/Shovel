@@ -377,7 +377,7 @@ impl Default for AppUiSettings {
             ai_auto_apply_completions: true,
             explorer: ExplorerViewSettings::default(),
             show_bottom_panel: true,
-            bottom_panel_height: 200.0,
+            bottom_panel_height: 120.0,
             split_mode: WorkspaceSplitMode::default(),
         }
     }
@@ -418,7 +418,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_settings_missing_bottom_panel_default_to_visible_200px() {
+    fn legacy_settings_missing_bottom_panel_default_to_visible_120px() {
         let settings: AppUiSettings = serde_json::from_str(
             r#"{
                 "theme":"Dark",
@@ -440,7 +440,7 @@ mod tests {
         .expect("legacy settings fixture should deserialize");
 
         assert!(settings.show_bottom_panel);
-        assert_eq!(settings.bottom_panel_height, 200.0);
+        assert_eq!(settings.bottom_panel_height, 120.0);
     }
 
     #[test]
