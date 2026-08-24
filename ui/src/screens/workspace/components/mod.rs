@@ -19,6 +19,7 @@ mod table_ddl_builder;
 mod table_editor;
 mod table_structure;
 mod tabs;
+mod value_editor;
 
 pub(crate) use agent_panel::{
     AcpAgentPanel,
@@ -52,3 +53,4 @@ pub use sql_editor::SqlEditor;
 pub use sql_format_settings::SqlFormatSettingsFields;
 pub use table_editor::TableEditor;
 pub use tabs::TabsManager;
+pub(crate) use value_editor::{ValueEditor, ValueEditorMode, ValueEditorState};

@@ -24,6 +24,9 @@ use crate::{
             IconButton,
             IconGlyph,
             ResultChart,
+            ValueEditor,
+            ValueEditorMode,
+            ValueEditorState,
             copy_formats::{
                 format_all_rows_csv,
                 format_all_rows_json,
@@ -240,6 +243,11 @@ pub fn ResultTable(
     let mut viewport_height = use_signal(|| 600.0_f64);
     let mut show_chart = use_signal(|| false);
     let mut pinned_result = use_signal(|| None::<models::QueryPage>);
+    let mut value_editor = use_signal(|| None::<ValueEditorState>);
+    let mut value_editor_target = use_signal(|| None::<(EditableRowRef, usize)>);
+    let mut column_widths = use_signal(HashMap::<String, f64>::new);
+    let hidden_columns = use_signal(Vec::<String>::new);
+    let mut column_resize_active = use_signal(|| None::<(String, f64, f64)>);
 
     let current_editing = editing_cell();
     let active_tab = tabs
@@ -387,6 +395,41 @@ pub fn ResultTable(
                     page.has_next && can_paginate && !is_loading_more && !has_pending_changes;
                 let read_only_mode = read_only_mode_enabled();
                 let table_cells_editable = page.editable.is_some() && !read_only_mode;
+                let hidden_columns_vec = hidden_columns();
+                let visible_columns: Vec<(usize, String)> =
+                    filter_visible_columns(&page.columns, &hidden_columns_vec);
+                let visible_column_names: Vec<String> = visible_columns
+                    .iter()
+                    .map(|(_, name)| name.clone())
+                    .collect();
+                let column_widths_map = column_widths();
+                let visible_column_count = visible_columns.len();
+
+                let on_value_editor_mode_change = move |next_mode: ValueEditorMode| {
+                    let mut current = value_editor();
+                    if let Some(state) = current.as_mut() {
+                        state.mode = next_mode;
+                    }
+                    value_editor.set(current);
+                };
+                let on_value_editor_apply = move |new_value: String| {
+                    let target = value_editor_target();
+                    if let Some((row_ref, col_index)) = target {
+                        let editing = EditingCell {
+                            row_ref,
+                            col_index,
+                            value: new_value,
+                        };
+                        commit_cell_edit(editing_cell, tabs, active_tab_id, editing);
+                    }
+                    value_editor_target.set(None);
+                    value_editor.set(None);
+                };
+                let on_value_editor_close = move |_| {
+                    value_editor_target.set(None);
+                    value_editor.set(None);
+                };
+                let on_value_editor_change = |_: String| {};
 
                 rsx! {
                     if is_empty_table_result(&page, &display_rows) {
@@ -742,18 +785,27 @@ pub fn ResultTable(
                                             class: "results__table",
                                             thead {
                                                 tr {
-                                                    for column in page.columns.iter().cloned() {
+                                                    for column in visible_column_names.iter().cloned() {
                                                         th {
                                                             class: "results__head",
+                                                            style: column_widths_map
+                                                                .get(&column)
+                                                                .copied()
+                                                                .map(|width| format!("width: {width}px; min-width: {width}px; max-width: {width}px;"))
+                                                                .unwrap_or_default(),
                                                             oncontextmenu: {
                                                                 let column_name = column.clone();
                                                                 let tabs_for_header_menu = tabs;
                                                                 let active_tab_id_for_header_menu = active_tab_id;
+                                                                let hidden_columns_for_menu = hidden_columns;
+                                                                let column_widths_for_menu = column_widths;
                                                                 move |event| {
                                                                     event.prevent_default();
                                                                     let coords = event.client_coordinates();
                                                                     let items = build_header_context_menu(
                                                                         column_name.clone(),
+                                                                        hidden_columns_for_menu,
+                                                                        column_widths_for_menu,
                                                                         tabs_for_header_menu,
                                                                         active_tab_id_for_header_menu,
                                                                     );
@@ -781,6 +833,28 @@ pub fn ResultTable(
                                                             } else {
                                                                 span { class: "results__head-label", "{column}" }
                                                             }
+                                                            div {
+                                                                class: "results__head-resize",
+                                                                onmousedown: {
+                                                                    let column_name = column.clone();
+                                                                    let start_width = column_widths_map
+                                                                        .get(&column_name)
+                                                                        .copied()
+                                                                        .unwrap_or(160.0);
+                                                                    move |event| {
+                                                                        if event.trigger_button() != Some(MouseButton::Primary) {
+                                                                            return;
+                                                                        }
+                                                                        event.prevent_default();
+                                                                        event.stop_propagation();
+                                                                        column_resize_active.set(Some((
+                                                                            column_name.clone(),
+                                                                            event.client_coordinates().x,
+                                                                            start_width,
+                                                                        )));
+                                                                    }
+                                                                },
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -790,7 +864,7 @@ pub fn ResultTable(
                                                     tr {
                                                         key: "spacer-top-{virtual_first}",
                                                         td {
-                                                            colspan: "{page.columns.len()}",
+                                                            colspan: "{visible_column_count}",
                                                             style: "height: {virtual_top_height}px; padding: 0; border: none;",
                                                             div { style: "height: {virtual_top_height}px;" }
                                                         }
@@ -838,7 +912,7 @@ pub fn ResultTable(
                                                                     open_context_menu(coords.x, coords.y, items);
                                                                 }
                                                             },
-                                                            for (col_index, cell) in row.values.iter().enumerate() {
+                                                            for (col_index, column_name) in visible_columns.iter().cloned() {
                                                                 td {
                                                                     class: cell_class(
                                                                         table_cells_editable,
@@ -846,13 +920,24 @@ pub fn ResultTable(
                                                                         page.columns.get(col_index),
                                                                         &updated_cells_set,
                                                                     ),
+                                                                    style: column_widths_map
+                                                                        .get(&column_name)
+                                                                        .copied()
+                                                                        .map(|width| format!("width: {width}px; min-width: {width}px; max-width: {width}px;"))
+                                                                        .unwrap_or_default(),
                                                                     oncontextmenu: {
                                                                         let tabs_for_cell_menu = tabs;
                                                                         let active_tab_id_for_cell_menu = active_tab_id;
                                                                         let columns_for_cell_menu = page.columns.clone();
                                                                         let row_values = row.values.clone();
-                                                                        let cell_value = cell.clone();
+                                                                        let cell_value = row.values.get(col_index).cloned().unwrap_or_default();
                                                                         let col = col_index;
+                                                                        let column_name_for_menu = column_name.clone();
+                                                                        let row_ref_for_menu = row.row_ref.clone();
+                                                                        let editable_for_menu = table_cells_editable;
+                                                                        let editing_cell_for_menu = editing_cell;
+                                                                        let value_editor_for_menu = value_editor;
+                                                                        let value_editor_target_for_menu = value_editor_target;
                                                                         move |event| {
                                                                             event.prevent_default();
                                                                             let coords = event.client_coordinates();
@@ -861,6 +946,12 @@ pub fn ResultTable(
                                                                                 row_values.clone(),
                                                                                 col,
                                                                                 cell_value.clone(),
+                                                                                column_name_for_menu.clone(),
+                                                                                row_ref_for_menu.clone(),
+                                                                                editable_for_menu,
+                                                                                editing_cell_for_menu,
+                                                                                value_editor_for_menu,
+                                                                                value_editor_target_for_menu,
                                                                                 tabs_for_cell_menu,
                                                                                 active_tab_id_for_cell_menu,
                                                                             );
@@ -868,7 +959,7 @@ pub fn ResultTable(
                                                                         }
                                                                     },
                                                                     ondoubleclick: {
-                                                                        let cell_value = cell.clone();
+                                                                        let cell_value = row.values.get(col_index).cloned().unwrap_or_default();
                                                                         let editable = table_cells_editable;
                                                                         let row_ref = row.row_ref.clone();
                                                                         move |_| {
@@ -922,43 +1013,42 @@ pub fn ResultTable(
                                                                         } else {
                                                                             div {
                                                                                 class: "results__cell-content",
-                                                                                title: "{cell}",
-                                                                                "{cell}"
+                                                                                title: "{row.values.get(col_index).cloned().unwrap_or_default()}",
+                                                                                "{row.values.get(col_index).cloned().unwrap_or_default()}"
                                                                             }
                                                                         }
                                                                     } else {
                                                                         div {
                                                                             class: "results__cell-content",
-                                                                            title: "{cell}",
-                                                                            "{cell}"
+                                                                            title: "{row.values.get(col_index).cloned().unwrap_or_default()}",
+                                                                            "{row.values.get(col_index).cloned().unwrap_or_default()}"
                                                                         }
                                                                     }
-                                                                    if should_show_cell_filter(cell) {
-                                                                        if let Some(column_name) = page.columns.get(col_index).cloned() {
-                                                                            button {
-                                                                                class: "results__cell-filter",
-                                                                                title: "Filter by this value",
-                                                                                "aria-label": "Filter by this value",
-                                                                                tabindex: "-1",
-                                                                                onclick: {
-                                                                                    let cell_value = cell.clone();
-                                                                                    move |event| {
-                                                                                        event.stop_propagation();
-                                                                                        apply_filter_for_value(
-                                                                                            column_name.clone(),
-                                                                                            cell_value.clone(),
-                                                                                            QueryFilterOperator::Contains,
-                                                                                            tabs,
-                                                                                            active_tab_id,
-                                                                                        );
-                                                                                    }
-                                                                                },
-                                                                                IconGlyph { icon: ActionIcon::Filter }
-                                                                            }
+                                                                    if should_show_cell_filter(&row.values.get(col_index).cloned().unwrap_or_default()) {
+                                                                        button {
+                                                                            class: "results__cell-filter",
+                                                                            title: "Filter by this value",
+                                                                            "aria-label": "Filter by this value",
+                                                                            tabindex: "-1",
+                                                                            onclick: {
+                                                                                let cell_value = row.values.get(col_index).cloned().unwrap_or_default();
+                                                                                let column_name = column_name.clone();
+                                                                                move |event| {
+                                                                                    event.stop_propagation();
+                                                                                    apply_filter_for_value(
+                                                                                        column_name.clone(),
+                                                                                        cell_value.clone(),
+                                                                                        QueryFilterOperator::Contains,
+                                                                                        tabs,
+                                                                                        active_tab_id,
+                                                                                    );
+                                                                                }
+                                                                            },
+                                                                            IconGlyph { icon: ActionIcon::Filter }
                                                                         }
-                                                                    }
                                                                     }
                                                                 }
+                                                            }
                                                             }
                                                         }
                                                     }
@@ -968,7 +1058,7 @@ pub fn ResultTable(
                                                     tr {
                                                         key: "spacer-bottom-{virtual_last}",
                                                         td {
-                                                            colspan: "{page.columns.len()}",
+                                                            colspan: "{visible_column_count}",
                                                             style: "height: {virtual_bottom_height}px; padding: 0; border: none;",
                                                             div { style: "height: {virtual_bottom_height}px;" }
                                                         }
@@ -982,6 +1072,32 @@ pub fn ResultTable(
                                         div {
                                             class: "results__load-more",
                                             "Loading more rows..."
+                                        }
+                                    }
+
+                                    if let Some((resize_column, resize_start_x_val, resize_start_width_val)) = column_resize_active() {
+                                        div {
+                                            style: "position:fixed;inset:0;z-index:9999;cursor:col-resize;",
+                                            onmousemove: move |event| {
+                                                let delta = event.client_coordinates().x - resize_start_x_val;
+                                                let new_width = (resize_start_width_val + delta).clamp(60.0, 800.0);
+                                                column_widths.with_mut(|widths| {
+                                                    widths.insert(resize_column.clone(), new_width);
+                                                });
+                                            },
+                                            onmouseup: move |_| {
+                                                column_resize_active.set(None);
+                                            },
+                                        }
+                                    }
+
+                                    if let Some(editor_state) = value_editor() {
+                                        ValueEditor {
+                                            state: editor_state,
+                                            on_value_change: on_value_editor_change,
+                                            on_mode_change: on_value_editor_mode_change,
+                                            on_apply: on_value_editor_apply,
+                                            on_close: on_value_editor_close,
                                         }
                                     }
 
@@ -1214,12 +1330,13 @@ pub fn format_row_edit_error(operation: &str, err: impl std::fmt::Display) -> St
 
 fn build_header_context_menu(
     column_name: String,
+    hidden_columns: Signal<Vec<String>>,
+    column_widths: Signal<HashMap<String, f64>>,
     tabs: Signal<Vec<QueryTabState>>,
     active_tab_id: Signal<u64>,
 ) -> Vec<ContextMenuItem> {
     let mut items: Vec<ContextMenuItem> = Vec::new();
 
-    // 1. Sort ascending.
     {
         let column_name = column_name.clone();
         items.push(
@@ -1230,7 +1347,6 @@ fn build_header_context_menu(
         );
     }
 
-    // 2. Sort descending.
     {
         let column_name = column_name.clone();
         items.push(
@@ -1241,8 +1357,6 @@ fn build_header_context_menu(
         );
     }
 
-    // 3. Filter column (opens the existing filter panel with a
-    //    blank draft; the user types the value there).
     {
         let column_name = column_name.clone();
         items.push(
@@ -1260,7 +1374,6 @@ fn build_header_context_menu(
         );
     }
 
-    // 4. Clear filter — only meaningful when one is already set.
     {
         let active_id = active_tab_id();
         let has_filter = tabs
@@ -1277,6 +1390,50 @@ fn build_header_context_menu(
                 .with_icon(ActionIcon::FilterClear),
             );
         }
+    }
+
+    {
+        let column_name = column_name.clone();
+        let mut hidden_columns = hidden_columns;
+        items.push(
+            ContextMenuItem::new("Hide column", move || {
+                hidden_columns.with_mut(|hidden| {
+                    if !hidden.contains(&column_name) {
+                        hidden.push(column_name.clone());
+                    }
+                });
+            })
+            .with_icon(ActionIcon::Close)
+            .separator(),
+        );
+    }
+
+    {
+        let column_name = column_name.clone();
+        let mut column_widths = column_widths;
+        items.push(
+            ContextMenuItem::new("Reset column width", move || {
+                column_widths.with_mut(|widths| {
+                    widths.remove(&column_name);
+                });
+            })
+            .with_icon(ActionIcon::Format),
+        );
+    }
+
+    let hidden_list = hidden_columns();
+    for hidden_name in hidden_list {
+        let mut hidden_columns = hidden_columns;
+        let target = hidden_name.clone();
+        items.push(
+            ContextMenuItem::new(format!("Show \"{hidden_name}\""), move || {
+                let target = target.clone();
+                hidden_columns.with_mut(|hidden| {
+                    hidden.retain(|current| current != &target);
+                });
+            })
+            .with_icon(ActionIcon::Details),
+        );
     }
 
     items
@@ -1473,18 +1630,44 @@ fn build_cell_context_menu(
     row_values: Vec<String>,
     col_index: usize,
     cell_value: String,
+    column_name: String,
+    row_ref: EditableRowRef,
+    editable: bool,
+    mut editing_cell: Signal<Option<EditingCell>>,
+    mut value_editor: Signal<Option<ValueEditorState>>,
+    mut value_editor_target: Signal<Option<(EditableRowRef, usize)>>,
     tabs: Signal<Vec<QueryTabState>>,
     active_tab_id: Signal<u64>,
 ) -> Vec<ContextMenuItem> {
     use crate::app_state::context_menu::copy_to_clipboard;
 
     let mut items: Vec<ContextMenuItem> = Vec::new();
-    let column_name = columns
-        .get(col_index)
-        .cloned()
-        .unwrap_or_else(|| format!("col_{col_index}"));
+    let resolved_column = if column_name.is_empty() {
+        columns
+            .get(col_index)
+            .cloned()
+            .unwrap_or_else(|| format!("col_{col_index}"))
+    } else {
+        column_name
+    };
 
-    // 1. Copy cell value.
+    if editable {
+        let row_ref = row_ref.clone();
+        let col = col_index;
+        let cell_value = cell_value.clone();
+        items.push(
+            ContextMenuItem::new("Edit", move || {
+                editing_cell.set(Some(EditingCell {
+                    row_ref: row_ref.clone(),
+                    col_index: col,
+                    value: cell_value.clone(),
+                }));
+            })
+            .with_icon(ActionIcon::Format)
+            .separator(),
+        );
+    }
+
     {
         let cell_value = cell_value.clone();
         items.push(
@@ -1495,8 +1678,6 @@ fn build_cell_context_menu(
         );
     }
 
-    // 2. Copy as JSON literal — wraps the value in quotes so it can
-    //    be pasted straight into a `.json` file or a query.
     {
         let cell_value = cell_value.clone();
         items.push(
@@ -1509,36 +1690,116 @@ fn build_cell_context_menu(
         );
     }
 
-    // 3. Filter by this value — only when the cell is not empty.
-    if !cell_value.trim().is_empty() {
+    {
+        let column_name = resolved_column.clone();
         let cell_value = cell_value.clone();
-        let column_name = column_name.clone();
+        let row_ref_for_target = row_ref.clone();
+        let col = col_index;
+        items.push(
+            ContextMenuItem::new("Open value editor", move || {
+                value_editor_target.set(Some((row_ref_for_target.clone(), col)));
+                value_editor.set(Some(ValueEditorState {
+                    column_name: column_name.clone(),
+                    value: cell_value.clone(),
+                    editable: true,
+                    mode: ValueEditorMode::Text,
+                    width: 520.0,
+                }));
+            })
+            .with_icon(ActionIcon::Details),
+        );
+    }
+
+    if is_valid_cell_json(&cell_value) {
+        let column_name = resolved_column.clone();
+        let cell_value = cell_value.clone();
+        let row_ref_for_target = row_ref.clone();
+        let col = col_index;
+        items.push(
+            ContextMenuItem::new("JSON viewer", move || {
+                value_editor_target.set(Some((row_ref_for_target.clone(), col)));
+                value_editor.set(Some(ValueEditorState {
+                    column_name: column_name.clone(),
+                    value: cell_value.clone(),
+                    editable: false,
+                    mode: ValueEditorMode::Json,
+                    width: 520.0,
+                }));
+            })
+            .with_icon(ActionIcon::Explain)
+            .separator(),
+        );
+    }
+
+    if editable {
+        let row_ref_null = row_ref.clone();
+        let col = col_index;
+        items.push(
+            ContextMenuItem::new("Set NULL", move || {
+                editing_cell.set(Some(EditingCell {
+                    row_ref: row_ref_null.clone(),
+                    col_index: col,
+                    value: "NULL".to_string(),
+                }));
+            })
+            .with_icon(ActionIcon::Truncate),
+        );
+        let row_ref_empty = row_ref.clone();
+        let col = col_index;
+        items.push(
+            ContextMenuItem::new("Set empty", move || {
+                editing_cell.set(Some(EditingCell {
+                    row_ref: row_ref_empty.clone(),
+                    col_index: col,
+                    value: String::new(),
+                }));
+            })
+            .with_icon(ActionIcon::Clear)
+            .separator(),
+        );
+    }
+
+    if !cell_value.trim().is_empty() {
+        let cell_value_contains = cell_value.clone();
+        let column_name_contains = resolved_column.clone();
         items.push(
             ContextMenuItem::new("Filter by this value", move || {
                 apply_filter_for_value(
-                    column_name.clone(),
-                    cell_value.clone(),
+                    column_name_contains.clone(),
+                    cell_value_contains.clone(),
                     QueryFilterOperator::Contains,
                     tabs,
                     active_tab_id,
                 );
             })
-            .with_icon(ActionIcon::Filter)
+            .with_icon(ActionIcon::Filter),
+        );
+        let cell_value_equals = cell_value.clone();
+        let column_name_equals = resolved_column.clone();
+        items.push(
+            ContextMenuItem::new("Filter by selection", move || {
+                apply_filter_for_value(
+                    column_name_equals.clone(),
+                    cell_value_equals.clone(),
+                    QueryFilterOperator::Equals,
+                    tabs,
+                    active_tab_id,
+                );
+            })
+            .with_icon(ActionIcon::FilterApply)
             .separator(),
         );
     }
 
-    // 4. Sort by this column. This mirrors the header's sort action
-    //    so users who right-click on a cell can also re-sort.
     {
-        let col_asc = column_name.clone();
+        let col_asc = resolved_column.clone();
         items.push(
             ContextMenuItem::new("Sort ascending", move || {
                 sort_by_column(&col_asc, false, tabs, active_tab_id);
             })
             .with_icon(ActionIcon::Previous),
         );
-        let col_desc = column_name;
+        let col_desc = resolved_column;
         items.push(
             ContextMenuItem::new("Sort descending", move || {
                 sort_by_column(&col_desc, true, tabs, active_tab_id);
@@ -1547,9 +1808,6 @@ fn build_cell_context_menu(
         );
     }
 
-    // 5. Copy entire row. This is a convenience entry so that the
-    //    user does not have to back out and re-open the row menu
-    //    when they discover they wanted more than just the cell.
     {
         let row_values = row_values.clone();
         let columns = columns.clone();
@@ -1562,6 +1820,30 @@ fn build_cell_context_menu(
     }
 
     items
+}
+
+fn is_valid_cell_json(value: &str) -> bool {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let first = trimmed.chars().next().expect("trimmed is non-empty");
+    if first != '{' && first != '[' {
+        return false;
+    }
+    crate::screens::workspace::components::value_editor::is_valid_json(trimmed)
+}
+
+/// Returns `(original_index, column_name)` pairs for columns that
+/// are not in `hidden_columns`. The original index is preserved so
+/// `row.values[col_index]` lookups stay valid after columns hide.
+fn filter_visible_columns(columns: &[String], hidden_columns: &[String]) -> Vec<(usize, String)> {
+    columns
+        .iter()
+        .cloned()
+        .enumerate()
+        .filter(|(_, name)| !hidden_columns.contains(name))
+        .collect()
 }
 
 /// Set the active tab's sort to `column_name` in the given direction.
@@ -1631,6 +1913,7 @@ mod tests {
     use super::{
         filter_panel_should_auto_open,
         filter_panel_should_collapse_after_clear,
+        filter_visible_columns,
         format_row_edit_error,
         result_error_message,
         result_status_text_for_display,
@@ -1789,6 +2072,65 @@ mod tests {
     fn cell_filter_affordance_hidden_for_empty_values() {
         assert!(!should_show_cell_filter(""));
         assert!(!should_show_cell_filter("   "));
+    }
+
+    #[test]
+    fn filter_visible_columns_returns_all_when_none_hidden() {
+        let columns = vec!["id".to_string(), "name".to_string(), "email".to_string()];
+        let visible = filter_visible_columns(&columns, &[]);
+        assert_eq!(
+            visible,
+            vec![
+                (0, "id".to_string()),
+                (1, "name".to_string()),
+                (2, "email".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn filter_visible_columns_preserves_original_indices_after_hide() {
+        let columns = vec!["id".to_string(), "name".to_string(), "email".to_string()];
+        let hidden = vec!["name".to_string()];
+        let visible = filter_visible_columns(&columns, &hidden);
+        // "email" must keep original_index 2 so row.values[2] still
+        // resolves to the right cell value after the hide.
+        assert_eq!(
+            visible,
+            vec![(0, "id".to_string()), (2, "email".to_string())]
+        );
+    }
+
+    #[test]
+    fn filter_visible_columns_hides_multiple_non_contiguous_columns() {
+        let columns = vec![
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+            "d".to_string(),
+            "e".to_string(),
+        ];
+        let hidden = vec!["b".to_string(), "d".to_string()];
+        let visible = filter_visible_columns(&columns, &hidden);
+        assert_eq!(
+            visible,
+            vec![
+                (0, "a".to_string()),
+                (2, "c".to_string()),
+                (4, "e".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn filter_visible_columns_handles_unknown_hidden_name() {
+        let columns = vec!["id".to_string(), "name".to_string()];
+        let hidden = vec!["does_not_exist".to_string()];
+        let visible = filter_visible_columns(&columns, &hidden);
+        assert_eq!(
+            visible,
+            vec![(0, "id".to_string()), (1, "name".to_string())]
+        );
     }
 }
 
