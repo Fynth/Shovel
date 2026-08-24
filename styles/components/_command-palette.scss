@@ -1,0 +1,281 @@
+@use "../base/tokens" as *;
+@use "../base/states" as *;
+
+// Compact overlay. The palette is intentionally narrower and
+// shorter than the settings modal — it lives at the top of the
+// window (Linear / VSCode style) and never blocks more than ~40% of
+// the viewport height, so the user can still see what the action
+// they are about to run will affect.
+.command-palette__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: clamp(48px, 12vh, 110px) $spacing-lg 0;
+  background: color-mix(in srgb, var(--color-backdrop, #000) 55%, transparent);
+  backdrop-filter: blur(18px) saturate(140%);
+  animation: command-palette-in $motion-fast ease-out;
+}
+
+.command-palette {
+  width: min(640px, 100%);
+  max-height: min(60vh, 460px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid color-mix(in srgb, var(--glass-border) 78%, var(--color-border));
+  border-radius: $radius-lg;
+  background:
+    radial-gradient(
+      circle at 8% 0%,
+      color-mix(in srgb, var(--color-primary) 14%, transparent),
+      transparent 32%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-surface-contrast, var(--color-panel-2)) 62%, transparent),
+      transparent 140px
+    ),
+    color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 94%, var(--glass-tint));
+  box-shadow:
+    var(--shadow-panel, 0 18px 40px rgba(8, 10, 20, 0.32)),
+    inset 0 1px 0 var(--glass-highlight);
+  overflow: hidden;
+  outline: none;
+}
+
+.command-palette__input-row {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  padding: $spacing-md $spacing-lg;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--glass-border) 64%, var(--color-border));
+  background: color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 56%, transparent);
+}
+
+.command-palette__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.command-palette__input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  color: var(--color-text);
+  font: inherit;
+  font-size: $font-size-xl;
+  line-height: $line-height-tight;
+  letter-spacing: -0.01em;
+  padding: $spacing-xs 0;
+
+  &::placeholder {
+    color: color-mix(in srgb, var(--color-text-muted) 80%, transparent);
+  }
+}
+
+.command-palette__shortcut-hint {
+  font-size: $font-size-xs;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  padding: 2px $spacing-sm;
+  border: 1px solid color-mix(in srgb, var(--glass-border) 78%, var(--color-border));
+  border-radius: $radius-sm;
+  background: color-mix(in srgb, var(--color-panel-2) 64%, transparent);
+}
+
+.command-palette__results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: $spacing-sm;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+}
+
+.command-palette__list,
+.command-palette__group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.command-palette__group + .command-palette__group {
+  margin-top: $spacing-sm;
+}
+
+.command-palette__group-title {
+  font-size: $font-size-xs;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  padding: $spacing-2xs $spacing-sm;
+}
+
+.command-palette__item {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  padding: $spacing-sm $spacing-md;
+  border: 1px solid transparent;
+  border-radius: $radius-md;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: $font-size-lg;
+  line-height: $line-height-tight;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition:
+    background-color $motion-fast ease,
+    border-color $motion-fast ease,
+    color $motion-fast ease;
+
+  &:hover,
+  &:focus-visible {
+    background: color-mix(
+      in srgb,
+      var(--color-surface-contrast, var(--color-panel-2)) 60%,
+      transparent
+    );
+    border-color: color-mix(in srgb, var(--glass-border) 72%, var(--color-border));
+    outline: none;
+  }
+
+  &--selected {
+    background: color-mix(
+      in srgb,
+      var(--color-primary) 18%,
+      var(--color-surface-contrast, var(--color-panel-2)) 56%
+    );
+    border-color: color-mix(in srgb, var(--color-primary) 32%, transparent);
+
+    .command-palette__item-icon {
+      color: var(--color-primary);
+    }
+  }
+}
+
+.command-palette__item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+
+  &--placeholder {
+    visibility: hidden;
+  }
+}
+
+.command-palette__item-title {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-2xs;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.command-palette__match {
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+.command-palette__item-category {
+  font-size: $font-size-xs;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  padding: 1px $spacing-xs;
+  border: 1px solid color-mix(in srgb, var(--glass-border) 60%, transparent);
+  border-radius: $radius-sm;
+  background: color-mix(in srgb, var(--color-panel-2) 36%, transparent);
+  flex-shrink: 0;
+}
+
+.command-palette__empty {
+  padding: $spacing-xl $spacing-md;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: $font-size-lg;
+}
+
+.command-palette__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: $spacing-sm $spacing-lg;
+  border-top: 1px solid color-mix(in srgb, var(--glass-border) 64%, var(--color-border));
+  background: color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 40%, transparent);
+}
+
+.command-palette__hint {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-2xs;
+  font-size: $font-size-xs;
+  color: var(--color-text-muted);
+  letter-spacing: 0.01em;
+}
+
+.command-palette__kbd {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: $font-size-xs;
+  padding: 1px $spacing-xs;
+  border: 1px solid color-mix(in srgb, var(--glass-border) 78%, var(--color-border));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--color-panel-2) 56%, transparent);
+  color: var(--color-text);
+}
+
+.command-palette__kbd-sep {
+  color: color-mix(in srgb, var(--color-text-muted) 64%, transparent);
+}
+
+@keyframes command-palette-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .command-palette__backdrop {
+    animation: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .command-palette {
+    border-radius: $radius-md;
+  }
+
+  .command-palette__input-row,
+  .command-palette__footer {
+    padding: $spacing-sm $spacing-md;
+  }
+}

@@ -46,6 +46,7 @@ use std::{
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
+pub mod commands;
 pub mod context_menu;
 pub mod keyboard;
 
@@ -152,6 +153,20 @@ pub static APP_LAST_QUERY: GlobalSignal<Option<LastQuerySummary>> = Signal::glob
 pub static APP_FOCUS_EDITOR_REQUEST: GlobalSignal<u64> = Signal::global(|| 0);
 pub static APP_FOCUS_FILTER_PANEL_REQUEST: GlobalSignal<u64> = Signal::global(|| 0);
 
+// Command-palette visibility. The palette is a compact overlay that
+// can be opened from anywhere with Ctrl+Shift+P (or the palette's own
+// "Open Command Palette" entry). See `commands.rs` for the catalog
+// and `components::command_palette` for the renderer.
+pub static APP_COMMAND_PALETTE: GlobalSignal<bool> = Signal::global(|| false);
+
+// Bumped when the palette dispatches a command that needs workspace
+// context (run query, format, explain, new/close/next tab, save query,
+// refresh explorer). The workspace watches this counter and reacts in
+// a `use_effect`, keeping the catalog in `commands.rs` free of
+// workspace-local signals.
+pub static APP_COMMAND_REQUEST: GlobalSignal<u64> = Signal::global(|| 0);
+pub static APP_COMMAND_REQUEST_KIND: GlobalSignal<u64> = Signal::global(|| 0);
+
 pub fn request_focus_editor() {
     let mut counter = APP_FOCUS_EDITOR_REQUEST.write();
     *counter = counter.wrapping_add(1);
@@ -159,6 +174,30 @@ pub fn request_focus_editor() {
 
 pub fn request_focus_filter_panel() {
     let mut counter = APP_FOCUS_FILTER_PANEL_REQUEST.write();
+    *counter = counter.wrapping_add(1);
+}
+
+pub fn open_command_palette() {
+    *APP_COMMAND_PALETTE.write() = true;
+}
+
+pub fn close_command_palette() {
+    if APP_COMMAND_PALETTE() {
+        *APP_COMMAND_PALETTE.write() = false;
+    }
+}
+
+pub fn toggle_command_palette() {
+    let current = APP_COMMAND_PALETTE();
+    *APP_COMMAND_PALETTE.write() = !current;
+}
+
+/// Bump the workspace-scoped command request counter with a stable
+/// discriminator (`kind`) so the workspace can route the request to
+/// the correct handler in a single `use_effect`.
+pub fn request_command(kind: crate::app_state::commands::CommandId) {
+    *APP_COMMAND_REQUEST_KIND.write() = kind.0;
+    let mut counter = APP_COMMAND_REQUEST.write();
     *counter = counter.wrapping_add(1);
 }
 static NEXT_TOAST_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);

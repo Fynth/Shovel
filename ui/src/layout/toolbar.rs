@@ -1,7 +1,11 @@
 use crate::{
     app_state::{
-        APP_SQL_FORMAT_SETTINGS, APP_STATE, APP_UI_SETTINGS, open_connection_screen,
-        replace_ui_settings, show_workspace,
+        APP_SQL_FORMAT_SETTINGS,
+        APP_STATE,
+        APP_UI_SETTINGS,
+        open_connection_screen,
+        replace_ui_settings,
+        show_workspace,
     },
     components::tooltip_target::TooltipTarget,
     windows,
@@ -97,7 +101,7 @@ pub fn Toolbar() -> Element {
                     label: "Open application settings in a separate window".to_string(),
                     button {
                         class: "button button--ghost button--small",
-                        onclick: move |_| open_settings_window(),
+                        onclick: move |_| open_settings(),
                         "Settings"
                     }
                 }
@@ -137,7 +141,7 @@ pub fn Toolbar() -> Element {
 /// the existing `use_effect`s in `app.rs` pick up to persist to disk. Closing
 /// the dialog window drops the bridge sender; the receiver task exits the
 /// next time it tries to read.
-fn open_settings_window() {
+pub fn open_settings() {
     let (bridge, mut rx) = windows::create_settings_bridge();
 
     spawn(async move {

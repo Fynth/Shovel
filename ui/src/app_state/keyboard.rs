@@ -21,6 +21,7 @@ pub enum ShortcutAction {
     FocusFilterPanel,
     SaveQuery,
     CloseOverlay,
+    CommandPalette,
 }
 
 /// Returns true when the Ctrl-or-Meta modifier is held. We treat
@@ -77,6 +78,9 @@ pub fn match_key_combination(key: &Key, modifiers: Modifiers) -> Option<Shortcut
     }
     if eq_ci('S') && shift {
         return Some(ShortcutAction::SaveQuery);
+    }
+    if eq_ci('P') && shift {
+        return Some(ShortcutAction::CommandPalette);
     }
     if eq_ci('T') || eq_ci('N') {
         return Some(ShortcutAction::NewTab);
@@ -225,6 +229,24 @@ mod tests {
         // editor's handler keeps the muscle memory.
         assert_eq!(
             match_key_combination(&Key::Character("s".into()), ctrl()),
+            None
+        );
+    }
+
+    #[test]
+    fn ctrl_shift_p_opens_the_command_palette() {
+        assert_eq!(
+            match_key_combination(&Key::Character("p".into()), ctrl_shift()),
+            Some(ShortcutAction::CommandPalette)
+        );
+        assert_eq!(
+            match_key_combination(&Key::Character("P".into()), ctrl_shift()),
+            Some(ShortcutAction::CommandPalette)
+        );
+        // Plain Ctrl+P (no shift) is reserved for the host-level
+        // print dialog and should not be hijacked by the palette.
+        assert_eq!(
+            match_key_combination(&Key::Character("p".into()), ctrl()),
             None
         );
     }

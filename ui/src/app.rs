@@ -10,7 +10,10 @@ use crate::{
         restore_connection_sessions,
         toast_error,
     },
-    components::context_menu::{ContextMenu, TextInputMenuInit},
+    components::{
+        command_palette::CommandPalette,
+        context_menu::{ContextMenu, TextInputMenuInit},
+    },
     layout::{StatusBar, ToastContainer, Toolbar},
     screens::{DbConnect, Workspace},
 };
@@ -197,6 +200,7 @@ pub fn App() -> Element {
             StatusBar {}
             TextInputMenuInit {}
             ContextMenu {}
+            CommandPalette {}
         }
     }
 }

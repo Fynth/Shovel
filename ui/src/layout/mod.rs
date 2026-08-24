@@ -6,4 +6,4 @@ mod toolbar;
 pub use settings_modal::SettingsModal;
 pub use status_bar::StatusBar;
 pub use toast::ToastContainer;
-pub use toolbar::Toolbar;
+pub use toolbar::{Toolbar, open_settings as toolbar_open_settings};

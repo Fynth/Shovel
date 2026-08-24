@@ -8,6 +8,8 @@ mod hooks;
 use crate::{
     app_state::{
         APP_AI_FEATURES_ENABLED,
+        APP_COMMAND_REQUEST,
+        APP_COMMAND_REQUEST_KIND,
         APP_SHOW_AGENT_PANEL,
         APP_SHOW_CONNECTIONS,
         APP_SHOW_EXPLORER,
@@ -19,6 +21,16 @@ use crate::{
         APP_THEME,
         APP_UI_SETTINGS,
         ToastKind,
+        commands::{
+            CMD_CLOSE_TAB,
+            CMD_EXPLAIN_QUERY,
+            CMD_FORMAT_SQL,
+            CMD_NEW_TAB,
+            CMD_NEXT_TAB,
+            CMD_REFRESH_EXPLORER,
+            CMD_RUN_QUERY,
+            CMD_SAVE_QUERY,
+        },
         context_menu,
         keyboard::{ShortcutAction, match_key_combination},
         open_connection_screen,
@@ -31,6 +43,7 @@ use crate::{
         set_show_saved_queries,
         set_show_sql_editor,
         show_toast,
+        toggle_command_palette,
         update_ui_settings,
     },
     windows,
@@ -900,6 +913,80 @@ pub fn Workspace() -> Element {
         }
     });
 
+    // ── Effect: dispatch command-palette requests ─────────────────
+    // The palette lives outside the workspace tree (mounted in
+    // `app.rs` next to `ContextMenu`) and can only reach workspace-
+    // local state by bumping a global counter. We watch the counter
+    // here and realise the request against `tabs`, `active_tab_id`,
+    // `history`, etc. The discriminator (`APP_COMMAND_REQUEST_KIND`)
+    // selects which action to run; any unknown id is logged and
+    // dropped so an out-of-sync palette can never silently no-op.
+    use_effect(move || {
+        let _ = APP_COMMAND_REQUEST();
+        let kind = APP_COMMAND_REQUEST_KIND();
+        match kind {
+            x if x == CMD_NEW_TAB.0 => {
+                if let Some(session) = APP_STATE.read().active_session().cloned() {
+                    let tab_id = next_tab_id();
+                    next_tab_id += 1;
+                    let tab = actions::new_query_tab(
+                        tab_id,
+                        session.id,
+                        format!("Query {}", tabs.read().len() + 1),
+                        String::new(),
+                    );
+                    tabs.with_mut(|all_tabs| all_tabs.push(tab));
+                    active_tab_id.set(tab_id);
+                }
+            }
+            x if x == CMD_CLOSE_TAB.0 =>
+                if tabs.read().len() > 1 {
+                    let current_id = active_tab_id();
+                    tabs.with_mut(|all_tabs| all_tabs.retain(|t| t.id != current_id));
+                    if let Some(first) = tabs.read().first() {
+                        active_tab_id.set(first.id);
+                        crate::app_state::activate_session(first.session_id);
+                    }
+                },
+            x if x == CMD_NEXT_TAB.0 => {
+                let all_tabs = tabs.read();
+                if all_tabs.len() > 1 {
+                    let current_idx = all_tabs.iter().position(|t| t.id == active_tab_id());
+                    if let Some(idx) = current_idx {
+                        let next_idx = (idx + 1) % all_tabs.len();
+                        let next_tab = &all_tabs[next_idx];
+                        active_tab_id.set(next_tab.id);
+                        crate::app_state::activate_session(next_tab.session_id);
+                    }
+                }
+            }
+            x if x == CMD_REFRESH_EXPLORER.0 => {
+                tree_reload += 1;
+            }
+            x if x == CMD_RUN_QUERY.0 => {
+                actions::run_active_tab(tabs, active_tab_id(), (history, next_history_id));
+            }
+            x if x == CMD_FORMAT_SQL.0 => {
+                actions::format_active_tab(tabs, active_tab_id(), APP_SQL_FORMAT_SETTINGS());
+            }
+            x if x == CMD_EXPLAIN_QUERY.0 => {
+                actions::run_active_tab_explain(tabs, active_tab_id());
+            }
+            x if x == CMD_SAVE_QUERY.0 => {
+                let status = actions::save_active_tab_as_saved_query(
+                    tabs,
+                    active_tab_id(),
+                    saved_queries,
+                    next_saved_query_id,
+                );
+                show_save_status_toast(&status);
+            }
+            _ => {
+                eprintln!("workspace: unknown command request kind {kind}");
+            }
+        }
+    });
+
     let tool_panel_layout = APP_UI_SETTINGS().tool_panel_layout.normalized();
     let tool_vis = helpers::ToolPanelVisibility {
         show_saved_queries: APP_SHOW_SAVED_QUERIES(),
@@ -1030,6 +1117,9 @@ pub fn Workspace() -> Element {
                             active_tab_id(),
                             APP_SQL_FORMAT_SETTINGS(),
                         );
+                    }
+                    ShortcutAction::CommandPalette => {
+                        toggle_command_palette();
                     }
                     ShortcutAction::CloseOverlay => {
                         close_topmost_overlay();
