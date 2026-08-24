@@ -5,8 +5,14 @@ use std::{
 };
 
 use models::{
-    DatabaseConnection, DatabaseError, ExplorerNode, ExplorerNodeKind, QueryHistoryItem,
-    QueryOutput, QueryPage, TablePreviewSource,
+    DatabaseConnection,
+    DatabaseError,
+    ExplorerNode,
+    ExplorerNodeKind,
+    QueryHistoryItem,
+    QueryOutput,
+    QueryPage,
+    TablePreviewSource,
 };
 
 use explorer::{describe_table, load_connection_tree};
@@ -515,6 +521,7 @@ fn append_catalog_signature_parts(nodes: &[ExplorerNode], signature: &mut String
             ExplorerNodeKind::Function => "function:",
             ExplorerNodeKind::Procedure => "procedure:",
             ExplorerNodeKind::Trigger => "trigger:",
+            ExplorerNodeKind::Column => "column:",
         });
         signature.push_str(&node.qualified_name);
         signature.push('|');
@@ -721,7 +728,8 @@ fn append_catalog_summary(lines: &mut Vec<String>, nodes: &[ExplorerNode]) {
             | ExplorerNodeKind::Sequence
             | ExplorerNodeKind::Function
             | ExplorerNodeKind::Procedure
-            | ExplorerNodeKind::Trigger => {
+            | ExplorerNodeKind::Trigger
+            | ExplorerNodeKind::Column => {
                 lines.push(format!(
                     "- {}: {}",
                     node.kind.display_label(),
@@ -836,7 +844,8 @@ fn collect_table_sources_inner(nodes: &[ExplorerNode], sources: &mut Vec<TablePr
             ExplorerNodeKind::Sequence
             | ExplorerNodeKind::Function
             | ExplorerNodeKind::Procedure
-            | ExplorerNodeKind::Trigger => {}
+            | ExplorerNodeKind::Trigger
+            | ExplorerNodeKind::Column => {}
         }
     }
 }
@@ -844,9 +853,14 @@ fn collect_table_sources_inner(nodes: &[ExplorerNode], sources: &mut Vec<TablePr
 #[cfg(test)]
 mod tests {
     use super::{
-        append_catalog_summary, append_observed_values, append_page_preview,
-        append_structure_profile, build_catalog_signature, inline_excerpt,
-        prioritize_table_sources, relation_heading,
+        append_catalog_summary,
+        append_observed_values,
+        append_page_preview,
+        append_structure_profile,
+        build_catalog_signature,
+        inline_excerpt,
+        prioritize_table_sources,
+        relation_heading,
     };
     use models::{ExplorerNode, ExplorerNodeKind, QueryPage, TablePreviewSource};
 

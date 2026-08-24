@@ -13,6 +13,12 @@ pub enum ExplorerNodeKind {
     Procedure,
     /// Trigger (PostgreSQL/MySQL/SQLite).
     Trigger,
+    /// Column child of a table or view. Only present in the tree when
+    /// the explorer backend opts to populate column children; the
+    /// render path is gated by [`models::ExplorerViewSettings::show_columns`]
+    /// so legacy tree-loaders (which never populate columns) stay
+    /// unchanged when the toggle is off.
+    Column,
 }
 
 impl ExplorerNodeKind {
@@ -26,7 +32,10 @@ impl ExplorerNodeKind {
         )
     }
 
-    /// Буква-иконка для строки дерева (как в DBeaver).
+    /// Буква-иконка для строки дерева (как в DBeaver). Сохранено для
+    /// обратной совместимости с тестами и мест, где текстовый
+    /// fallback всё ещё нужен; новый рендерер использует
+    /// [`ExplorerNodeKind::badge_class`] + [`ObjectIcon`].
     pub fn tree_badge(self) -> &'static str {
         match self {
             ExplorerNodeKind::Schema => "",
@@ -37,6 +46,25 @@ impl ExplorerNodeKind {
             ExplorerNodeKind::Function => "F",
             ExplorerNodeKind::Procedure => "P",
             ExplorerNodeKind::Trigger => "R",
+            ExplorerNodeKind::Column => "C",
+        }
+    }
+
+    /// Стабильный kebab-case-идентификатор типа для CSS-модификатора
+    /// (`tree__object-badge--table` и т.п.). Используется рендерером,
+    /// чтобы подсветить таблицу/вью/etc. разными цветовыми токенами
+    /// при наведении и в выбранном состоянии.
+    pub fn badge_class(self) -> &'static str {
+        match self {
+            ExplorerNodeKind::Schema => "schema",
+            ExplorerNodeKind::Table => "table",
+            ExplorerNodeKind::View => "view",
+            ExplorerNodeKind::MaterializedView => "materialized-view",
+            ExplorerNodeKind::Sequence => "sequence",
+            ExplorerNodeKind::Function => "function",
+            ExplorerNodeKind::Procedure => "procedure",
+            ExplorerNodeKind::Trigger => "trigger",
+            ExplorerNodeKind::Column => "column",
         }
     }
 
@@ -51,6 +79,7 @@ impl ExplorerNodeKind {
             ExplorerNodeKind::Function => "Function",
             ExplorerNodeKind::Procedure => "Procedure",
             ExplorerNodeKind::Trigger => "Trigger",
+            ExplorerNodeKind::Column => "Column",
         }
     }
 }

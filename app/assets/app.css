@@ -79,6 +79,8 @@ textarea {
   --color-danger: #ff6f91;
   --color-warning: #ffd166;
   --color-focus: rgba(94, 177, 255, 0.34);
+  --color-accent-purple: #b48be6;
+  --color-accent-amber: #f0a45a;
   --color-hover: rgba(255, 255, 255, 0.07);
   --color-active: rgba(94, 177, 255, 0.18);
   --color-backdrop: rgba(3, 5, 10, 0.76);
@@ -133,6 +135,8 @@ textarea {
   --color-danger: #ff3b5f;
   --color-warning: #b87800;
   --color-focus: rgba(0, 122, 255, 0.24);
+  --color-accent-purple: #8b4be8;
+  --color-accent-amber: #c25b00;
   --color-hover: rgba(0, 35, 82, 0.06);
   --color-active: rgba(0, 122, 255, 0.12);
   --color-backdrop: rgba(21, 33, 50, 0.26);
@@ -2590,6 +2594,53 @@ select.input:focus-visible {
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.05em;
+}
+
+.tree__object-icon {
+  width: 14px;
+  height: 14px;
+  color: inherit;
+  opacity: 0.92;
+}
+
+.tree__object-row:hover .tree__object-icon {
+  opacity: 1;
+}
+
+.tree__object-badge--table {
+  color: color-mix(in srgb, var(--color-primary) 70%, var(--color-text));
+  border-color: color-mix(in srgb, var(--color-primary) 30%, var(--color-border));
+}
+
+.tree__object-badge--view,
+.tree__object-badge--materialized-view {
+  color: color-mix(in srgb, var(--color-success) 78%, var(--color-text));
+  border-color: color-mix(in srgb, var(--color-success) 30%, var(--color-border));
+}
+
+.tree__object-badge--sequence {
+  color: color-mix(in srgb, var(--color-accent-purple) 76%, var(--color-text));
+  border-color: color-mix(in srgb, var(--color-accent-purple) 30%, var(--color-border));
+}
+
+.tree__object-badge--function,
+.tree__object-badge--procedure {
+  color: color-mix(in srgb, var(--color-accent-amber) 76%, var(--color-text));
+  border-color: color-mix(in srgb, var(--color-accent-amber) 30%, var(--color-border));
+}
+
+.tree__object-badge--trigger {
+  color: color-mix(in srgb, var(--color-warning) 78%, var(--color-text));
+  border-color: color-mix(in srgb, var(--color-warning) 30%, var(--color-border));
+}
+
+.tree__object-badge--column {
+  color: color-mix(in srgb, var(--color-text-muted) 86%, var(--color-text));
+  border-color: color-mix(in srgb, var(--color-border-strong) 36%, var(--color-border));
+}
+
+.tree__object-badge--schema {
+  color: color-mix(in srgb, var(--color-text) 76%, white 8%);
 }
 
 .tree__object-copy {

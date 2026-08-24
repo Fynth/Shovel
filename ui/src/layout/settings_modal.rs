@@ -340,6 +340,108 @@ pub fn SettingsModal(props: SettingsModalProps) -> Element {
                             class: "settings-modal__group",
                             span {
                                 class: "settings-modal__group-title",
+                                "Explorer view"
+                            }
+                            p {
+                                class: "settings-modal__section-hint",
+                                "Controls which object types the connection explorer tree renders. Changes apply immediately."
+                            }
+                            label {
+                                class: "settings-modal__toggle",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: settings.explorer.show_schemas,
+                                    oninput: move |event| {
+                                        let mut next = props.read().settings.clone();
+                                        next.explorer.show_schemas = event.checked();
+                                        on_change.call((next, props.read().sql_settings.clone()));
+                                    },
+                                }
+                                span { "Show schemas" }
+                            }
+                            label {
+                                class: "settings-modal__toggle",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: settings.explorer.show_tables,
+                                    oninput: move |event| {
+                                        let mut next = props.read().settings.clone();
+                                        next.explorer.show_tables = event.checked();
+                                        on_change.call((next, props.read().sql_settings.clone()));
+                                    },
+                                }
+                                span { "Show tables" }
+                            }
+                            label {
+                                class: "settings-modal__toggle",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: settings.explorer.show_views,
+                                    oninput: move |event| {
+                                        let mut next = props.read().settings.clone();
+                                        next.explorer.show_views = event.checked();
+                                        on_change.call((next, props.read().sql_settings.clone()));
+                                    },
+                                }
+                                span { "Show views (incl. materialized views)" }
+                            }
+                            label {
+                                class: "settings-modal__toggle",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: settings.explorer.show_columns,
+                                    oninput: move |event| {
+                                        let mut next = props.read().settings.clone();
+                                        next.explorer.show_columns = event.checked();
+                                        on_change.call((next, props.read().sql_settings.clone()));
+                                    },
+                                }
+                                span { "Show column children under tables" }
+                            }
+                            label {
+                                class: "settings-modal__toggle",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: settings.explorer.show_system_objects,
+                                    oninput: move |event| {
+                                        let mut next = props.read().settings.clone();
+                                        next.explorer.show_system_objects = event.checked();
+                                        on_change.call((next, props.read().sql_settings.clone()));
+                                    },
+                                }
+                                span { "Show system objects (pg_catalog, information_schema, mysql, sys, system)" }
+                            }
+                            label {
+                                class: "settings-modal__toggle",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: settings.explorer.show_row_counts,
+                                    oninput: move |event| {
+                                        let mut next = props.read().settings.clone();
+                                        next.explorer.show_row_counts = event.checked();
+                                        on_change.call((next, props.read().sql_settings.clone()));
+                                    },
+                                }
+                                span { "Show estimated row counts next to tables" }
+                            }
+                            label {
+                                class: "settings-modal__toggle",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: settings.explorer.sort_alphabetical,
+                                    oninput: move |event| {
+                                        let mut next = props.read().settings.clone();
+                                        next.explorer.sort_alphabetical = event.checked();
+                                        on_change.call((next, props.read().sql_settings.clone()));
+                                    },
+                                }
+                                span { "Sort objects alphabetically within each group" }
+                            }
+                        }
+                        div {
+                            class: "settings-modal__group",
+                            span {
+                                class: "settings-modal__group-title",
                                 "Visible panels by default"
                             }
                             p {

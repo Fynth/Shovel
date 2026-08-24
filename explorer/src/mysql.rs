@@ -379,7 +379,8 @@ pub async fn load_object_ddl_mysql(
         | ExplorerNodeKind::View
         | ExplorerNodeKind::MaterializedView
         | ExplorerNodeKind::Sequence
-        | ExplorerNodeKind::Schema => {
+        | ExplorerNodeKind::Schema
+        | ExplorerNodeKind::Column => {
             let sql = format!(
                 "show create table {}",
                 qualified_mysql_table_name(&schema_name, &object)

@@ -126,6 +126,61 @@ pub enum UiDensity {
     Comfortable,
 }
 
+/// Per-object-type display options for the connection explorer tree
+/// (left panel). Mirrors the view-settings pane in DBeaver / DataGrip:
+/// each toggle gates a slice of the rendered tree without re-querying
+/// the database, and the whole struct is persisted as part of
+/// [`AppUiSettings`] so user preferences survive a restart.
+///
+/// Defaults track the DBeaver starting state:
+/// - schemas, tables, views and row-count badges are visible
+/// - column children, system schemas (`pg_catalog`, `information_schema`,
+///   `INFORMATION_SCHEMA`, `mysql`, `performance_schema`, `sys`,
+///   `system`, etc.) and alphabetical ordering are off by default —
+///   the existing tree shows objects in driver-natural order (typically
+///   load order or alphabetical depending on the backend)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExplorerViewSettings {
+    /// Render schema-level nodes at all. Turning this off collapses every
+    /// schema into a flat object list (driven by driver default schema).
+    pub show_schemas: bool,
+    /// Render the "Tables" group. Off hides every table in the tree.
+    pub show_tables: bool,
+    /// Render the "Views" + "Materialized Views" groups.
+    pub show_views: bool,
+    /// Render column children under each table. Column data is loaded
+    /// by the explorer backend; when this is off the renderer skips
+    /// the column children even if they are present.
+    pub show_columns: bool,
+    /// Include well-known system schemas/objects (`pg_catalog`,
+    /// `information_schema`, `INFORMATION_SCHEMA`, `mysql`,
+    /// `performance_schema`, `sys`, `system`). When off these are
+    /// filtered out at the UI level on top of the SQL-level filter
+    /// the driver already applies.
+    pub show_system_objects: bool,
+    /// Render the `(≈N)` row-count badge next to tables. Independent
+    /// of whether the backend was able to populate the count.
+    pub show_row_counts: bool,
+    /// Sort group members alphabetically by name. When off the
+    /// natural driver order is preserved (existing behaviour).
+    pub sort_alphabetical: bool,
+}
+
+impl Default for ExplorerViewSettings {
+    fn default() -> Self {
+        Self {
+            show_schemas: true,
+            show_tables: true,
+            show_views: true,
+            show_columns: false,
+            show_system_objects: false,
+            show_row_counts: true,
+            sort_alphabetical: false,
+        }
+    }
+}
+
 impl UiDensity {
     pub const ALL: [Self; 3] = [Self::Compact, Self::Normal, Self::Comfortable];
 
@@ -214,6 +269,8 @@ pub struct AppUiSettings {
     /// after the user stops typing for a short idle pause; otherwise
     /// completions stay as ghost text until the user presses Tab.
     pub ai_auto_apply_completions: bool,
+
+    pub explorer: ExplorerViewSettings,
 }
 
 impl Default for AppUiSettings {
@@ -236,13 +293,14 @@ impl Default for AppUiSettings {
             deepseek: DeepSeekSettings::default(),
             ai_response_language: "English".to_string(),
             ai_auto_apply_completions: true,
+            explorer: ExplorerViewSettings::default(),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{AppThemePreference, AppUiSettings, UiDensity};
+    use super::{AppThemePreference, AppUiSettings, ExplorerViewSettings, UiDensity};
 
     #[test]
     fn fresh_default_keeps_sql_editor_collapsed() {
@@ -536,6 +594,17 @@ mod tests {
             // Default for ai_auto_apply_completions is `true`; flip it so the
             // round-trip explicitly exercises the new field.
             ai_auto_apply_completions: false,
+            // Explorer view settings — flip from defaults so every field is
+            // explicitly exercised by the JSON round-trip.
+            explorer: ExplorerViewSettings {
+                show_schemas: false,
+                show_tables: false,
+                show_views: false,
+                show_columns: true,
+                show_system_objects: true,
+                show_row_counts: false,
+                sort_alphabetical: true,
+            },
             ..AppUiSettings::default()
         };
         settings.codestral.enabled = true;
@@ -663,6 +732,60 @@ mod tests {
                 reloaded.ai_auto_apply_completions, settings.ai_auto_apply_completions,
                 "{field_name} toggle dropped ai_auto_apply_completions"
             );
+            assert_eq!(
+                reloaded.explorer, settings.explorer,
+                "{field_name} toggle dropped explorer view settings"
+            );
         }
+    }
+
+    #[test]
+    fn legacy_settings_missing_explorer_default_to_dbeaver_baseline() {
+        let settings: AppUiSettings = serde_json::from_str(
+            r#"{
+                "theme":"Dark",
+                "ai_features_enabled":true,
+                "restore_session_on_launch":true,
+                "show_saved_queries":true,
+                "show_connections":false,
+                "show_explorer":true,
+                "show_history":false,
+                "show_sql_editor":false,
+                "show_agent_panel":false,
+                "default_page_size":100,
+                "tool_panel_layout":{
+                    "sidebar":["Connections","Explorer","SavedQueries","History"],
+                    "inspector":["Agent"]
+                }
+            }"#,
+        )
+        .expect("legacy settings fixture should deserialize");
+
+        let explorer = settings.explorer;
+        assert!(explorer.show_schemas);
+        assert!(explorer.show_tables);
+        assert!(explorer.show_views);
+        assert!(!explorer.show_columns);
+        assert!(!explorer.show_system_objects);
+        assert!(explorer.show_row_counts);
+        assert!(!explorer.sort_alphabetical);
+    }
+
+    #[test]
+    fn explorer_view_settings_round_trip_via_json() {
+        let settings = ExplorerViewSettings {
+            show_schemas: false,
+            show_tables: false,
+            show_views: true,
+            show_columns: true,
+            show_system_objects: true,
+            show_row_counts: false,
+            sort_alphabetical: true,
+        };
+
+        let serialized = serde_json::to_string(&settings).expect("settings should serialize");
+        let reloaded: ExplorerViewSettings =
+            serde_json::from_str(&serialized).expect("settings should deserialize");
+        assert_eq!(reloaded, settings);
     }
 }

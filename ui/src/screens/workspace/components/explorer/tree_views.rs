@@ -1,25 +1,40 @@
 use super::{
-    count_objects, disconnect_session, duplicate_table_modal::DuplicateTableTarget,
-    highlight_match_segments, split_children,
+    count_objects,
+    disconnect_session,
+    duplicate_table_modal::DuplicateTableTarget,
+    highlight_match_segments,
+    split_children,
 };
 use crate::{
     app_state::{
-        APP_STATE, activate_session,
+        APP_STATE,
+        activate_session,
         context_menu::{ContextMenuItem, open_context_menu},
         session_connection,
     },
     screens::workspace::{
         ActionIcon,
         actions::{
-            ensure_tab_for_session, mark_table_deleted, mark_table_truncated,
-            read_only_mode_enabled, run_table_preview_for_tab, tab_connection_or_error,
+            ensure_tab_for_session,
+            mark_table_deleted,
+            mark_table_truncated,
+            read_only_mode_enabled,
+            run_table_preview_for_tab,
+            tab_connection_or_error,
         },
-        components::{IconButton, send_describe_object_request},
+        components::{IconButton, ObjectIcon, send_describe_object_request},
         context::WorkspaceAcpContext,
     },
 };
 use dioxus::prelude::*;
-use models::{DatabaseKind, ExplorerNode, ExplorerNodeKind, QueryTabState, TablePreviewSource};
+use models::{
+    DatabaseKind,
+    ExplorerNode,
+    ExplorerNodeKind,
+    ExplorerViewSettings,
+    QueryTabState,
+    TablePreviewSource,
+};
 use rfd::{AsyncMessageDialog, MessageButtons, MessageDialogResult, MessageLevel};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -37,6 +52,7 @@ pub(super) fn ExplorerConnectionView(
     next_tab_id: Signal<u64>,
     selected_node: Signal<String>,
     query: String,
+    view: ExplorerViewSettings,
 ) -> Element {
     let mut expanded = use_signal(|| true);
     let object_count = count_objects(&section.nodes);
@@ -102,7 +118,7 @@ pub(super) fn ExplorerConnectionView(
                 div { class: "tree__connection-body",
                     if section.nodes.is_empty() {
                         p { class: "empty-state", "No objects loaded for this connection." }
-                    } else {
+                    } else if view.show_schemas {
                         for node in section.nodes {
                             ExplorerSchemaView {
                                 node,
@@ -113,6 +129,26 @@ pub(super) fn ExplorerConnectionView(
                                 next_tab_id,
                                 selected_node,
                                 query: query.clone(),
+                                view,
+                            }
+                        }
+                    } else {
+                        // Schemas are hidden — flatten and render every schema's
+                        // children directly under the connection body. This
+                        // keeps object access intact without re-querying.
+                        for schema in section.nodes {
+                            for child in schema.children {
+                                ExplorerObjectRow {
+                                    node: child,
+                                    session_id: section.session_id,
+                                    tree_reload,
+                                    tabs,
+                                    active_tab_id,
+                                    next_tab_id,
+                                    selected_node,
+                                    query: query.clone(),
+                                    view,
+                                }
                             }
                         }
                     }
@@ -132,11 +168,12 @@ fn ExplorerSchemaView(
     next_tab_id: Signal<u64>,
     selected_node: Signal<String>,
     query: String,
+    view: ExplorerViewSettings,
 ) -> Element {
     let mut expanded = use_signal(|| true);
-    let groups = split_children(&node.children);
+    let groups = split_children(&node.children, view.sort_alphabetical);
     let object_count = groups.total();
-    let non_empty = groups.non_empty();
+    let non_empty = groups.non_empty(&view);
 
     rsx! {
         div { class: "tree__schema",
@@ -175,6 +212,7 @@ fn ExplorerSchemaView(
                             next_tab_id,
                             selected_node,
                             query: query.clone(),
+                            view,
                         }
                     }
                 }
@@ -194,6 +232,7 @@ fn ExplorerGroupView(
     next_tab_id: Signal<u64>,
     selected_node: Signal<String>,
     query: String,
+    view: ExplorerViewSettings,
 ) -> Element {
     rsx! {
         div { class: "tree__group",
@@ -209,6 +248,7 @@ fn ExplorerGroupView(
                         next_tab_id,
                         selected_node,
                         query: query.clone(),
+                        view,
                     }
                 }
             }
@@ -226,6 +266,7 @@ fn ExplorerObjectRow(
     next_tab_id: Signal<u64>,
     mut selected_node: Signal<String>,
     query: String,
+    view: ExplorerViewSettings,
 ) -> Element {
     let table_mutation_inflight = use_signal(|| None::<TableMutationKind>);
     let acp_ctx = use_context::<WorkspaceAcpContext>();
@@ -242,7 +283,6 @@ fn ExplorerObjectRow(
     let selected = selected_node() == node.qualified_name;
     let is_table = node.kind == ExplorerNodeKind::Table;
     let read_only_mode = read_only_mode_enabled();
-    let kind_badge = node.kind.tree_badge();
     let kind_label = node.kind.display_label();
 
     let items = build_explorer_context_menu(
@@ -345,8 +385,8 @@ fn ExplorerObjectRow(
                     }
                 },
                 div {
-                    class: "tree__object-badge",
-                    "{kind_badge}"
+                    class: "tree__object-badge tree__object-badge--{node.kind.badge_class()}",
+                    ObjectIcon { kind: node.kind }
                 }
                 div {
                     class: "tree__object-copy",
@@ -355,10 +395,12 @@ fn ExplorerObjectRow(
                         title: "{node.qualified_name}",
                         {highlight_match_segments(&node.name, &query)}
                     }
-                    if matches!(
-                        node.kind,
-                        ExplorerNodeKind::Table | ExplorerNodeKind::MaterializedView
-                    ) && let Some(row_count) = node.row_count
+                    if view.show_row_counts
+                        && matches!(
+                            node.kind,
+                            ExplorerNodeKind::Table | ExplorerNodeKind::MaterializedView
+                        )
+                        && let Some(row_count) = node.row_count
                     {
                         span {
                             class: "tree__row-count",
@@ -517,9 +559,8 @@ fn table_mutation_error_title(action: TableMutationKind) -> &'static str {
 
 fn table_mutation_connection_closed_description(action: TableMutationKind) -> &'static str {
     match action {
-        TableMutationKind::Truncate => {
-            "The connection was closed before the table could be truncated."
-        }
+        TableMutationKind::Truncate =>
+            "The connection was closed before the table could be truncated.",
         TableMutationKind::Drop => "The connection was closed before the table could be dropped.",
     }
 }

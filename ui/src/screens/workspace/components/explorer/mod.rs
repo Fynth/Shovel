@@ -8,7 +8,14 @@ pub mod create_table_modal;
 pub mod duplicate_table_modal;
 
 use crate::{
-    app_state::{APP_READ_ONLY_MODE, APP_STATE, APP_THEME, activate_session, remove_session},
+    app_state::{
+        APP_READ_ONLY_MODE,
+        APP_STATE,
+        APP_THEME,
+        APP_UI_SETTINGS,
+        activate_session,
+        remove_session,
+    },
     screens::workspace::components::{ActionIcon, IconButton},
 };
 use dioxus::prelude::*;
@@ -38,7 +45,9 @@ pub fn SidebarConnectionTree(
     let mut filter_query = use_signal(String::new);
     let query = filter_query();
     let active_create_target = active_create_table_target(&sections);
-    let filtered_sections = filter_connection_sections(&sections, &query);
+    let view = APP_UI_SETTINGS().explorer;
+    let filtered_sections =
+        filter_system_schemas(filter_connection_sections(&sections, &query), &view);
     let entity_count = filtered_sections
         .iter()
         .map(|section| count_objects(&section.nodes))
@@ -122,6 +131,7 @@ pub fn SidebarConnectionTree(
                                 next_tab_id,
                                 selected_node,
                                 query: query.clone(),
+                                view,
                             }
                         }
                     }
@@ -171,6 +181,7 @@ pub(super) fn count_objects(nodes: &[ExplorerNode]) -> usize {
 /// фиксирован и соответствует значимости.
 pub(super) struct ExplorerChildGroups {
     pub tables: Vec<ExplorerNode>,
+    pub columns: Vec<ExplorerNode>,
     pub views: Vec<ExplorerNode>,
     pub materialized_views: Vec<ExplorerNode>,
     pub sequences: Vec<ExplorerNode>,
@@ -180,18 +191,29 @@ pub(super) struct ExplorerChildGroups {
 }
 
 impl ExplorerChildGroups {
-    /// Группы в порядке отображения, пропуская пустые. Возвращает
+    /// Группы в порядке отображения, пропуская пустые и группы,
+    /// отключённые пользовательскими view-настройками. Возвращает
     /// (заголовок группы, узлы) для рендера.
-    pub fn non_empty(&self) -> Vec<(&'static str, &Vec<ExplorerNode>)> {
+    pub fn non_empty(
+        &self,
+        view: &models::ExplorerViewSettings,
+    ) -> Vec<(&'static str, &Vec<ExplorerNode>)> {
         let mut out = Vec::new();
-        if !self.tables.is_empty() {
-            out.push(("Tables", &self.tables));
+        if view.show_tables {
+            if !self.tables.is_empty() {
+                out.push(("Tables", &self.tables));
+            }
+            if view.show_columns && !self.columns.is_empty() {
+                out.push(("Columns", &self.columns));
+            }
         }
-        if !self.views.is_empty() {
-            out.push(("Views", &self.views));
-        }
-        if !self.materialized_views.is_empty() {
-            out.push(("Materialized Views", &self.materialized_views));
+        if view.show_views {
+            if !self.views.is_empty() {
+                out.push(("Views", &self.views));
+            }
+            if !self.materialized_views.is_empty() {
+                out.push(("Materialized Views", &self.materialized_views));
+            }
         }
         if !self.sequences.is_empty() {
             out.push(("Sequences", &self.sequences));
@@ -210,6 +232,7 @@ impl ExplorerChildGroups {
 
     pub fn total(&self) -> usize {
         self.tables.len()
+            + self.columns.len()
             + self.views.len()
             + self.materialized_views.len()
             + self.sequences.len()
@@ -219,9 +242,55 @@ impl ExplorerChildGroups {
     }
 }
 
-pub(super) fn split_children(children: &[ExplorerNode]) -> ExplorerChildGroups {
+/// Drops schema nodes whose name matches a well-known system schema
+/// when `view.show_system_objects` is `false`. Backends (Postgres,
+/// MySQL, ClickHouse) already filter these out at the SQL level, but
+/// drivers differ in coverage; this UI gate keeps the toggle observable
+/// for users who connect to backends that surface system objects.
+pub(super) fn filter_system_schemas(
+    sections: Vec<ExplorerConnectionSection>,
+    view: &models::ExplorerViewSettings,
+) -> Vec<ExplorerConnectionSection> {
+    if view.show_system_objects {
+        return sections;
+    }
+    sections
+        .into_iter()
+        .filter_map(|mut section| {
+            section.nodes.retain(|node| match node.kind {
+                ExplorerNodeKind::Schema => !is_system_schema_name(&node.name),
+                _ => true,
+            });
+            if section.nodes.is_empty() {
+                None
+            } else {
+                Some(section)
+            }
+        })
+        .collect()
+}
+
+fn is_system_schema_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    matches!(
+        lower.as_str(),
+        "pg_catalog"
+            | "information_schema"
+            | "pg_toast"
+            | "mysql"
+            | "performance_schema"
+            | "sys"
+            | "system"
+    )
+}
+
+pub(super) fn split_children(
+    children: &[ExplorerNode],
+    sort_alphabetical: bool,
+) -> ExplorerChildGroups {
     let mut groups = ExplorerChildGroups {
         tables: Vec::new(),
+        columns: Vec::new(),
         views: Vec::new(),
         materialized_views: Vec::new(),
         sequences: Vec::new(),
@@ -233,6 +302,7 @@ pub(super) fn split_children(children: &[ExplorerNode]) -> ExplorerChildGroups {
     for child in children {
         match child.kind {
             ExplorerNodeKind::Table => groups.tables.push(child.clone()),
+            ExplorerNodeKind::Column => groups.columns.push(child.clone()),
             ExplorerNodeKind::View => groups.views.push(child.clone()),
             ExplorerNodeKind::MaterializedView => groups.materialized_views.push(child.clone()),
             ExplorerNodeKind::Sequence => groups.sequences.push(child.clone()),
@@ -243,15 +313,18 @@ pub(super) fn split_children(children: &[ExplorerNode]) -> ExplorerChildGroups {
         }
     }
 
-    let sort_group =
-        |vec: &mut Vec<ExplorerNode>| vec.sort_by(|left, right| left.name.cmp(&right.name));
-    sort_group(&mut groups.tables);
-    sort_group(&mut groups.views);
-    sort_group(&mut groups.materialized_views);
-    sort_group(&mut groups.sequences);
-    sort_group(&mut groups.functions);
-    sort_group(&mut groups.procedures);
-    sort_group(&mut groups.triggers);
+    if sort_alphabetical {
+        let sort_group =
+            |vec: &mut Vec<ExplorerNode>| vec.sort_by(|left, right| left.name.cmp(&right.name));
+        sort_group(&mut groups.tables);
+        sort_group(&mut groups.columns);
+        sort_group(&mut groups.views);
+        sort_group(&mut groups.materialized_views);
+        sort_group(&mut groups.sequences);
+        sort_group(&mut groups.functions);
+        sort_group(&mut groups.procedures);
+        sort_group(&mut groups.triggers);
+    }
 
     groups
 }
@@ -387,13 +460,13 @@ fn filter_node(node: &ExplorerNode, query: &str) -> Option<ExplorerNode> {
         | ExplorerNodeKind::Sequence
         | ExplorerNodeKind::Function
         | ExplorerNodeKind::Procedure
-        | ExplorerNodeKind::Trigger => {
+        | ExplorerNodeKind::Trigger
+        | ExplorerNodeKind::Column =>
             if object_matches_query(node, query) {
                 Some(node.clone())
             } else {
                 None
-            }
-        }
+            },
     }
 }
 
@@ -481,10 +554,17 @@ pub(super) fn highlight_match_segments(name: &str, query: &str) -> Element {
 #[cfg(test)]
 mod tests {
     use super::{
-        ExplorerConnectionSection, ExplorerNodeKind, filter_connection_sections, filter_node,
-        filter_nodes, matches_query, split_match,
+        ExplorerConnectionSection,
+        ExplorerNodeKind,
+        filter_connection_sections,
+        filter_node,
+        filter_nodes,
+        filter_system_schemas,
+        matches_query,
+        split_children,
+        split_match,
     };
-    use models::ExplorerNode;
+    use models::{ExplorerNode, ExplorerViewSettings};
 
     fn make_node(name: &str, kind: ExplorerNodeKind, children: Vec<ExplorerNode>) -> ExplorerNode {
         let schema = if kind == ExplorerNodeKind::Schema {
@@ -898,5 +978,293 @@ mod tests {
                 ("s".to_string(), false),
             ]
         );
+    }
+
+    fn child_node(name: &str, kind: ExplorerNodeKind) -> ExplorerNode {
+        ExplorerNode {
+            name: name.to_string(),
+            kind,
+            schema: Some("public".to_string()),
+            qualified_name: format!("\"public\".\"{name}\""),
+            row_count: None,
+            children: Vec::new(),
+        }
+    }
+
+    fn schema_with(name: &str, children: Vec<ExplorerNode>) -> ExplorerNode {
+        ExplorerNode {
+            name: name.to_string(),
+            kind: ExplorerNodeKind::Schema,
+            schema: Some(name.to_string()),
+            qualified_name: format!("\"{name}\""),
+            row_count: None,
+            children,
+        }
+    }
+
+    #[test]
+    fn split_children_preserves_natural_order_when_sort_disabled() {
+        let children = vec![
+            child_node("users", ExplorerNodeKind::Table),
+            child_node("accounts", ExplorerNodeKind::Table),
+            child_node("orders", ExplorerNodeKind::Table),
+        ];
+        let groups = split_children(&children, false);
+        assert_eq!(
+            groups
+                .tables
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["users", "accounts", "orders"]
+        );
+    }
+
+    #[test]
+    fn split_children_sorts_alphabetically_when_enabled() {
+        let children = vec![
+            child_node("users", ExplorerNodeKind::Table),
+            child_node("accounts", ExplorerNodeKind::Table),
+            child_node("orders", ExplorerNodeKind::Table),
+            child_node("zenith", ExplorerNodeKind::View),
+        ];
+        let groups = split_children(&children, true);
+        assert_eq!(
+            groups
+                .tables
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["accounts", "orders", "users"]
+        );
+        assert_eq!(
+            groups
+                .views
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["zenith"]
+        );
+    }
+
+    #[test]
+    fn non_empty_respects_show_tables_toggle() {
+        let view = ExplorerViewSettings {
+            show_tables: false,
+            ..ExplorerViewSettings::default()
+        };
+        let groups = split_children(
+            &[
+                child_node("users", ExplorerNodeKind::Table),
+                child_node("active", ExplorerNodeKind::View),
+                child_node("incr", ExplorerNodeKind::Sequence),
+            ],
+            false,
+        );
+        let visible = groups.non_empty(&view);
+        assert!(
+            visible.iter().all(|(title, _)| *title != "Tables"),
+            "tables group must be hidden when show_tables is off, got {visible:?}"
+        );
+        assert!(visible.iter().any(|(title, _)| *title == "Views"));
+        assert!(visible.iter().any(|(title, _)| *title == "Sequences"));
+    }
+
+    #[test]
+    fn non_empty_respects_show_views_toggle_for_both_kinds() {
+        let view = ExplorerViewSettings {
+            show_views: false,
+            ..ExplorerViewSettings::default()
+        };
+        let groups = split_children(
+            &[
+                child_node("users", ExplorerNodeKind::Table),
+                child_node("v_active", ExplorerNodeKind::View),
+                child_node("mv_daily", ExplorerNodeKind::MaterializedView),
+            ],
+            false,
+        );
+        let visible = groups.non_empty(&view);
+        assert!(
+            !visible.iter().any(|(title, _)| *title == "Views"),
+            "views group must be hidden when show_views is off"
+        );
+        assert!(
+            !visible
+                .iter()
+                .any(|(title, _)| *title == "Materialized Views"),
+            "materialized views group must be hidden when show_views is off"
+        );
+        assert!(visible.iter().any(|(title, _)| *title == "Tables"));
+    }
+
+    #[test]
+    fn non_empty_keeps_sequences_functions_procedures_triggers() {
+        // The view toggles only gate tables/views; sequences, functions,
+        // procedures and triggers are always visible when non-empty.
+        let view = ExplorerViewSettings {
+            show_tables: false,
+            show_views: false,
+            ..ExplorerViewSettings::default()
+        };
+        let groups = split_children(
+            &[
+                child_node("seq1", ExplorerNodeKind::Sequence),
+                child_node("fn1", ExplorerNodeKind::Function),
+                child_node("proc1", ExplorerNodeKind::Procedure),
+                child_node("trg1", ExplorerNodeKind::Trigger),
+            ],
+            false,
+        );
+        let titles = groups
+            .non_empty(&view)
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            titles,
+            vec!["Sequences", "Functions", "Procedures", "Triggers"]
+        );
+    }
+
+    #[test]
+    fn filter_system_schemas_hides_pg_catalog_by_default() {
+        let sections = vec![make_section(
+            "prod",
+            vec![
+                schema_with("public", vec![child_node("users", ExplorerNodeKind::Table)]),
+                schema_with(
+                    "pg_catalog",
+                    vec![child_node("pg_class", ExplorerNodeKind::Table)],
+                ),
+            ],
+        )];
+
+        let view = ExplorerViewSettings::default();
+        let filtered = filter_system_schemas(sections, &view);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].nodes.len(), 1);
+        assert_eq!(filtered[0].nodes[0].name, "public");
+    }
+
+    #[test]
+    fn filter_system_schemas_keeps_them_when_toggle_on() {
+        let sections = vec![make_section(
+            "prod",
+            vec![
+                schema_with("public", vec![child_node("users", ExplorerNodeKind::Table)]),
+                schema_with(
+                    "pg_catalog",
+                    vec![child_node("pg_class", ExplorerNodeKind::Table)],
+                ),
+            ],
+        )];
+
+        let view = ExplorerViewSettings {
+            show_system_objects: true,
+            ..ExplorerViewSettings::default()
+        };
+        let filtered = filter_system_schemas(sections, &view);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].nodes.len(), 2);
+    }
+
+    #[test]
+    fn filter_system_schemas_drops_empty_sections() {
+        let sections = vec![
+            make_section(
+                "prod",
+                vec![schema_with(
+                    "pg_catalog",
+                    vec![child_node("pg_class", ExplorerNodeKind::Table)],
+                )],
+            ),
+            make_section(
+                "staging",
+                vec![schema_with(
+                    "public",
+                    vec![child_node("orders", ExplorerNodeKind::Table)],
+                )],
+            ),
+        ];
+
+        let view = ExplorerViewSettings::default();
+        let filtered = filter_system_schemas(sections, &view);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name, "staging");
+    }
+
+    #[test]
+    fn filter_system_schemas_is_case_insensitive_and_matches_mysql_system_names() {
+        let sections = vec![make_section(
+            "prod",
+            vec![
+                schema_with("MYSQL", vec![child_node("user", ExplorerNodeKind::Table)]),
+                schema_with("Performance_Schema", vec![]),
+                schema_with("sys", vec![]),
+                schema_with("public", vec![child_node("t", ExplorerNodeKind::Table)]),
+            ],
+        )];
+
+        let view = ExplorerViewSettings::default();
+        let filtered = filter_system_schemas(sections, &view);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].nodes.len(), 1);
+        assert_eq!(filtered[0].nodes[0].name, "public");
+    }
+
+    #[test]
+    fn split_children_routes_columns_into_dedicated_group() {
+        let children = vec![
+            child_node("id", ExplorerNodeKind::Column),
+            child_node("name", ExplorerNodeKind::Column),
+            child_node("users", ExplorerNodeKind::Table),
+        ];
+        let groups = split_children(&children, true);
+        assert_eq!(
+            groups
+                .columns
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["id", "name"]
+        );
+        assert_eq!(groups.tables.len(), 1);
+    }
+
+    #[test]
+    fn non_empty_hides_columns_when_show_columns_off() {
+        let children = vec![
+            child_node("users", ExplorerNodeKind::Table),
+            child_node("id", ExplorerNodeKind::Column),
+            child_node("name", ExplorerNodeKind::Column),
+        ];
+        let view = ExplorerViewSettings {
+            show_columns: false,
+            ..ExplorerViewSettings::default()
+        };
+        let groups = split_children(&children, false);
+        let visible = groups.non_empty(&view);
+        assert!(
+            !visible.iter().any(|(title, _)| *title == "Columns"),
+            "columns group must be hidden when show_columns is off"
+        );
+    }
+
+    #[test]
+    fn non_empty_shows_columns_when_toggle_on_and_tables_visible() {
+        let children = vec![
+            child_node("users", ExplorerNodeKind::Table),
+            child_node("id", ExplorerNodeKind::Column),
+            child_node("name", ExplorerNodeKind::Column),
+        ];
+        let view = ExplorerViewSettings {
+            show_columns: true,
+            ..ExplorerViewSettings::default()
+        };
+        let groups = split_children(&children, false);
+        let visible = groups.non_empty(&view);
+        assert!(visible.iter().any(|(title, _)| *title == "Columns"));
+        assert!(visible.iter().any(|(title, _)| *title == "Tables"));
     }
 }

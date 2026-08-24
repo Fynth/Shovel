@@ -322,11 +322,10 @@ pub async fn load_object_ddl_postgres(
             .flatten();
             Ok(ddl.filter(|s| !s.trim().is_empty()))
         }
-        ExplorerNodeKind::Table | ExplorerNodeKind::Schema => {
+        ExplorerNodeKind::Table | ExplorerNodeKind::Schema | ExplorerNodeKind::Column =>
             reconstruct_postgres_table_ddl(pool, &schema_name, &object)
                 .await
-                .map(Some)
-        }
+                .map(Some),
     }
 }
 
