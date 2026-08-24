@@ -317,7 +317,8 @@
   gap: 8px;
   width: 100%;
   min-width: 0;
-  padding: 6px 8px;
+  min-height: var(--ui-row-height);
+  padding: var(--ui-row-padding-y) var(--ui-row-padding-x);
   border-radius: 12px;
   color: var(--color-text);
   text-align: left;

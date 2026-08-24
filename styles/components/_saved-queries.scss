@@ -67,6 +67,10 @@
 }
 
 .saved-queries__item-top {
+  min-height: var(--ui-row-height);
+}
+
+.saved-queries__item-top {
   display: flex;
   align-items: center;
   justify-content: space-between;

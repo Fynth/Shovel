@@ -16,7 +16,7 @@
 
 use crate::{components::tooltip_target::TooltipTarget, screens::SqlFormatSettingsFields};
 use dioxus::prelude::*;
-use models::{AppThemePreference, AppUiSettings, SqlFormatSettings};
+use models::{AppThemePreference, AppUiSettings, SqlFormatSettings, UiDensity};
 
 /// Props for [`SettingsModal`].
 #[derive(Props, Clone, PartialEq)]
@@ -102,6 +102,32 @@ pub fn SettingsModal(props: SettingsModalProps) -> Element {
                                 },
                                 "Light"
                             }
+                        }
+                        div {
+                            class: "settings-modal__segmented settings-modal__segmented--density",
+                            role: "group",
+                            aria_label: "UI density",
+                            for variant in UiDensity::ALL {
+                                button {
+                                    key: "{variant.css_class()}",
+                                    class: if settings.density == variant {
+                                        "button button--ghost button--small button--active"
+                                    } else {
+                                        "button button--ghost button--small"
+                                    },
+                                    aria_pressed: settings.density == variant,
+                                    onclick: move |_| {
+                                        let mut next = props.read().settings.clone();
+                                        next.density = variant;
+                                        on_change.call((next, props.read().sql_settings.clone()));
+                                    },
+                                    "{variant.label()}"
+                                }
+                            }
+                        }
+                        p {
+                            class: "settings-modal__section-hint",
+                            "Compact for an IDE-style dense workspace; Comfortable for larger tap targets."
                         }
                     }
 

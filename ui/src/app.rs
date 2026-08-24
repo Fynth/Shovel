@@ -1,7 +1,14 @@
 use crate::{
     app_state::{
-        APP_SQL_FORMAT_SETTINGS, APP_STATE, APP_THEME, APP_TOOLTIP, APP_UI_SETTINGS,
-        replace_ui_settings, restore_connection_sessions, toast_error,
+        APP_SQL_FORMAT_SETTINGS,
+        APP_STATE,
+        APP_THEME,
+        APP_TOOLTIP,
+        APP_UI_DENSITY,
+        APP_UI_SETTINGS,
+        replace_ui_settings,
+        restore_connection_sessions,
+        toast_error,
     },
     components::context_menu::{ContextMenu, TextInputMenuInit},
     layout::{StatusBar, ToastContainer, Toolbar},
@@ -134,6 +141,7 @@ pub fn App() -> Element {
     });
 
     let theme_name = APP_THEME();
+    let density_class = APP_UI_DENSITY().css_class();
     let (has_sessions, should_show_connect) = {
         let app_state = APP_STATE.read();
         (
@@ -144,7 +152,7 @@ pub fn App() -> Element {
 
     rsx! {
         div {
-            class: "app {theme_name}",
+            class: "app {theme_name} {density_class}",
             Toolbar {}
             main {
                 class: if has_sessions {

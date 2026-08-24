@@ -162,6 +162,42 @@ textarea {
   --grid-row-hover: rgba(0, 122, 255, 0.055);
 }
 
+.app.density-compact {
+  --ui-row-height: 24px;
+  --ui-toolbar-height: 30px;
+  --ui-tab-height: 28px;
+  --ui-statusbar-height: 20px;
+  --ui-font-size: 12px;
+  --ui-font-size-sm: 11px;
+  --ui-icon-size: 14px;
+  --ui-row-padding-y: 2px;
+  --ui-row-padding-x: 6px;
+}
+
+.app.density-normal {
+  --ui-row-height: 28px;
+  --ui-toolbar-height: 34px;
+  --ui-tab-height: 32px;
+  --ui-statusbar-height: 22px;
+  --ui-font-size: 13px;
+  --ui-font-size-sm: 11px;
+  --ui-icon-size: 16px;
+  --ui-row-padding-y: 4px;
+  --ui-row-padding-x: 8px;
+}
+
+.app.density-comfortable {
+  --ui-row-height: 32px;
+  --ui-toolbar-height: 40px;
+  --ui-tab-height: 36px;
+  --ui-statusbar-height: 26px;
+  --ui-font-size: 14px;
+  --ui-font-size-sm: 12px;
+  --ui-icon-size: 18px;
+  --ui-row-padding-y: 6px;
+  --ui-row-padding-x: 10px;
+}
+
 .app {
   position: relative;
   height: 100vh;
@@ -735,7 +771,7 @@ textarea {
   align-items: stretch;
   gap: 0;
   min-width: 0;
-  min-height: 44px;
+  min-height: var(--ui-toolbar-height);
   padding-left: clamp(10px, 1vw, 14px);
   border-bottom: 1px solid color-mix(in srgb, var(--glass-border) 78%, var(--color-border));
   background: linear-gradient(180deg, color-mix(in srgb, var(--color-surface-shell, var(--color-bg)) 76%, var(--glass-tint-strong)), color-mix(in srgb, var(--color-surface-shell, var(--color-bg)) 88%, transparent));
@@ -1843,7 +1879,7 @@ select.input:focus-visible {
 
 .tabbar__tab,
 .tabbar__add {
-  height: 30px;
+  height: var(--ui-tab-height);
   padding: 0 10px;
   border: 1px solid color-mix(in srgb, var(--glass-border) 52%, var(--color-border));
   border-radius: 13px 13px 0 0;
@@ -2244,7 +2280,8 @@ select.input:focus-visible {
   gap: 8px;
   width: 100%;
   min-width: 0;
-  padding: 6px 8px;
+  min-height: var(--ui-row-height);
+  padding: var(--ui-row-padding-y) var(--ui-row-padding-x);
   border-radius: 12px;
   color: var(--color-text);
   text-align: left;
@@ -2373,8 +2410,9 @@ select.input:focus-visible {
   align-items: center;
   gap: 3px;
   min-width: 0;
+  min-height: var(--ui-row-height);
   overflow: hidden;
-  padding: 5px 8px;
+  padding: var(--ui-row-padding-y) var(--ui-row-padding-x);
   border: 1px solid color-mix(in srgb, var(--color-border) 84%, transparent);
   border-radius: 11px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--color-panel) 96%, white 1%), color-mix(in srgb, var(--color-panel-2) 90%, transparent));
@@ -2512,6 +2550,10 @@ select.input:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.history__topline {
+  min-height: var(--ui-row-height);
 }
 
 .history__meta {
@@ -2675,6 +2717,10 @@ select.input:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.saved-queries__item-top {
+  min-height: var(--ui-row-height);
 }
 
 .saved-queries__item-top {

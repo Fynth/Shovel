@@ -24,7 +24,7 @@
 
 .tabbar__tab,
 .tabbar__add {
-  height: 30px;
+  height: var(--ui-tab-height);
   padding: 0 10px;
   border: 1px solid color-mix(in srgb, var(--glass-border) 52%, var(--color-border));
   border-radius: 13px 13px 0 0;

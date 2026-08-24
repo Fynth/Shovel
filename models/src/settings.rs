@@ -114,6 +114,38 @@ impl AppThemePreference {
     }
 }
 
+/// UI density preset controlling toolbar / tab / row heights, font size
+/// and icon size for an IDE-like compact layout. Compact is the default
+/// and is what new installs land on; switching to Comfortable trades
+/// density for touch-friendly tap targets.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UiDensity {
+    #[default]
+    Compact,
+    Normal,
+    Comfortable,
+}
+
+impl UiDensity {
+    pub const ALL: [Self; 3] = [Self::Compact, Self::Normal, Self::Comfortable];
+
+    pub fn css_class(self) -> &'static str {
+        match self {
+            Self::Compact => "density-compact",
+            Self::Normal => "density-normal",
+            Self::Comfortable => "density-comfortable",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Compact => "Compact",
+            Self::Normal => "Normal",
+            Self::Comfortable => "Comfortable",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CodeStralSettings {
@@ -162,6 +194,7 @@ impl Default for DeepSeekSettings {
 #[serde(default)]
 pub struct AppUiSettings {
     pub theme: AppThemePreference,
+    pub density: UiDensity,
     pub ai_features_enabled: bool,
     pub restore_session_on_launch: bool,
     pub read_only_mode: bool,
@@ -187,6 +220,7 @@ impl Default for AppUiSettings {
     fn default() -> Self {
         Self {
             theme: AppThemePreference::Dark,
+            density: UiDensity::Compact,
             ai_features_enabled: true,
             restore_session_on_launch: true,
             read_only_mode: false,
@@ -208,7 +242,7 @@ impl Default for AppUiSettings {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppThemePreference, AppUiSettings};
+    use super::{AppThemePreference, AppUiSettings, UiDensity};
 
     #[test]
     fn fresh_default_keeps_sql_editor_collapsed() {
@@ -219,6 +253,61 @@ mod tests {
     #[test]
     fn fresh_default_ai_response_language_is_english() {
         assert_eq!(AppUiSettings::default().ai_response_language, "English");
+    }
+
+    #[test]
+    fn fresh_default_density_is_compact() {
+        assert_eq!(AppUiSettings::default().density, UiDensity::Compact);
+        assert_eq!(UiDensity::default(), UiDensity::Compact);
+    }
+
+    #[test]
+    fn density_enum_round_trips_via_json() {
+        for variant in UiDensity::ALL {
+            let serialized = serde_json::to_string(&variant).expect("density should serialize");
+            let reloaded: UiDensity =
+                serde_json::from_str(&serialized).expect("density should deserialize");
+            assert_eq!(reloaded, variant);
+        }
+    }
+
+    #[test]
+    fn density_css_class_matches_each_variant() {
+        assert_eq!(UiDensity::Compact.css_class(), "density-compact");
+        assert_eq!(UiDensity::Normal.css_class(), "density-normal");
+        assert_eq!(UiDensity::Comfortable.css_class(), "density-comfortable");
+    }
+
+    #[test]
+    fn legacy_settings_missing_density_default_to_compact() {
+        let settings: AppUiSettings = serde_json::from_str(r#"{"theme":"Dark"}"#)
+            .expect("legacy settings fixture should deserialize");
+        assert_eq!(settings.density, UiDensity::Compact);
+    }
+
+    #[test]
+    fn legacy_settings_with_all_persisted_fields_but_no_density_defaults_to_compact() {
+        let settings: AppUiSettings = serde_json::from_str(
+            r#"{
+                "theme":"Dark",
+                "ai_features_enabled":true,
+                "restore_session_on_launch":true,
+                "show_saved_queries":true,
+                "show_connections":false,
+                "show_explorer":true,
+                "show_history":false,
+                "show_sql_editor":false,
+                "show_agent_panel":false,
+                "default_page_size":100,
+                "tool_panel_layout":{
+                    "sidebar":["Connections","Explorer","SavedQueries","History"],
+                    "inspector":["Agent"]
+                }
+            }"#,
+        )
+        .expect("legacy settings fixture should deserialize");
+
+        assert_eq!(settings.density, UiDensity::Compact);
     }
 
     #[test]
@@ -433,6 +522,7 @@ mod tests {
 
         let mut settings = AppUiSettings {
             theme: AppThemePreference::Light,
+            density: UiDensity::Comfortable,
             ai_features_enabled: false,
             restore_session_on_launch: false,
             read_only_mode: true,
@@ -492,6 +582,10 @@ mod tests {
             assert_eq!(
                 reloaded.theme, settings.theme,
                 "{field_name} toggle dropped theme"
+            );
+            assert_eq!(
+                reloaded.density, settings.density,
+                "{field_name} toggle dropped density"
             );
             assert_eq!(
                 reloaded.ai_features_enabled, settings.ai_features_enabled,

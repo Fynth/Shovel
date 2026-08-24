@@ -1,0 +1,45 @@
+// UI density tokens. Each density preset rewrites the same set of CSS
+// custom properties (`--ui-*`) so downstream components can opt in via
+// `var(--ui-row-height)` etc. without knowing the density model. The
+// preset class is set on the root `.app` element next to the theme
+// class (`app theme-dark density-compact`).
+//
+// Density classes are intentionally orthogonal to the theme blocks in
+// `themes/_theme-{dark,light}.scss` — themes define color tokens,
+// density defines geometry tokens. A user can pair any theme with any
+// density independently.
+.app.density-compact {
+  --ui-row-height: 24px;
+  --ui-toolbar-height: 30px;
+  --ui-tab-height: 28px;
+  --ui-statusbar-height: 20px;
+  --ui-font-size: 12px;
+  --ui-font-size-sm: 11px;
+  --ui-icon-size: 14px;
+  --ui-row-padding-y: 2px;
+  --ui-row-padding-x: 6px;
+}
+
+.app.density-normal {
+  --ui-row-height: 28px;
+  --ui-toolbar-height: 34px;
+  --ui-tab-height: 32px;
+  --ui-statusbar-height: 22px;
+  --ui-font-size: 13px;
+  --ui-font-size-sm: 11px;
+  --ui-icon-size: 16px;
+  --ui-row-padding-y: 4px;
+  --ui-row-padding-x: 8px;
+}
+
+.app.density-comfortable {
+  --ui-row-height: 32px;
+  --ui-toolbar-height: 40px;
+  --ui-tab-height: 36px;
+  --ui-statusbar-height: 26px;
+  --ui-font-size: 14px;
+  --ui-font-size-sm: 12px;
+  --ui-icon-size: 18px;
+  --ui-row-padding-y: 6px;
+  --ui-row-padding-x: 10px;
+}

@@ -32,8 +32,9 @@
   align-items: center;
   gap: $spacing-xs;
   min-width: 0;
+  min-height: var(--ui-row-height);
   overflow: hidden;
-  padding: 5px 8px;
+  padding: var(--ui-row-padding-y) var(--ui-row-padding-x);
   border: 1px solid color-mix(in srgb, var(--color-border) 84%, transparent);
   border-radius: $radius-md;
   background:

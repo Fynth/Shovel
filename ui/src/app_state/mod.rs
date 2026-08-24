@@ -36,6 +36,7 @@ use models::{
     ConnectionSession,
     DatabaseConnection,
     SqlFormatSettings,
+    UiDensity,
 };
 use std::{
     collections::HashMap,
@@ -122,6 +123,8 @@ pub enum ToastKind {
 pub static APP_STATE: GlobalSignal<AppState> = Signal::global(AppState::default);
 pub static APP_THEME: GlobalSignal<String> =
     Signal::global(|| AppThemePreference::Dark.css_class().to_string());
+pub static APP_UI_DENSITY: GlobalSignal<UiDensity> =
+    Signal::global(|| AppUiSettings::default().density);
 pub static APP_UI_SETTINGS: GlobalSignal<AppUiSettings> = Signal::global(AppUiSettings::default);
 pub static APP_SQL_FORMAT_SETTINGS: GlobalSignal<SqlFormatSettings> =
     Signal::global(SqlFormatSettings::default);
@@ -261,11 +264,18 @@ fn sync_bool(signal: &GlobalSignal<bool>, new: bool) {
     }
 }
 
+fn sync_density(signal: &GlobalSignal<UiDensity>, new: UiDensity) {
+    if *signal.peek() != new {
+        *signal.write() = new;
+    }
+}
+
 fn sync_runtime_ui_settings(settings: &AppUiSettings) {
     let theme_class = settings.theme.css_class().to_string();
     if *APP_THEME.peek() != theme_class {
         *APP_THEME.write() = theme_class;
     }
+    sync_density(&APP_UI_DENSITY, settings.density);
     sync_bool(&APP_AI_FEATURES_ENABLED, settings.ai_features_enabled);
     sync_bool(
         &APP_AI_AUTO_APPLY_COMPLETIONS,
