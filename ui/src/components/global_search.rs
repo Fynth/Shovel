@@ -409,8 +409,6 @@ mod tests {
             GlobalSearchObjectItem,
             GlobalSearchTabItem,
             SearchGroupKind,
-            set_global_search_objects,
-            set_global_search_tabs,
         },
     };
     use models::ExplorerNodeKind;
