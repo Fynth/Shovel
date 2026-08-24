@@ -48,7 +48,7 @@ fn filter_commands(query: &str, list: &[Command]) -> Vec<usize> {
     list.iter()
         .enumerate()
         .filter(|(_, cmd)| {
-            if cmd.title.to_lowercase().contains(needle) {
+            if cmd.label.to_lowercase().contains(needle) {
                 return true;
             }
             cmd.keywords
@@ -289,7 +289,8 @@ pub fn CommandPalette() -> Element {
                                                         {
                                                             let cmd = &catalog[orig_idx];
                                                             let id = cmd.id;
-                                                            let title = cmd.title;
+                                                            let title = cmd.label;
+                                                            let shortcut = cmd.shortcut;
                                                             let is_selected = selection() == orig_idx;
                                                             let mut class_name = String::from("command-palette__item");
                                                             if is_selected {
@@ -319,6 +320,9 @@ pub fn CommandPalette() -> Element {
                                                                         span { class: "command-palette__item-icon command-palette__item-icon--placeholder" }
                                                                     }
                                                                     span { class: "command-palette__item-title", {title} }
+                                                                    if let Some(shortcut) = shortcut {
+                                                                        span { class: "command-palette__item-shortcut", {shortcut} }
+                                                                    }
                                                                 }
                                                             }
                                                         }
@@ -337,7 +341,8 @@ pub fn CommandPalette() -> Element {
                                         {
                                             let cmd = &catalog[orig_idx];
                                             let id = cmd.id;
-                                            let title = cmd.title;
+                                            let title = cmd.label;
+                                            let shortcut = cmd.shortcut;
                                             let category = cmd.category;
                                             let is_selected = selection() == display_idx;
                                             let needle = query_trimmed.clone();
@@ -379,6 +384,9 @@ pub fn CommandPalette() -> Element {
                                                         }
                                                     }
                                                     span { class: "command-palette__item-category", {category} }
+                                                    if let Some(shortcut) = shortcut {
+                                                        span { class: "command-palette__item-shortcut", {shortcut} }
+                                                    }
                                                 }
                                             }
                                         }
@@ -413,10 +421,12 @@ mod tests {
     fn make_cmd(id: u64, title: &'static str, keywords: &'static [&'static str]) -> Command {
         Command {
             id: CommandId(id),
-            title,
+            label: title,
             keywords,
             category: "Test",
             icon: None,
+            shortcut: None,
+            children: &[],
         }
     }
 

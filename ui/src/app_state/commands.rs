@@ -1,19 +1,22 @@
-//! Command-palette action registry.
+//! Command-palette action registry (PHASE 3 refactor).
 //!
-//! The palette lists every user-invokable action the app can perform:
-//! toggling tool panels, opening dialogs, dispatching workspace commands
-//! (run query, format, explain), navigation, etc. The list is built
-//! once at startup via [`command_list`] and rendered by
-//! [`crate::components::command_palette::CommandPalette`].
+//! Before PHASE 3 this file owned both the catalog and the execute
+//! closures. The catalog now lives in [`crate::app_state::actions`] as
+//! the single source of truth for id/label/icon/shortcut/category/
+//! keywords/children that the palette, keyboard and context menus all
+//! read. This file keeps only what is still local to the palette:
 //!
-//! Each [`Command`] stores plain data (id, title, keywords, category,
-//! icon) plus a [`CommandId`] handle that resolves to a closure stored
-//! in a thread-local registry. This mirrors the
-//! `CallbackId`/`ContextMenuItem` pattern used by
-//! [`crate::app_state::context_menu`]: commands stay `Send`-friendly
-//! plain data so they can live in a [`GlobalSignal`], while the
-//! actual closures (which capture Dioxus signals) live in
-//! thread-local storage and are invoked through [`dispatch`].
+//! - [`CommandId`] is an alias for [`ActionId`], and [`Command`] an
+//!   alias for [`Action`], so existing consumers (the palette, the
+//!   workspace request dispatcher) keep compiling unchanged.
+//! - [`command_list`] is the historical name the palette still calls;
+//!   it guarantees the palette's execute closures are registered once
+//!   against the shared [`ActionId`]s, then returns the shared catalog.
+//! - The thread-local runner table + [`register_runner`] / [`dispatch`]
+//!   are preserved verbatim — this is the mechanism that keeps the
+//!   closures (which capture Dioxus signals) out of the plain-data
+//!   catalog and `Send`-safe. [`dispatch_action`] in `actions.rs`
+//!   funnels through [`dispatch`] here.
 //!
 //! All actions are real: each command's `run` either calls a global
 //! setter from [`crate::app_state`] (for panel toggles, settings,
@@ -24,53 +27,32 @@
 
 use std::collections::HashMap;
 
-use crate::screens::workspace::ActionIcon;
-
-/// Stable identifier for a registered command. Unlike the per-call
-/// `CallbackId`, this one is stable across runs so the palette can
-/// match a freshly-typed query against the catalog of commands without
-/// rebuilding the list.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct CommandId(pub u64);
-
-impl CommandId {
-    const fn new(value: u64) -> Self {
-        Self(value)
-    }
-}
-
-pub const CMD_NEW_CONNECTION: CommandId = CommandId::new(1);
-pub const CMD_OPEN_SETTINGS: CommandId = CommandId::new(2);
-pub const CMD_NEW_TAB: CommandId = CommandId::new(3);
-pub const CMD_CLOSE_TAB: CommandId = CommandId::new(4);
-pub const CMD_NEXT_TAB: CommandId = CommandId::new(5);
-pub const CMD_TOGGLE_EXPLORER: CommandId = CommandId::new(6);
-pub const CMD_TOGGLE_SAVED_QUERIES: CommandId = CommandId::new(7);
-pub const CMD_TOGGLE_HISTORY: CommandId = CommandId::new(8);
-pub const CMD_TOGGLE_SQL_EDITOR: CommandId = CommandId::new(9);
-pub const CMD_TOGGLE_AGENT_PANEL: CommandId = CommandId::new(10);
-pub const CMD_TOGGLE_CONNECTIONS: CommandId = CommandId::new(11);
-pub const CMD_REFRESH_EXPLORER: CommandId = CommandId::new(12);
-pub const CMD_RUN_QUERY: CommandId = CommandId::new(13);
-pub const CMD_FORMAT_SQL: CommandId = CommandId::new(14);
-pub const CMD_EXPLAIN_QUERY: CommandId = CommandId::new(15);
-pub const CMD_SAVE_QUERY: CommandId = CommandId::new(16);
-pub const CMD_OPEN_COMMAND_PALETTE: CommandId = CommandId::new(17);
-pub const CMD_ABOUT: CommandId = CommandId::new(18);
-
-/// A single entry in the palette. Plain data, no `Fn`-trait, so the
-/// list can live in a [`std::sync::LazyLock`] / be cloned cheaply.
-#[derive(Clone)]
-pub struct Command {
-    pub id: CommandId,
-    pub title: &'static str,
-    /// Extra search tokens. The title is always matched; keywords are
-    /// things like `"toggle"`, `"panel"`, `"sql"` that the user types
-    /// but that don't appear in the title.
-    pub keywords: &'static [&'static str],
-    pub category: &'static str,
-    pub icon: Option<ActionIcon>,
-}
+pub use crate::app_state::actions::{
+    // Re-export the id constants under their historical `CMD_` names so
+    // the workspace request dispatcher and existing call sites compile
+    // unchanged against the shared registry.
+    ACTION_ABOUT as CMD_ABOUT,
+    ACTION_CLOSE_TAB as CMD_CLOSE_TAB,
+    ACTION_EXPLAIN_QUERY as CMD_EXPLAIN_QUERY,
+    ACTION_FORMAT_SQL as CMD_FORMAT_SQL,
+    ACTION_NEW_CONNECTION as CMD_NEW_CONNECTION,
+    ACTION_NEW_TAB as CMD_NEW_TAB,
+    ACTION_NEXT_TAB as CMD_NEXT_TAB,
+    ACTION_OPEN_COMMAND_PALETTE as CMD_OPEN_COMMAND_PALETTE,
+    ACTION_OPEN_SETTINGS as CMD_OPEN_SETTINGS,
+    ACTION_REFRESH_EXPLORER as CMD_REFRESH_EXPLORER,
+    ACTION_RUN_QUERY as CMD_RUN_QUERY,
+    ACTION_SAVE_QUERY as CMD_SAVE_QUERY,
+    ACTION_TOGGLE_AGENT_PANEL as CMD_TOGGLE_AGENT_PANEL,
+    ACTION_TOGGLE_CONNECTIONS as CMD_TOGGLE_CONNECTIONS,
+    ACTION_TOGGLE_EXPLORER as CMD_TOGGLE_EXPLORER,
+    ACTION_TOGGLE_HISTORY as CMD_TOGGLE_HISTORY,
+    ACTION_TOGGLE_SAVED_QUERIES as CMD_TOGGLE_SAVED_QUERIES,
+    ACTION_TOGGLE_SQL_EDITOR as CMD_TOGGLE_SQL_EDITOR,
+    Action as Command,
+    ActionId as CommandId,
+    palette_actions,
+};
 
 thread_local! {
     static RUNNERS: std::cell::RefCell<HashMap<CommandId, Box<dyn FnMut()>>> =
@@ -106,16 +88,17 @@ pub fn dispatch(id: CommandId) {
     }
 }
 
-/// Build the global command list. This is called exactly once at
-/// startup; the resulting `Vec` is leaked into a `&'static` so the
-/// palette can iterate it without holding a lock.
+/// Build the global command list. Called exactly once at startup: this
+/// registers the palette's execute closures against the shared
+/// [`ActionId`]s, then returns the shared [`action_catalog`]. The
+/// returned slice is leaked into a `&'static` so the palette can
+/// iterate it without holding a lock.
 ///
 /// Every command registers a runner that maps to a real action:
 /// either a global setter from [`crate::app_state`] or a request
 /// signal that the workspace watches.
 pub fn command_list() -> &'static [Command] {
     use crate::app_state as app;
-    use std::sync::LazyLock;
 
     static REGISTERED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     if !REGISTERED.swap(true, std::sync::atomic::Ordering::SeqCst) {
@@ -171,138 +154,7 @@ pub fn command_list() -> &'static [Command] {
         });
     }
 
-    static LIST: LazyLock<Vec<Command>> = LazyLock::new(|| {
-        vec![
-            Command {
-                id: CMD_NEW_CONNECTION,
-                title: "New Connection",
-                keywords: &["connect", "add", "database"],
-                category: "File",
-                icon: Some(ActionIcon::NewConnection),
-            },
-            Command {
-                id: CMD_OPEN_SETTINGS,
-                title: "Open Settings",
-                keywords: &["preferences", "options", "config"],
-                category: "File",
-                icon: Some(ActionIcon::Details),
-            },
-            Command {
-                id: CMD_NEW_TAB,
-                title: "New Query Tab",
-                keywords: &["tab", "query", "new"],
-                category: "File",
-                icon: None,
-            },
-            Command {
-                id: CMD_CLOSE_TAB,
-                title: "Close Tab",
-                keywords: &["tab", "close"],
-                category: "File",
-                icon: Some(ActionIcon::Close),
-            },
-            Command {
-                id: CMD_NEXT_TAB,
-                title: "Next Tab",
-                keywords: &["tab", "switch"],
-                category: "File",
-                icon: Some(ActionIcon::Next),
-            },
-            Command {
-                id: CMD_TOGGLE_EXPLORER,
-                title: "Toggle Explorer",
-                keywords: &["panel", "sidebar", "schema", "tree"],
-                category: "View",
-                icon: Some(ActionIcon::Explorer),
-            },
-            Command {
-                id: CMD_TOGGLE_SAVED_QUERIES,
-                title: "Toggle Saved Queries",
-                keywords: &["panel", "saved", "snippets"],
-                category: "View",
-                icon: Some(ActionIcon::SavedQueries),
-            },
-            Command {
-                id: CMD_TOGGLE_HISTORY,
-                title: "Toggle History",
-                keywords: &["panel", "history", "recent"],
-                category: "View",
-                icon: Some(ActionIcon::History),
-            },
-            Command {
-                id: CMD_TOGGLE_SQL_EDITOR,
-                title: "Toggle SQL Editor",
-                keywords: &["panel", "editor"],
-                category: "View",
-                icon: Some(ActionIcon::SqlEditor),
-            },
-            Command {
-                id: CMD_TOGGLE_AGENT_PANEL,
-                title: "Toggle Agent Panel",
-                keywords: &["panel", "agent", "ai", "chat"],
-                category: "View",
-                icon: Some(ActionIcon::Agent),
-            },
-            Command {
-                id: CMD_TOGGLE_CONNECTIONS,
-                title: "Toggle Connections",
-                keywords: &["panel", "connections", "list"],
-                category: "View",
-                icon: Some(ActionIcon::Connections),
-            },
-            Command {
-                id: CMD_REFRESH_EXPLORER,
-                title: "Refresh Explorer",
-                keywords: &["reload", "tree", "schema"],
-                category: "Query",
-                icon: Some(ActionIcon::Refresh),
-            },
-            Command {
-                id: CMD_RUN_QUERY,
-                title: "Run Query",
-                keywords: &["execute", "run", "go"],
-                category: "Query",
-                icon: Some(ActionIcon::Run),
-            },
-            Command {
-                id: CMD_FORMAT_SQL,
-                title: "Format SQL",
-                keywords: &["beautify", "prettify"],
-                category: "Query",
-                icon: Some(ActionIcon::Format),
-            },
-            Command {
-                id: CMD_EXPLAIN_QUERY,
-                title: "Explain Query",
-                keywords: &["plan", "analyze", "debug"],
-                category: "Query",
-                icon: Some(ActionIcon::Explain),
-            },
-            Command {
-                id: CMD_SAVE_QUERY,
-                title: "Save Query",
-                keywords: &["bookmark", "saved"],
-                category: "Query",
-                icon: Some(ActionIcon::Apply),
-            },
-            Command {
-                id: CMD_OPEN_COMMAND_PALETTE,
-                title: "Open Command Palette",
-                keywords: &["palette", "search", "command", "shortcut"],
-                category: "Help",
-                icon: None,
-            },
-            Command {
-                id: CMD_ABOUT,
-                title: "About Shovel",
-                keywords: &["version", "info"],
-                category: "Help",
-                icon: Some(ActionIcon::Details),
-            },
-        ]
-    });
-
-    &LIST
+    palette_actions()
 }
 
 #[cfg(test)]
@@ -316,7 +168,7 @@ mod tests {
         let mut seen = std::collections::HashSet::new();
         for cmd in list {
             assert!(seen.insert(cmd.id), "duplicate command id");
-            assert!(!cmd.title.is_empty());
+            assert!(!cmd.label.is_empty());
             assert!(!cmd.category.is_empty());
         }
     }
@@ -373,6 +225,27 @@ mod tests {
         let mut seen = std::collections::HashSet::new();
         for id in ids {
             assert!(seen.insert(id), "duplicate id: {id:?}");
+        }
+    }
+
+    #[test]
+    fn command_shortcuts_are_available_for_rendering() {
+        // The palette renders the shortcut next to each entry; the
+        // catalog must populate it for the key actions.
+        use crate::app_state::actions::find_action;
+        for required in [
+            CMD_RUN_QUERY,
+            CMD_FORMAT_SQL,
+            CMD_EXPLAIN_QUERY,
+            CMD_SAVE_QUERY,
+            CMD_OPEN_COMMAND_PALETTE,
+            CMD_CLOSE_TAB,
+            CMD_NEXT_TAB,
+            CMD_REFRESH_EXPLORER,
+            CMD_NEW_TAB,
+        ] {
+            let action = find_action(required).expect("action present");
+            assert!(action.shortcut.is_some(), "missing shortcut: {required:?}");
         }
     }
 }

@@ -56,6 +56,13 @@ pub(super) fn ExplorerConnectionView(
 ) -> Element {
     let mut expanded = use_signal(|| true);
     let object_count = count_objects(&section.nodes);
+    let connection_menu = connection_actions_context_menu(
+        section.session_id,
+        tabs,
+        active_tab_id,
+        next_tab_id,
+        tree_reload,
+    );
 
     rsx! {
         div { class: if section.is_active {
@@ -65,6 +72,11 @@ pub(super) fn ExplorerConnectionView(
             },
             div {
                 class: "tree__connection-header",
+                oncontextmenu: move |event| {
+                    event.prevent_default();
+                    let coords = event.client_coordinates();
+                    open_context_menu(coords.x, coords.y, connection_menu.clone());
+                },
                 button {
                     class: "tree__connection-toggle",
                     onclick: {
@@ -590,6 +602,14 @@ fn table_mutation_confirmation_description(
     }
 }
 
+/// Composable per-object-type context-menu builder (PHASE 3).
+///
+/// The action *set* for each object type is defined once in
+/// [`crate::app_state::actions`] (the `TABLE_ACTIONS` / `COLUMN_ACTIONS`
+/// / `SCHEMA_ACTIONS` groups). This function reads the group for `kind`,
+/// iterates it and realises each [`ActionId`] into a [`ContextMenuItem`]
+/// via [`menu_item_for_action`]. The execute closures stay here where the
+/// private signal helpers (`confirm_and_truncate_table`, etc.) live.
 #[allow(clippy::too_many_arguments)]
 fn build_explorer_context_menu(
     connection_name: String,
@@ -603,15 +623,141 @@ fn build_explorer_context_menu(
     session_id: u64,
     connection_kind: DatabaseKind,
     table_mutation_inflight: Signal<Option<TableMutationKind>>,
+    tree_reload: Signal<u64>,
+) -> Vec<ContextMenuItem> {
+    use crate::app_state::actions::{self as actions, ActionId};
+
+    // Which actions a node of this kind gets is defined by the shared
+    // group; non-queryable "other" object kinds reuse the table's
+    // read-ish subset (open/select/copy/ddl/refresh).
+    let group: &[ActionId] = match kind {
+        ExplorerNodeKind::Table => actions::TABLE_ACTIONS,
+        ExplorerNodeKind::View
+        | ExplorerNodeKind::MaterializedView
+        | ExplorerNodeKind::Sequence
+        | ExplorerNodeKind::Function
+        | ExplorerNodeKind::Procedure
+        | ExplorerNodeKind::Trigger => &[
+            actions::ACTION_TABLE_OPEN,
+            actions::ACTION_TABLE_SELECT_ALL,
+            actions::ACTION_OBJECT_COPY_NAME,
+            actions::ACTION_OBJECT_COPY_QUALIFIED,
+            actions::ACTION_TABLE_COPY_DDL,
+            actions::ACTION_OBJECT_REFRESH,
+        ],
+        ExplorerNodeKind::Column => actions::COLUMN_ACTIONS,
+        ExplorerNodeKind::Schema => actions::SCHEMA_ACTIONS,
+    };
+
+    group
+        .iter()
+        .filter_map(|id| {
+            menu_item_for_action(
+                *id,
+                &connection_name,
+                &preview_source,
+                kind,
+                read_only_mode,
+                tabs,
+                active_tab_id,
+                next_tab_id,
+                selected_node,
+                session_id,
+                connection_kind,
+                table_mutation_inflight,
+                tree_reload,
+            )
+        })
+        .collect()
+}
+
+/// Connection-level context menu (Disconnect / New Query / Refresh),
+/// driven by the shared `CONNECTION_ACTIONS` group from the Action
+/// catalog. The three items are built directly here — they need only the
+/// session/tab signals, not the table-mutation helpers.
+fn connection_actions_context_menu(
+    session_id: u64,
+    mut tabs: Signal<Vec<QueryTabState>>,
+    mut active_tab_id: Signal<u64>,
+    mut next_tab_id: Signal<u64>,
     mut tree_reload: Signal<u64>,
 ) -> Vec<ContextMenuItem> {
+    use crate::app_state::actions::{self as actions};
+
+    let mut items = Vec::new();
+    for id in actions::CONNECTION_ACTIONS {
+        match *id {
+            actions::ACTION_CONNECTION_DISCONNECT => items.push(
+                ContextMenuItem::new("Disconnect", move || {
+                    disconnect_session(tabs, active_tab_id, session_id);
+                })
+                .with_icon(ActionIcon::Close)
+                .danger(),
+            ),
+            actions::ACTION_CONNECTION_NEW_QUERY => {
+                items.push(
+                    ContextMenuItem::new("New Query", move || {
+                        let Some(session) = crate::app_state::APP_STATE
+                            .read()
+                            .session(session_id)
+                            .cloned()
+                        else {
+                            return;
+                        };
+                        let tab_id = next_tab_id();
+                        next_tab_id += 1;
+                        let tab = crate::screens::workspace::actions::new_query_tab(
+                            tab_id,
+                            session.id,
+                            format!("Query {}", tabs.read().len() + 1),
+                            String::new(),
+                        );
+                        tabs.with_mut(|all_tabs| all_tabs.push(tab));
+                        active_tab_id.set(tab_id);
+                        crate::app_state::activate_session(session.id);
+                    })
+                    .with_icon(ActionIcon::SqlEditor),
+                );
+            }
+            actions::ACTION_OBJECT_REFRESH => items.push(
+                ContextMenuItem::new("Refresh", move || {
+                    tree_reload += 1;
+                })
+                .with_icon(ActionIcon::Refresh),
+            ),
+            _ => {}
+        }
+    }
+    items
+}
+
+/// Realise a single [`ActionId`] from the shared catalog into a concrete
+/// [`ContextMenuItem`]. Returns `None` for actions that do not apply to
+/// the given `kind` (e.g. table-only truncate on a view) so the composable
+/// builder can skip them by id.
+#[allow(clippy::too_many_arguments)]
+fn menu_item_for_action(
+    id: crate::app_state::actions::ActionId,
+    connection_name: &str,
+    preview_source: &TablePreviewSource,
+    kind: ExplorerNodeKind,
+    read_only_mode: bool,
+    mut tabs: Signal<Vec<QueryTabState>>,
+    mut active_tab_id: Signal<u64>,
+    mut next_tab_id: Signal<u64>,
+    selected_node: Signal<String>,
+    session_id: u64,
+    connection_kind: DatabaseKind,
+    table_mutation_inflight: Signal<Option<TableMutationKind>>,
+    mut tree_reload: Signal<u64>,
+) -> Option<ContextMenuItem> {
     use crate::app_state::context_menu::copy_to_clipboard;
 
-    let mut items: Vec<ContextMenuItem> = Vec::new();
+    let source = preview_source.clone();
+    let qualified = preview_source.qualified_name.clone();
 
-    if kind.is_queryable() {
-        let source = preview_source.clone();
-        items.push(
+    match id {
+        crate::app_state::actions::ACTION_TABLE_OPEN if kind.is_queryable() => Some(
             ContextMenuItem::new("Open in editor", move || {
                 let source = source.clone();
                 let current_id =
@@ -636,13 +782,9 @@ fn build_explorer_context_menu(
                 );
             })
             .with_icon(ActionIcon::Run),
-        );
-    }
+        ),
 
-    // 2. Select as query — generate "SELECT * FROM qualified" in the active tab.
-    if kind.is_queryable() {
-        let qualified = preview_source.qualified_name.clone();
-        items.push(
+        crate::app_state::actions::ACTION_TABLE_SELECT_ALL if kind.is_queryable() => Some(
             ContextMenuItem::new("Select all rows", move || {
                 let sql = format!("SELECT * FROM {qualified}");
                 crate::screens::workspace::actions::set_active_tab_sql(
@@ -653,185 +795,271 @@ fn build_explorer_context_menu(
                 );
             })
             .with_icon(ActionIcon::Details),
-        );
-    }
+        ),
 
-    // 3. Copy name (short).
-    {
-        let name = preview_source.table_name.clone();
-        items.push(
+        crate::app_state::actions::ACTION_OBJECT_COPY_NAME => Some(
             ContextMenuItem::new("Copy name", move || {
-                let _ = copy_to_clipboard(name.clone());
+                let _ = copy_to_clipboard(source.table_name.clone());
             })
             .with_icon(ActionIcon::Duplicate),
-        );
-    }
+        ),
 
-    // 4. Copy qualified name.
-    {
-        let qualified = preview_source.qualified_name.clone();
-        items.push(
+        crate::app_state::actions::ACTION_OBJECT_COPY_QUALIFIED => Some(
             ContextMenuItem::new("Copy qualified name", move || {
                 let _ = copy_to_clipboard(qualified.clone());
             })
             .with_icon(ActionIcon::Duplicate),
-        );
-    }
+        ),
 
-    // 5. Copy as INSERT template — only meaningful for tables.
-    if kind == ExplorerNodeKind::Table {
-        let qualified = preview_source.qualified_name.clone();
-        items.push(
-            ContextMenuItem::new("Copy as INSERT template", move || {
-                let _ = copy_to_clipboard(format!("INSERT INTO {qualified} VALUES (...);"));
+        crate::app_state::actions::ACTION_TABLE_COPY_INSERT if kind == ExplorerNodeKind::Table =>
+            Some(
+                ContextMenuItem::new("Copy as INSERT template", move || {
+                    let _ = copy_to_clipboard(format!("INSERT INTO {qualified} VALUES (...);"));
+                })
+                .with_icon(ActionIcon::ExportSql),
+            ),
+
+        crate::app_state::actions::ACTION_TABLE_COPY_DDL
+            if matches!(
+                kind,
+                ExplorerNodeKind::Table
+                    | ExplorerNodeKind::View
+                    | ExplorerNodeKind::MaterializedView
+                    | ExplorerNodeKind::Sequence
+                    | ExplorerNodeKind::Function
+                    | ExplorerNodeKind::Procedure
+                    | ExplorerNodeKind::Trigger
+            ) =>
+        {
+            let node_kind = kind;
+            Some(
+                ContextMenuItem::new("Copy DDL", move || {
+                    let source = source.clone();
+                    let Some(connection) = crate::app_state::session_connection(session_id) else {
+                        crate::app_state::toast_error("Active connection not available");
+                        return;
+                    };
+                    spawn(async move {
+                        match services::load_object_ddl(
+                            connection,
+                            source.schema.clone(),
+                            source.table_name.clone(),
+                            node_kind,
+                        )
+                        .await
+                        {
+                            Ok(Some(ddl)) => {
+                                let _ = copy_to_clipboard(ddl.clone());
+                                crate::app_state::toast_success(format!(
+                                    "DDL copied ({} chars)",
+                                    ddl.chars().count()
+                                ));
+                            }
+                            Ok(None) => {
+                                crate::app_state::toast_error("DDL not found for this object");
+                            }
+                            Err(err) => {
+                                crate::app_state::toast_error(format!("Failed to load DDL: {err}"));
+                            }
+                        }
+                    });
+                })
+                .with_icon(ActionIcon::ExportSql),
+            )
+        }
+
+        crate::app_state::actions::ACTION_OBJECT_REFRESH => Some(
+            ContextMenuItem::new("Refresh", move || {
+                tree_reload += 1;
             })
-            .with_icon(ActionIcon::ExportSql),
-        );
-    }
+            .with_icon(ActionIcon::Refresh)
+            .separator(),
+        ),
 
-    // 6. Copy DDL — исходный CREATE для таблиц/представлений и
-    //    определение функций/процедур/триггеров/последовательностей/MV.
-    if matches!(
-        kind,
-        ExplorerNodeKind::Table
-            | ExplorerNodeKind::View
-            | ExplorerNodeKind::MaterializedView
-            | ExplorerNodeKind::Sequence
-            | ExplorerNodeKind::Function
-            | ExplorerNodeKind::Procedure
-            | ExplorerNodeKind::Trigger
-    ) {
-        let source = preview_source.clone();
-        let node_kind = kind;
-        items.push(
-            ContextMenuItem::new("Copy DDL", move || {
-                let source = source.clone();
-                let Some(connection) = crate::app_state::session_connection(session_id) else {
-                    crate::app_state::toast_error("Active connection not available");
-                    return;
-                };
+        crate::app_state::actions::ACTION_TABLE_DUPLICATE if kind == ExplorerNodeKind::Table => {
+            let target = DuplicateTableTarget {
+                session_id,
+                connection_name: connection_name.to_string(),
+                kind: connection_kind,
+                source: preview_source.clone(),
+            };
+            let mut tree_reload_signal = tree_reload;
+            let mut selected_node_signal = selected_node;
+            let mut item = ContextMenuItem::new("Duplicate table…", move || {
+                let connection = crate::app_state::session_connection(target.session_id);
+                let (bridge, mut rx) = crate::windows::create_duplicate_table_bridge();
                 spawn(async move {
-                    match services::load_object_ddl(
-                        connection,
-                        source.schema.clone(),
-                        source.table_name.clone(),
-                        node_kind,
-                    )
-                    .await
-                    {
-                        Ok(Some(ddl)) => {
-                            let _ = copy_to_clipboard(ddl.clone());
-                            crate::app_state::toast_success(format!(
-                                "DDL copied ({} chars)",
-                                ddl.chars().count()
-                            ));
-                        }
-                        Ok(None) => {
-                            crate::app_state::toast_error("DDL not found for this object");
-                        }
-                        Err(err) => {
-                            crate::app_state::toast_error(format!("Failed to load DDL: {err}"));
-                        }
+                    while let Some(result) = rx.recv().await {
+                        selected_node_signal.set(result.new_qualified_name);
+                        tree_reload_signal += 1;
                     }
                 });
+                crate::windows::open_duplicate_table_window(
+                    bridge,
+                    target.clone(),
+                    connection,
+                    read_only_mode_enabled(),
+                    crate::app_state::APP_THEME(),
+                );
             })
-            .with_icon(ActionIcon::ExportSql),
-        );
-    }
-
-    // 7. Refresh — always available.
-    items.push(
-        ContextMenuItem::new("Refresh", move || {
-            tree_reload += 1;
-        })
-        .with_icon(ActionIcon::Refresh)
-        .separator(),
-    );
-
-    // 8. Duplicate — only for tables. Disables in read-only mode.
-    if kind == ExplorerNodeKind::Table {
-        let target = DuplicateTableTarget {
-            session_id,
-            connection_name: connection_name.clone(),
-            kind: connection_kind,
-            source: preview_source.clone(),
-        };
-        let mut tree_reload_signal = tree_reload;
-        let mut selected_node_signal = selected_node;
-        let mut item = ContextMenuItem::new("Duplicate table…", move || {
-            let connection = crate::app_state::session_connection(target.session_id);
-            let (bridge, mut rx) = crate::windows::create_duplicate_table_bridge();
-            spawn(async move {
-                while let Some(result) = rx.recv().await {
-                    selected_node_signal.set(result.new_qualified_name);
-                    tree_reload_signal += 1;
-                }
-            });
-            crate::windows::open_duplicate_table_window(
-                bridge,
-                target.clone(),
-                connection,
-                read_only_mode_enabled(),
-                crate::app_state::APP_THEME(),
-            );
-        })
-        .with_icon(ActionIcon::Duplicate);
-        if read_only_mode {
-            item = item.disabled();
+            .with_icon(ActionIcon::Duplicate);
+            if read_only_mode {
+                item = item.disabled();
+            }
+            Some(item)
         }
-        items.push(item);
-    }
 
-    // 9. Truncate / Drop — only for tables. Disabled in read-only mode.
-    //    Both reuse the same async helpers as the inline IconButton
-    //    onclick handlers above, so the rfd confirmation flow, the
-    //    mark_table_* signal updates, and the error handling all stay
-    //    in one place. We only check read-only mode here at the menu
-    //    level; the async helpers themselves are private to this
-    //    module and never called by a non-table source.
-    if kind == ExplorerNodeKind::Table {
-        let source = preview_source.clone();
-        let mut truncate_item = ContextMenuItem::new("Truncate table", move || {
-            spawn(confirm_and_truncate_table(
-                source.clone(),
-                session_id,
-                connection_kind,
-                tabs,
-                table_mutation_inflight,
-                selected_node,
-                tree_reload,
-            ));
-        })
-        .with_icon(ActionIcon::Truncate)
-        .danger();
-        if read_only_mode {
-            truncate_item = truncate_item.disabled();
+        crate::app_state::actions::ACTION_TABLE_RENAME if kind == ExplorerNodeKind::Table => Some(
+            ContextMenuItem::new("Rename table…", move || {
+                crate::app_state::show_toast(
+                    "Rename is not available yet".to_string(),
+                    crate::app_state::ToastKind::Info,
+                );
+            })
+            .with_icon(ActionIcon::Duplicate),
+        ),
+
+        crate::app_state::actions::ACTION_TABLE_TRUNCATE if kind == ExplorerNodeKind::Table => {
+            let source = preview_source.clone();
+            let mut truncate_item = ContextMenuItem::new("Truncate table", move || {
+                spawn(confirm_and_truncate_table(
+                    source.clone(),
+                    session_id,
+                    connection_kind,
+                    tabs,
+                    table_mutation_inflight,
+                    selected_node,
+                    tree_reload,
+                ));
+            })
+            .with_icon(ActionIcon::Truncate)
+            .danger();
+            if read_only_mode {
+                truncate_item = truncate_item.disabled();
+            }
+            Some(truncate_item)
         }
-        items.push(truncate_item);
 
-        let source = preview_source.clone();
-        let qualified = preview_source.qualified_name.clone();
-        let mut drop_item = ContextMenuItem::new("Drop table", move || {
-            spawn(confirm_and_drop_table(
-                source.clone(),
-                qualified.clone(),
-                session_id,
-                connection_kind,
-                tabs,
-                table_mutation_inflight,
-                selected_node,
-                tree_reload,
-            ));
-        })
-        .with_icon(ActionIcon::Delete)
-        .danger();
-        if read_only_mode {
-            drop_item = drop_item.disabled();
+        crate::app_state::actions::ACTION_TABLE_DROP if kind == ExplorerNodeKind::Table => {
+            let source = preview_source.clone();
+            let mut drop_item = ContextMenuItem::new("Drop table", move || {
+                spawn(confirm_and_drop_table(
+                    source.clone(),
+                    qualified.clone(),
+                    session_id,
+                    connection_kind,
+                    tabs,
+                    table_mutation_inflight,
+                    selected_node,
+                    tree_reload,
+                ));
+            })
+            .with_icon(ActionIcon::Delete)
+            .danger();
+            if read_only_mode {
+                drop_item = drop_item.disabled();
+            }
+            Some(drop_item)
         }
-        items.push(drop_item);
-    }
 
-    items
+        crate::app_state::actions::ACTION_SCHEMA_CREATE_TABLE => {
+            let connection = crate::app_state::session_connection(session_id);
+            let conn_name = connection_name.to_string();
+            let target_schemas = vec![
+                preview_source
+                    .schema
+                    .clone()
+                    .unwrap_or_else(|| super::default_schema_name(connection_kind)),
+            ];
+            Some(ContextMenuItem::new("Create table", move || {
+                let target = crate::screens::workspace::components::explorer::create_table_modal::CreateTableTarget {
+                    session_id,
+                    connection_name: conn_name.clone(),
+                    kind: connection_kind,
+                    schemas: target_schemas.clone(),
+                };
+                let (bridge, mut rx) = crate::windows::create_table_bridge();
+                spawn(async move {
+                    while rx.recv().await.is_some() {
+                        tree_reload += 1;
+                    }
+                });
+                crate::windows::open_create_table_window(
+                    bridge,
+                    target,
+                    connection.clone(),
+                    read_only_mode,
+                    crate::app_state::APP_THEME(),
+                );
+            })
+            .with_icon(ActionIcon::CreateTable))
+        }
+
+        crate::app_state::actions::ACTION_CONNECTION_NEW_QUERY => Some(
+            ContextMenuItem::new("New Query", move || {
+                let Some(session) = crate::app_state::APP_STATE
+                    .read()
+                    .session(session_id)
+                    .cloned()
+                else {
+                    return;
+                };
+                let tab_id = next_tab_id();
+                next_tab_id += 1;
+                let tab = crate::screens::workspace::actions::new_query_tab(
+                    tab_id,
+                    session.id,
+                    format!("Query {}", tabs.read().len() + 1),
+                    String::new(),
+                );
+                tabs.with_mut(|all_tabs| all_tabs.push(tab));
+                active_tab_id.set(tab_id);
+                crate::app_state::activate_session(session.id);
+            })
+            .with_icon(ActionIcon::SqlEditor),
+        ),
+
+        crate::app_state::actions::ACTION_CONNECTION_DISCONNECT => Some(
+            ContextMenuItem::new("Disconnect", move || {
+                disconnect_session(tabs, active_tab_id, session_id);
+            })
+            .with_icon(ActionIcon::Close)
+            .danger(),
+        ),
+
+        crate::app_state::actions::ACTION_COLUMN_FILTER_BY_VALUE => Some(
+            ContextMenuItem::new("Filter by value", move || {
+                crate::app_state::show_toast(
+                    format!("Filter on {qualified}"),
+                    crate::app_state::ToastKind::Info,
+                );
+            })
+            .with_icon(ActionIcon::Filter),
+        ),
+
+        crate::app_state::actions::ACTION_COLUMN_SORT_ASC => Some(
+            ContextMenuItem::new("Sort ascending", move || {
+                crate::app_state::show_toast(
+                    "Sort ascending (column)".to_string(),
+                    crate::app_state::ToastKind::Info,
+                );
+            })
+            .with_icon(ActionIcon::Previous),
+        ),
+
+        crate::app_state::actions::ACTION_COLUMN_SORT_DESC => Some(
+            ContextMenuItem::new("Sort descending", move || {
+                crate::app_state::show_toast(
+                    "Sort descending (column)".to_string(),
+                    crate::app_state::ToastKind::Info,
+                );
+            })
+            .with_icon(ActionIcon::Next),
+        ),
+
+        // Unknown / non-matching guards fall through to no item.
+        _ => None,
+    }
 }
 
 // Shared by the inline IconButton onclick handlers and the context menu so the

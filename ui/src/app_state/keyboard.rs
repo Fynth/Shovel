@@ -22,6 +22,45 @@ pub enum ShortcutAction {
     SaveQuery,
     CloseOverlay,
     CommandPalette,
+    /// Ctrl+K — global search / command palette stub. The workspace
+    /// dispatcher opens the command palette (the closest existing global
+    /// search surface); a dedicated search overlay can reuse this id later.
+    GlobalSearch,
+    /// F2 — rename the currently selected explorer object.
+    RenameSelected,
+    /// Delete — drop the currently selected explorer object.
+    DeleteSelected,
+}
+
+impl ShortcutAction {
+    /// Map a keyboard action to the stable [`ActionId`] in the unified
+    /// Action catalog. This is the single place that says
+    /// "this key combo = this action"; the workspace dispatcher resolves
+    /// the action id through the shared registry where possible. Returns
+    /// `None` for actions that are purely local (focus requests, overlay
+    /// close) and have no catalog entry.
+    pub fn to_action_id(self) -> Option<crate::app_state::actions::ActionId> {
+        use crate::app_state::actions as acts;
+        Some(match self {
+            ShortcutAction::FormatSql => acts::ACTION_FORMAT_SQL,
+            ShortcutAction::NewTab => acts::ACTION_NEW_TAB,
+            ShortcutAction::CloseTab => acts::ACTION_CLOSE_TAB,
+            ShortcutAction::NextTab => acts::ACTION_NEXT_TAB,
+            ShortcutAction::RefreshExplorer => acts::ACTION_REFRESH_EXPLORER,
+            ShortcutAction::SaveQuery => acts::ACTION_SAVE_QUERY,
+            ShortcutAction::CommandPalette => acts::ACTION_OPEN_COMMAND_PALETTE,
+            // These actions are realised against local signals (editor
+            // focus, filter focus, overlay dismissal) or the selected
+            // explorer node, not the global catalog — the dispatcher
+            // handles them directly.
+            ShortcutAction::FocusEditor
+            | ShortcutAction::FocusFilterPanel
+            | ShortcutAction::CloseOverlay
+            | ShortcutAction::GlobalSearch
+            | ShortcutAction::RenameSelected
+            | ShortcutAction::DeleteSelected => return None,
+        })
+    }
 }
 
 /// Returns true when the Ctrl-or-Meta modifier is held. We treat
@@ -49,6 +88,18 @@ pub fn match_key_combination(key: &Key, modifiers: Modifiers) -> Option<Shortcut
 
     if matches!(key, Key::F5) {
         return Some(ShortcutAction::RefreshExplorer);
+    }
+
+    // F2 (rename) and Delete (drop object) act on the selected explorer
+    // object; they intentionally work without Ctrl so they read as
+    // native file-manager idioms. Both are no-ops when focus is inside
+    // the SQL editor (which owns its own text-editing keys).
+    if matches!(key, Key::F2) && !ctrl {
+        return Some(ShortcutAction::RenameSelected);
+    }
+
+    if matches!(key, Key::Delete) && !ctrl {
+        return Some(ShortcutAction::DeleteSelected);
     }
 
     if !ctrl {
@@ -81,6 +132,9 @@ pub fn match_key_combination(key: &Key, modifiers: Modifiers) -> Option<Shortcut
     }
     if eq_ci('P') && shift {
         return Some(ShortcutAction::CommandPalette);
+    }
+    if eq_ci('K') && !shift {
+        return Some(ShortcutAction::GlobalSearch);
     }
     if eq_ci('T') || eq_ci('N') {
         return Some(ShortcutAction::NewTab);
@@ -287,5 +341,57 @@ mod tests {
         );
         assert_eq!(match_key_combination(&Key::Enter, Modifiers::empty()), None);
         assert_eq!(match_key_combination(&Key::F1, Modifiers::empty()), None);
+    }
+
+    #[test]
+    fn ctrl_k_maps_to_global_search() {
+        assert_eq!(
+            match_key_combination(&Key::Character("k".into()), ctrl()),
+            Some(ShortcutAction::GlobalSearch)
+        );
+        assert_eq!(
+            match_key_combination(&Key::Character("K".into()), ctrl()),
+            Some(ShortcutAction::GlobalSearch)
+        );
+    }
+
+    #[test]
+    fn f2_maps_to_rename_selected_without_modifier() {
+        assert_eq!(
+            match_key_combination(&Key::F2, Modifiers::empty()),
+            Some(ShortcutAction::RenameSelected)
+        );
+        // Ctrl+F2 stays unassigned so it never double-fires.
+        assert_eq!(match_key_combination(&Key::F2, ctrl()), None);
+    }
+
+    #[test]
+    fn delete_maps_to_delete_selected_without_modifier() {
+        assert_eq!(
+            match_key_combination(&Key::Delete, Modifiers::empty()),
+            Some(ShortcutAction::DeleteSelected)
+        );
+    }
+
+    #[test]
+    fn shortcut_actions_resolve_through_the_action_registry() {
+        use crate::app_state::actions as acts;
+        assert_eq!(
+            ShortcutAction::FormatSql.to_action_id(),
+            Some(acts::ACTION_FORMAT_SQL)
+        );
+        assert_eq!(
+            ShortcutAction::CommandPalette.to_action_id(),
+            Some(acts::ACTION_OPEN_COMMAND_PALETTE)
+        );
+        assert_eq!(
+            ShortcutAction::CloseTab.to_action_id(),
+            Some(acts::ACTION_CLOSE_TAB)
+        );
+        // Local-only actions resolve to no catalog id.
+        assert_eq!(ShortcutAction::FocusEditor.to_action_id(), None);
+        assert_eq!(ShortcutAction::GlobalSearch.to_action_id(), None);
+        assert_eq!(ShortcutAction::RenameSelected.to_action_id(), None);
+        assert_eq!(ShortcutAction::DeleteSelected.to_action_id(), None);
     }
 }

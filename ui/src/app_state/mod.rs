@@ -46,6 +46,7 @@ use std::{
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
+pub mod actions;
 pub mod commands;
 pub mod context_menu;
 pub mod keyboard;

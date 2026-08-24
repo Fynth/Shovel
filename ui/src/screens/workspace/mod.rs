@@ -1055,75 +1055,49 @@ pub fn Workspace() -> Element {
                 };
                 event.prevent_default();
 
+                // Catalog-backed shortcuts resolve through the unified
+                // Action registry: each runner bumps `APP_COMMAND_REQUEST`,
+                // which the `use_effect` above realises against the local
+                // tab/history signals. Local-only actions are handled here.
+                if let Some(action_id) = action.to_action_id() {
+                    crate::app_state::actions::dispatch_action(action_id);
+                    return;
+                }
+
                 match action {
-                    ShortcutAction::NewTab => {
-                        if let Some(session) = APP_STATE.read().active_session().cloned() {
-                            let tab_id = next_tab_id();
-                            next_tab_id += 1;
-                            let tab = actions::new_query_tab(
-                                tab_id,
-                                session.id,
-                                format!("Query {}", tabs.read().len() + 1),
-                                String::new(),
-                            );
-                            tabs.with_mut(|all_tabs| all_tabs.push(tab));
-                            active_tab_id.set(tab_id);
-                        }
-                    }
-                    ShortcutAction::CloseTab => {
-                        if tabs.read().len() > 1 {
-                            let current_id = active_tab_id();
-                            tabs.with_mut(|all_tabs| all_tabs.retain(|t| t.id != current_id));
-                            if let Some(first) = tabs.read().first() {
-                                active_tab_id.set(first.id);
-                                crate::app_state::activate_session(first.session_id);
-                            }
-                        }
-                    }
-                    ShortcutAction::NextTab => {
-                        let all_tabs = tabs.read();
-                        if all_tabs.len() > 1 {
-                            let current_idx =
-                                all_tabs.iter().position(|t| t.id == active_tab_id());
-                            if let Some(idx) = current_idx {
-                                let next_idx = (idx + 1) % all_tabs.len();
-                                let next_tab = &all_tabs[next_idx];
-                                active_tab_id.set(next_tab.id);
-                                crate::app_state::activate_session(next_tab.session_id);
-                            }
-                        }
-                    }
-                    ShortcutAction::RefreshExplorer => {
-                        tree_reload += 1;
-                    }
-                    ShortcutAction::SaveQuery => {
-                        let status = actions::save_active_tab_as_saved_query(
-                            tabs,
-                            active_tab_id(),
-                            saved_queries,
-                            next_saved_query_id,
-                        );
-                        show_save_status_toast(&status);
-                    }
                     ShortcutAction::FocusFilterPanel => {
                         request_focus_filter_panel();
                     }
                     ShortcutAction::FocusEditor => {
                         request_focus_editor();
                     }
-                    ShortcutAction::FormatSql => {
-                        actions::format_active_tab(
-                            tabs,
-                            active_tab_id(),
-                            APP_SQL_FORMAT_SETTINGS(),
+                    // Ctrl+K — the closest global-search surface today is
+                    // the command palette; a dedicated overlay can reuse
+                    // the same `GlobalSearch` id later.
+                    ShortcutAction::GlobalSearch => {
+                        toggle_command_palette();
+                    }
+                    // F2 rename / Delete drop act on the selected explorer
+                    // object, which lives deep inside the explorer tree
+                    // (not reachable from this dispatcher). Surfacing a
+                    // toast here keeps the key from silently no-op'ing
+                    // while the per-node wiring lands in the explorer.
+                    ShortcutAction::RenameSelected => {
+                        crate::app_state::show_toast(
+                            "Rename — select a table or column in the explorer".to_string(),
+                            ToastKind::Info,
                         );
                     }
-                    ShortcutAction::CommandPalette => {
-                        toggle_command_palette();
+                    ShortcutAction::DeleteSelected => {
+                        crate::app_state::show_toast(
+                            "Delete — select a table in the explorer to drop it".to_string(),
+                            ToastKind::Info,
+                        );
                     }
                     ShortcutAction::CloseOverlay => {
                         close_topmost_overlay();
                     }
+                    _ => {}
                 }
                 let _ = ctrl;
             },
