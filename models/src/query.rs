@@ -1,4 +1,4 @@
-use crate::ExecutionPlan;
+use crate::{ExecutionPlan, QueryOptimizerResult};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -226,6 +226,7 @@ pub struct QueryTabState {
     pub pending_table_changes: PendingTableChanges,
     pub execution_plan: Option<ExecutionPlan>,
     pub show_execution_plan: bool,
+    pub optimizer_result: Option<QueryOptimizerResult>,
     /// Multi-statement batch state. `Some(...)` when a batch run is in
     /// progress or has just completed; `None` for single-statement runs.
     ///
@@ -297,6 +298,7 @@ impl Default for QueryTabState {
             pending_table_changes: PendingTableChanges::default(),
             execution_plan: None,
             show_execution_plan: false,
+            optimizer_result: None,
             batch_results: None,
             batch_outputs: Vec::new(),
             last_duration_ms: None,

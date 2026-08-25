@@ -122,3 +122,74 @@ impl ExecutionPlan {
         }
     }
 }
+
+/// Severity of an optimizer recommendation. Kept in `models` (not `ui`) so the
+/// model layer stays self-contained; serialized lowercase for the AI JSON.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OptimizerSeverity {
+    Info,
+    Warning,
+    Critical,
+}
+
+/// Category of an optimizer recommendation, used for icon/badge selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RecommendationCategory {
+    Scan,
+    Join,
+    Sort,
+    Index,
+    Other,
+}
+
+/// A single structured recommendation produced by the AI optimizer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OptimizerRecommendation {
+    pub severity: OptimizerSeverity,
+    pub category: RecommendationCategory,
+    pub title: String,
+    pub detail: String,
+    pub suggested_index: Option<String>,
+}
+
+/// The full structured result of an AI query-optimization pass.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueryOptimizerResult {
+    pub summary: String,
+    pub recommendations: Vec<OptimizerRecommendation>,
+    pub rewritten_sql: Option<String>,
+}
+
+#[cfg(test)]
+mod optimizer_tests {
+    use super::*;
+    use crate::QueryTabState;
+
+    #[test]
+    fn optimizer_result_round_trips_through_json() {
+        let result = QueryOptimizerResult {
+            summary: "Nested loop join is the bottleneck.".to_string(),
+            recommendations: vec![OptimizerRecommendation {
+                severity: OptimizerSeverity::Critical,
+                category: RecommendationCategory::Join,
+                title: "Unindexed inner join".to_string(),
+                detail: "orders.user_id has no index.".to_string(),
+                suggested_index: Some(
+                    "CREATE INDEX idx_orders_user ON orders(user_id)".to_string(),
+                ),
+            }],
+            rewritten_sql: Some("SELECT * FROM orders WHERE user_id = 1".to_string()),
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        let back: QueryOptimizerResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, result);
+    }
+
+    #[test]
+    fn optimizer_result_defaults_to_none_on_tab() {
+        let tab = QueryTabState::default();
+        assert!(tab.optimizer_result.is_none());
+    }
+}
