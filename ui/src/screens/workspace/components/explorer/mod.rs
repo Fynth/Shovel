@@ -20,8 +20,9 @@ use crate::{
     screens::workspace::components::{ActionIcon, IconButton},
 };
 use dioxus::prelude::*;
-use models::{DatabaseKind, ExplorerNode, ExplorerNodeKind, QueryTabState, TablePreviewSource};
+use models::{DatabaseKind, ExplorerNode, ExplorerNodeKind, TablePreviewSource};
 
+use super::super::tab_store::TabStore;
 use create_table_modal::CreateTableTarget;
 use rename_table_modal::RenameTableTarget;
 
@@ -39,9 +40,7 @@ pub struct ExplorerConnectionSection {
 pub fn SidebarConnectionTree(
     sections: Vec<ExplorerConnectionSection>,
     tree_reload: Signal<u64>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    next_tab_id: Signal<u64>,
+    store: TabStore,
 ) -> Element {
     let selected_node = use_signal(String::new);
     let mut filter_query = use_signal(String::new);
@@ -128,9 +127,7 @@ pub fn SidebarConnectionTree(
                             tree_views::ExplorerConnectionView {
                                 section,
                                 tree_reload,
-                                tabs,
-                                active_tab_id,
-                                next_tab_id,
+                                store,
                                 selected_node,
                                 query: query.clone(),
                                 view,
@@ -331,17 +328,31 @@ pub(super) fn split_children(
     groups
 }
 
-pub(super) fn disconnect_session(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    mut active_tab_id: Signal<u64>,
-    session_id: u64,
-) {
-    tabs.with_mut(|all_tabs| all_tabs.retain(|tab| tab.session_id != session_id));
-    if let Some(first_tab) = tabs.read().first() {
-        active_tab_id.set(first_tab.id);
-        activate_session(first_tab.session_id);
+pub(super) fn disconnect_session(mut store: TabStore, session_id: u64) {
+    let removed_ids: Vec<u64> = store
+        .meta
+        .read()
+        .iter()
+        .filter(|(_, meta)| meta.session_id == session_id)
+        .map(|(id, _)| *id)
+        .collect();
+    for id in removed_ids {
+        store.meta.with_mut(|m| { m.remove(&id); });
+        store.editor.with_mut(|m| { m.remove(&id); });
+        store.result.with_mut(|m| { m.remove(&id); });
+        store.pending.with_mut(|m| { m.remove(&id); });
+    }
+    let first_tab = store
+        .meta
+        .read()
+        .iter()
+        .next()
+        .map(|(id, meta)| (*id, meta.session_id));
+    if let Some((first_id, first_session_id)) = first_tab {
+        store.active_tab_id.set(first_id);
+        activate_session(first_session_id);
     } else {
-        active_tab_id.set(0);
+        store.active_tab_id.set(0);
     }
     remove_session(session_id);
 }
@@ -524,7 +535,7 @@ pub fn open_selected_rename(
 /// explorer context-menu "Drop table" runner but for the keyboard path.
 pub fn confirm_drop_selected_table(
     sections: &[ExplorerConnectionSection],
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     tree_reload: Signal<u64>,
 ) {
     let selected = crate::app_state::APP_EXPLORER_SELECTED_NODE();
@@ -549,7 +560,7 @@ pub fn confirm_drop_selected_table(
             selected,
             session_id,
             connection_kind,
-            tabs,
+            store,
             None,
             tree_reload,
         )

@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use models::{AcpPanelState, QueryTabState};
+use models::AcpPanelState;
 
 use super::{
     prompt::{active_editor_error, active_editor_sql},
@@ -12,11 +12,12 @@ use super::{
     },
 };
 
+use crate::screens::workspace::tab_store::TabStore;
+
 #[component]
 pub(super) fn AgentComposer(
     panel_state: Signal<AcpPanelState>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
+    store: TabStore,
     chat_revision: Signal<u64>,
     allow_agent_db_read: Signal<bool>,
     allow_agent_read_sql_run: Signal<bool>,
@@ -36,12 +37,12 @@ pub(super) fn AgentComposer(
     });
 
     let prompt_is_empty = prompt_draft().trim().is_empty();
-    let active_sql = active_editor_sql(tabs, active_tab_id());
+    let active_sql = active_editor_sql(store, store.active_tab_id());
     let has_active_sql = active_sql.is_some();
     let has_explainable_sql = active_sql
         .as_deref()
         .is_some_and(services::is_read_only_sql);
-    let has_active_error = active_editor_error(tabs, active_tab_id()).is_some();
+    let has_active_error = active_editor_error(store, store.active_tab_id()).is_some();
     let enter_chat_label = connection_label.clone();
     let generate_sql_label = connection_label.clone();
     let chat_label = connection_label.clone();
@@ -137,8 +138,8 @@ pub(super) fn AgentComposer(
                     prompt_reset_revision += 1;
                     send_chat_prompt_request(
                         panel_state,
-                        tabs,
-                        active_tab_id(),
+                        store,
+                        store.active_tab_id(),
                         enter_chat_label.clone(),
                         chat_revision,
                         allow_agent_db_read(),
@@ -155,8 +156,8 @@ pub(super) fn AgentComposer(
                     onclick: move |_| {
                         send_sql_plan_request(
                             panel_state,
-                            tabs,
-                            active_tab_id(),
+                            store,
+                            store.active_tab_id(),
                             explain_plan_label.clone(),
                             chat_revision,
                             allow_agent_db_read(),
@@ -172,8 +173,8 @@ pub(super) fn AgentComposer(
                     onclick: move |_| {
                         send_sql_explanation_request(
                             panel_state,
-                            tabs,
-                            active_tab_id(),
+                            store,
+                            store.active_tab_id(),
                             explain_sql_label.clone(),
                             chat_revision,
                             allow_agent_db_read(),
@@ -188,8 +189,8 @@ pub(super) fn AgentComposer(
                     onclick: move |_| {
                         send_sql_error_fix_request(
                             panel_state,
-                            tabs,
-                            active_tab_id(),
+                            store,
+                            store.active_tab_id(),
                             fix_sql_label.clone(),
                             chat_revision,
                             allow_agent_db_read(),
@@ -210,8 +211,8 @@ pub(super) fn AgentComposer(
                         prompt_reset_revision += 1;
                         send_sql_generation_request(
                             panel_state,
-                            tabs,
-                            active_tab_id(),
+                            store,
+                            store.active_tab_id(),
                             generate_sql_label.clone(),
                             chat_revision,
                             allow_agent_db_read(),
@@ -235,8 +236,8 @@ pub(super) fn AgentComposer(
                         prompt_reset_revision += 1;
                         send_chat_prompt_request(
                             panel_state,
-                            tabs,
-                            active_tab_id(),
+                            store,
+                            store.active_tab_id(),
                             chat_label.clone(),
                             chat_revision,
                             allow_agent_db_read(),

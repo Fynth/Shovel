@@ -6,6 +6,7 @@ use models::{
     QueryFilter,
     QueryOutput,
     QuerySort,
+    QueryTabState,
     TablePreviewSource,
     WorkspaceTabKind,
 };
@@ -108,6 +109,109 @@ pub struct TabStore {
     pub pending: Signal<HashMap<u64, TabPendingState>>,
     pub active_tab_id: Signal<u64>,
     pub next_tab_id: Signal<u64>,
+}
+
+impl TabStore {
+    /// Current active tab id.
+    pub fn active_tab_id(&self) -> u64 {
+        (self.active_tab_id)()
+    }
+
+    /// Current next-tab counter value.
+    pub fn next_tab_id(&self) -> u64 {
+        (self.next_tab_id)()
+    }
+}
+
+/// Materialize a full [`QueryTabState`] snapshot for a tab id from the
+/// four per-aspect maps. Returns `None` when the tab's meta is missing.
+/// Used by the few remaining call sites that still operate on the
+/// aggregate snapshot (recently-closed stack, `refresh_tab_result`,
+/// `load_tab_page`, `append_next_tab_page`).
+pub fn materialize_tab_state(store: TabStore, tab_id: u64) -> Option<QueryTabState> {
+    let meta = store.meta.read().get(&tab_id).cloned()?;
+    let editor = store.editor.read().get(&tab_id).cloned();
+    let result = store.result.read().get(&tab_id).cloned();
+    let pending = store.pending.read().get(&tab_id).cloned();
+
+    Some(QueryTabState {
+        id: tab_id,
+        session_id: meta.session_id,
+        title: meta.title,
+        sql: editor.map(|e| e.sql).unwrap_or_default(),
+        status: result.as_ref().map(|r| r.status.clone()).unwrap_or_default(),
+        result: result.as_ref().and_then(|r| r.result.clone()),
+        current_offset: result.as_ref().map(|r| r.current_offset).unwrap_or(0),
+        page_size: result.as_ref().map(|r| r.page_size).unwrap_or(0),
+        last_run_sql: result.as_ref().and_then(|r| r.last_run_sql.clone()),
+        preview_source: result.as_ref().and_then(|r| r.preview_source.clone()),
+        filter: result.as_ref().and_then(|r| r.filter.clone()),
+        sort: result.as_ref().and_then(|r| r.sort.clone()),
+        tab_kind: meta.tab_kind,
+        is_loading_more: result.as_ref().map(|r| r.is_loading_more).unwrap_or(false),
+        pending_table_changes: pending
+            .map(|p| p.pending_table_changes)
+            .unwrap_or_default(),
+        execution_plan: result.as_ref().and_then(|r| r.execution_plan.clone()),
+        show_execution_plan: result.as_ref().map(|r| r.show_execution_plan).unwrap_or(false),
+        batch_results: result.as_ref().and_then(|r| r.batch_results.clone()),
+        batch_outputs: result
+            .as_ref()
+            .map(|r| r.batch_outputs.clone())
+            .unwrap_or_default(),
+        last_duration_ms: result.as_ref().and_then(|r| r.last_duration_ms),
+        pinned: meta.pinned,
+    })
+}
+
+/// Write a full [`QueryTabState`] snapshot back into the four per-aspect
+/// maps. Used by the recently-closed "Reopen" flow and tab duplication,
+/// which operate on the aggregate snapshot.
+pub fn restore_tab_state(mut store: TabStore, tab: QueryTabState) {
+    store.meta.with_mut(|m| {
+        m.insert(
+            tab.id,
+            TabMeta {
+                id: tab.id,
+                session_id: tab.session_id,
+                title: tab.title,
+                tab_kind: tab.tab_kind,
+                pinned: tab.pinned,
+            },
+        );
+    });
+    store.editor.with_mut(|m| {
+        m.insert(tab.id, TabEditorState { sql: tab.sql });
+    });
+    store.result.with_mut(|m| {
+        m.insert(
+            tab.id,
+            TabResultState {
+                result: tab.result,
+                status: tab.status,
+                current_offset: tab.current_offset,
+                page_size: tab.page_size,
+                last_run_sql: tab.last_run_sql,
+                preview_source: tab.preview_source,
+                filter: tab.filter,
+                sort: tab.sort,
+                is_loading_more: tab.is_loading_more,
+                execution_plan: tab.execution_plan,
+                show_execution_plan: tab.show_execution_plan,
+                batch_results: tab.batch_results,
+                batch_outputs: tab.batch_outputs,
+                last_duration_ms: tab.last_duration_ms,
+            },
+        );
+    });
+    store.pending.with_mut(|m| {
+        m.insert(
+            tab.id,
+            TabPendingState {
+                pending_table_changes: tab.pending_table_changes,
+            },
+        );
+    });
 }
 
 #[cfg(test)]

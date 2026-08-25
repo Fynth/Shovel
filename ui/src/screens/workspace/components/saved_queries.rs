@@ -81,6 +81,7 @@ pub fn SavedQueriesPanel(
                             disabled: !can_save,
                             onclick: {
                                 let active_tab = active_tab.clone();
+                                let active_sql = active_sql.clone();
                                 move |_| {
                                     save_current_sql(
                                         SavedQueryKind::Snippet,
@@ -100,6 +101,7 @@ pub fn SavedQueriesPanel(
                             disabled: !can_save,
                             onclick: {
                                 let active_tab = active_tab.clone();
+                                let active_sql = active_sql.clone();
                                 move |_| {
                                     save_current_sql(
                                         SavedQueryKind::Query,

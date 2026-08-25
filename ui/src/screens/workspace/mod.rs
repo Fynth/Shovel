@@ -76,7 +76,6 @@ use models::{
     ChatThreadSummary,
     ExplorerNode,
     QueryHistoryItem,
-    QueryTabState,
     SavedQuery,
     TablePreviewSource,
     WorkspaceSplitMode,
@@ -124,6 +123,7 @@ use self::{
         use_explorer_state,
         use_query_tabs,
     },
+    tab_store::TabStore,
 };
 
 // Re-export for app_state
@@ -177,9 +177,7 @@ fn ExplorerToolPanel(
     tree_status: Signal<String>,
     tree_sections: Signal<Vec<ExplorerConnectionSection>>,
     tree_reload: Signal<u64>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    next_tab_id: Signal<u64>,
+    store: TabStore,
 ) -> Element {
     rsx! {
         div {
@@ -203,9 +201,7 @@ fn ExplorerToolPanel(
             SidebarConnectionTree {
                 sections: tree_sections(),
                 tree_reload,
-                tabs,
-                active_tab_id,
-                next_tab_id,
+                store,
             }
         }
     }
@@ -214,8 +210,7 @@ fn ExplorerToolPanel(
 #[component]
 fn AgentToolPanel(
     mut acp_panel_state: Signal<AcpPanelState>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
+    store: TabStore,
     chat_revision: Signal<u64>,
     allow_agent_db_read: Signal<bool>,
     allow_agent_read_sql_run: Signal<bool>,
@@ -249,8 +244,7 @@ fn AgentToolPanel(
     rsx! {
         AcpAgentPanel {
             panel_state: acp_panel_state,
-            tabs,
-            active_tab_id,
+            store,
             chat_revision,
             allow_agent_db_read,
             allow_agent_read_sql_run,
@@ -289,9 +283,7 @@ fn WorkspacePanelContent(
     tree_status: Signal<String>,
     tree_sections: Signal<Vec<ExplorerConnectionSection>>,
     tree_reload: Signal<u64>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    next_tab_id: Signal<u64>,
+    store: TabStore,
     history: Signal<Vec<QueryHistoryItem>>,
     saved_queries: Signal<Vec<SavedQuery>>,
     next_saved_query_id: Signal<u64>,
@@ -310,8 +302,7 @@ fn WorkspacePanelContent(
             div {
                 class: "workspace__panel",
                 SessionRail {
-                    tabs,
-                    active_tab_id,
+                    store,
                 }
             }
         },
@@ -320,9 +311,7 @@ fn WorkspacePanelContent(
                 tree_status,
                 tree_sections,
                 tree_reload,
-                tabs,
-                active_tab_id,
-                next_tab_id,
+                store,
             }
         },
         WorkspaceToolPanel::SavedQueries => rsx! {
@@ -330,9 +319,7 @@ fn WorkspacePanelContent(
                 saved_queries: saved_queries(),
                 saved_queries_signal: saved_queries,
                 next_saved_query_id,
-                tabs,
-                active_tab_id,
-                next_tab_id,
+                store,
             }
         },
         WorkspaceToolPanel::History => rsx! {
@@ -340,16 +327,14 @@ fn WorkspacePanelContent(
                 class: "workspace__panel workspace__panel--history",
                 QueryHistoryPanel {
                     history,
-                    tabs,
-                    active_tab_id,
+                    store,
                 }
             }
         },
         WorkspaceToolPanel::Agent => rsx! {
             AgentToolPanel {
                 acp_panel_state,
-                tabs,
-                active_tab_id,
+                store,
                 chat_revision,
                 allow_agent_db_read,
                 allow_agent_read_sql_run,
@@ -373,9 +358,7 @@ fn WorkspaceDockPanel(
     tree_status: Signal<String>,
     tree_sections: Signal<Vec<ExplorerConnectionSection>>,
     tree_reload: Signal<u64>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    next_tab_id: Signal<u64>,
+    store: TabStore,
     history: Signal<Vec<QueryHistoryItem>>,
     saved_queries: Signal<Vec<SavedQuery>>,
     next_saved_query_id: Signal<u64>,
@@ -436,9 +419,7 @@ fn WorkspaceDockPanel(
                 tree_status,
                 tree_sections,
                 tree_reload,
-                tabs,
-                active_tab_id,
-                next_tab_id,
+                store,
                 history,
                 saved_queries,
                 next_saved_query_id,
@@ -465,9 +446,7 @@ fn WorkspaceDock(
     tree_status: Signal<String>,
     tree_sections: Signal<Vec<ExplorerConnectionSection>>,
     tree_reload: Signal<u64>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    next_tab_id: Signal<u64>,
+    store: TabStore,
     history: Signal<Vec<QueryHistoryItem>>,
     saved_queries: Signal<Vec<SavedQuery>>,
     next_saved_query_id: Signal<u64>,
@@ -508,9 +487,7 @@ fn WorkspaceDock(
                     tree_status,
                     tree_sections,
                     tree_reload,
-                    tabs,
-                    active_tab_id,
-                    next_tab_id,
+                    store,
                     history,
                     saved_queries,
                     next_saved_query_id,
@@ -550,9 +527,7 @@ fn WorkspaceBody(
     bottom_panel_height: Signal<f64>,
     mut bottom_resize_active: Signal<bool>,
     mut bottom_active_tab: Signal<BottomPanelTab>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    next_tab_id: Signal<u64>,
+    store: TabStore,
     history: Signal<Vec<QueryHistoryItem>>,
     next_history_id: Signal<u64>,
     saved_queries: Signal<Vec<SavedQuery>>,
@@ -594,9 +569,7 @@ fn WorkspaceBody(
                         tree_status,
                         tree_sections,
                         tree_reload,
-                        tabs,
-                        active_tab_id,
-                        next_tab_id,
+                        store,
                         history,
                         saved_queries,
                         next_saved_query_id,
@@ -823,9 +796,7 @@ fn WorkspaceBody(
                 div {
                     class: "workspace__canvas",
                     TabsManager {
-                        tabs,
-                        active_tab_id,
-                        next_tab_id,
+                        store,
                         history,
                         next_history_id,
                         explorer_sections: tree_sections,
@@ -887,9 +858,7 @@ fn WorkspaceBody(
                             tree_status,
                             tree_sections,
                             tree_reload,
-                            tabs,
-                            active_tab_id,
-                            next_tab_id,
+                            store,
                             history,
                             saved_queries,
                             next_saved_query_id,
@@ -991,11 +960,9 @@ pub fn Workspace() -> Element {
         mut tree_reload,
     } = use_explorer_state();
 
-    let QueryTabsState {
-        mut tabs,
-        mut active_tab_id,
-        mut next_tab_id,
-    } = use_query_tabs();
+    let QueryTabsState { store } = use_query_tabs();
+    let active_tab_id = store.active_tab_id;
+    let next_tab_id = store.next_tab_id;
 
     let ChatState {
         chat_threads,
@@ -1019,12 +986,11 @@ pub fn Workspace() -> Element {
         chat_threads,
         active_chat_thread_id,
         chat_revision,
-        tabs,
-        active_tab_id,
+        store,
         connection_label: connection_label.clone(),
     });
 
-    context::provide_workspace_tab_context(tabs, active_tab_id, next_tab_id);
+    context::provide_workspace_tab_context(store, active_tab_id, next_tab_id);
     context::provide_workspace_query_context(
         history,
         next_history_id,
@@ -1065,39 +1031,72 @@ pub fn Workspace() -> Element {
     use_effect(move || {
         let _ = APP_COMMAND_REQUEST();
         let kind = APP_COMMAND_REQUEST_KIND();
+        let mut store = store;
         match kind {
             x if x == CMD_NEW_TAB.0 => {
                 if let Some(session) = APP_STATE.read().active_session().cloned() {
-                    let tab_id = next_tab_id();
-                    next_tab_id += 1;
-                    let tab = actions::new_query_tab(
+                    let tab_id = store.next_tab_id();
+                    store.next_tab_id += 1;
+                    let (meta, editor, result, pending) = actions::new_query_tab(
                         tab_id,
                         session.id,
-                        format!("Query {}", tabs.read().len() + 1),
+                        format!("Query {}", store.meta.read().len() + 1),
                         String::new(),
                     );
-                    tabs.with_mut(|all_tabs| all_tabs.push(tab));
-                    active_tab_id.set(tab_id);
+                    store.meta.with_mut(|m| {
+                        m.insert(tab_id, meta);
+                    });
+                    store.editor.with_mut(|m| {
+                        m.insert(tab_id, editor);
+                    });
+                    store.result.with_mut(|m| {
+                        m.insert(tab_id, result);
+                    });
+                    store.pending.with_mut(|m| {
+                        m.insert(tab_id, pending);
+                    });
+                    store.active_tab_id.set(tab_id);
                 }
             }
             x if x == CMD_CLOSE_TAB.0 =>
-                if tabs.read().len() > 1 {
-                    let current_id = active_tab_id();
-                    tabs.with_mut(|all_tabs| all_tabs.retain(|t| t.id != current_id));
-                    if let Some(first) = tabs.read().first() {
-                        active_tab_id.set(first.id);
-                        crate::app_state::activate_session(first.session_id);
+                if store.meta.read().len() > 1 {
+                    let current_id = store.active_tab_id();
+                    store.meta.with_mut(|m| {
+                        m.remove(&current_id);
+                    });
+                    store.editor.with_mut(|m| {
+                        m.remove(&current_id);
+                    });
+                    store.result.with_mut(|m| {
+                        m.remove(&current_id);
+                    });
+                    store.pending.with_mut(|m| {
+                        m.remove(&current_id);
+                    });
+                    if let Some((first_id, first_meta)) = store.meta.read().iter().next() {
+                        let first_id = *first_id;
+                        let session_id = first_meta.session_id;
+                        store.active_tab_id.set(first_id);
+                        crate::app_state::activate_session(session_id);
                     }
                 },
             x if x == CMD_NEXT_TAB.0 => {
-                let all_tabs = tabs.read();
+                let all_tabs: Vec<u64> = store.meta.read().iter().map(|(id, _)| *id).collect();
                 if all_tabs.len() > 1 {
-                    let current_idx = all_tabs.iter().position(|t| t.id == active_tab_id());
+                    let current_idx = all_tabs
+                        .iter()
+                        .position(|id| *id == store.active_tab_id());
                     if let Some(idx) = current_idx {
                         let next_idx = (idx + 1) % all_tabs.len();
-                        let next_tab = &all_tabs[next_idx];
-                        active_tab_id.set(next_tab.id);
-                        crate::app_state::activate_session(next_tab.session_id);
+                        let next_id = all_tabs[next_idx];
+                        let session_id = store
+                            .meta
+                            .read()
+                            .get(&next_id)
+                            .map(|m| m.session_id)
+                            .unwrap_or(0);
+                        store.active_tab_id.set(next_id);
+                        crate::app_state::activate_session(session_id);
                     }
                 }
             }
@@ -1105,18 +1104,18 @@ pub fn Workspace() -> Element {
                 tree_reload += 1;
             }
             x if x == CMD_RUN_QUERY.0 => {
-                actions::run_active_tab(tabs, active_tab_id(), (history, next_history_id));
+                actions::run_active_tab(store, store.active_tab_id(), (history, next_history_id));
             }
             x if x == CMD_FORMAT_SQL.0 => {
-                actions::format_active_tab(tabs, active_tab_id(), APP_SQL_FORMAT_SETTINGS());
+                actions::format_active_tab(store, store.active_tab_id(), APP_SQL_FORMAT_SETTINGS());
             }
             x if x == CMD_EXPLAIN_QUERY.0 => {
-                actions::run_active_tab_explain(tabs, active_tab_id());
+                actions::run_active_tab_explain(store, store.active_tab_id());
             }
             x if x == CMD_SAVE_QUERY.0 => {
                 let status = actions::save_active_tab_as_saved_query(
-                    tabs,
-                    active_tab_id(),
+                    store,
+                    store.active_tab_id(),
                     saved_queries,
                     next_saved_query_id,
                 );
@@ -1140,18 +1139,19 @@ pub fn Workspace() -> Element {
         let _ = APP_GLOBAL_SEARCH_REQUEST();
         let kind = APP_GLOBAL_SEARCH_REQUEST_KIND();
         let payload = APP_GLOBAL_SEARCH_REQUEST_PAYLOAD();
+        let mut store = store;
         match kind {
             x if x == GLOBAL_SEARCH_OPEN_TAB => {
-                if let Some(tab) = tabs.read().iter().find(|tab| tab.id == payload).cloned() {
-                    active_tab_id.set(tab.id);
-                    crate::app_state::activate_session(tab.session_id);
+                if let Some(meta) = store.meta.read().get(&payload).cloned() {
+                    store.active_tab_id.set(payload);
+                    crate::app_state::activate_session(meta.session_id);
                 }
                 close_global_search();
             }
             x if x == GLOBAL_SEARCH_OPEN_OBJECT => {
                 let objects = APP_GLOBAL_SEARCH_OBJECTS();
                 if let Some(object) = objects.get(payload as usize).cloned() {
-                    open_object_hit(tabs, active_tab_id, next_tab_id, tree_reload, &object);
+                    open_object_hit(store, tree_reload, &object);
                 }
                 close_global_search();
             }
@@ -1264,13 +1264,14 @@ pub fn Workspace() -> Element {
                     // overlay can filter without reaching into the
                     // workspace's local signals.
                     ShortcutAction::GlobalSearch => {
-                        let tab_snapshot: Vec<GlobalSearchTabItem> = tabs
+                        let tab_snapshot: Vec<GlobalSearchTabItem> = store
+                            .meta
                             .read()
                             .iter()
-                            .map(|tab| GlobalSearchTabItem {
-                                tab_id: tab.id,
-                                session_id: tab.session_id,
-                                title: tab.title.clone(),
+                            .map(|(id, meta)| GlobalSearchTabItem {
+                                tab_id: *id,
+                                session_id: meta.session_id,
+                                title: meta.title.clone(),
                             })
                             .collect();
                         let object_snapshot: Vec<GlobalSearchObjectItem> = tree_sections
@@ -1304,7 +1305,7 @@ pub fn Workspace() -> Element {
                         let sections = tree_sections.read().to_vec();
                         crate::screens::workspace::components::explorer::confirm_drop_selected_table(
                             &sections,
-                            tabs,
+                            store,
                             tree_reload,
                         );
                     }
@@ -1328,9 +1329,7 @@ pub fn Workspace() -> Element {
                 bottom_panel_height,
                 bottom_resize_active,
                 bottom_active_tab,
-                tabs,
-                active_tab_id,
-                next_tab_id,
+                store,
                 history,
                 next_history_id,
                 saved_queries,
@@ -1445,9 +1444,7 @@ fn flatten_into(item: &ExplorerObjectNode<'_>, out: &mut Vec<GlobalSearchObjectI
 /// kinds (schema, function, procedure, trigger) just activate the
 /// session so the explorer panel focuses on the right connection.
 fn open_object_hit(
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    next_tab_id: Signal<u64>,
+    store: TabStore,
     _tree_reload: Signal<u64>,
     object: &GlobalSearchObjectItem,
 ) {
@@ -1457,16 +1454,19 @@ fn open_object_hit(
         return;
     }
 
-    let current_id =
-        actions::ensure_tab_for_session(tabs, active_tab_id, next_tab_id, object.session_id);
-    let current_tab = tabs.read().iter().find(|tab| tab.id == current_id).cloned();
+    let current_id = actions::ensure_tab_for_session(store, object.session_id);
+    let current_tab = store.result.read().get(&current_id).cloned();
     let Some(current_tab) = current_tab else {
         return;
     };
 
-    let Some(connection) =
-        actions::tab_connection_or_error(tabs, current_id, current_tab.session_id)
-    else {
+    let session_id = store
+        .meta
+        .read()
+        .get(&current_id)
+        .map(|m| m.session_id)
+        .unwrap_or(0);
+    let Some(connection) = actions::tab_connection_or_error(store, current_id, session_id) else {
         return;
     };
 
@@ -1476,7 +1476,7 @@ fn open_object_hit(
         qualified_name: object.qualified_name.clone(),
     };
     actions::run_table_preview_for_tab(
-        tabs,
+        store,
         current_id,
         connection,
         source,

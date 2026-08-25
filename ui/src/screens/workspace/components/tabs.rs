@@ -10,23 +10,34 @@ use crate::{
         pop_recently_closed_tab,
         push_recently_closed_tab,
     },
-    screens::workspace::actions::{
-        new_query_tab,
-        open_structure_tab,
-        read_only_mode_block_status,
-        read_only_mode_enabled,
-        refresh_tab_result,
-        replace_active_tab_sql,
-        run_explain_for_tab,
-        run_query_for_tab,
-        set_active_tab_status,
-        tab_connection_or_error,
-        toggle_execution_plan_for_tab,
+    screens::workspace::{
+        actions::{
+            new_query_tab,
+            open_structure_tab,
+            read_only_mode_block_status,
+            read_only_mode_enabled,
+            refresh_tab_result,
+            replace_active_tab_sql,
+            run_explain_for_tab,
+            run_query_for_tab,
+            set_active_tab_status,
+            tab_connection_or_error,
+            toggle_execution_plan_for_tab,
+        },
+        tab_store::{
+            TabMeta,
+            TabResultState,
+            TabStore,
+            materialize_tab_state,
+            restore_tab_state,
+        },
     },
 };
 use dioxus::{html::input_data::MouseButton, prelude::*};
 use models::{
     AcpPanelState,
+    BatchRunState,
+    ExecutionPlan,
     QueryHistoryItem,
     QueryOutput,
     QueryTabState,
@@ -61,6 +72,23 @@ const EDITOR_DEFAULT_WIDTH: f64 = 520.0;
 struct EditorResizeState {
     start_y: f64,
     start_height: f64,
+}
+
+/// Snapshot of the active tab's four per-aspect states, computed once
+/// per render before the `rsx!` block so the macro never has to parse
+/// tuple destructuring or field access inside its body.
+struct ActiveTabContext {
+    id: u64,
+    session_id: u64,
+    sql: String,
+    title: String,
+    page_size: u32,
+    result: Option<QueryOutput>,
+    tab_kind: WorkspaceTabKind,
+    preview_source: Option<TablePreviewSource>,
+    batch_results: Option<BatchRunState>,
+    show_execution_plan: bool,
+    execution_plan: Option<ExecutionPlan>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -105,9 +133,7 @@ impl ExportFormat {
 
 #[component]
 pub fn TabsManager(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    mut active_tab_id: Signal<u64>,
-    mut next_tab_id: Signal<u64>,
+    store: TabStore,
     history: Signal<Vec<QueryHistoryItem>>,
     next_history_id: Signal<u64>,
     explorer_sections: Signal<Vec<ExplorerConnectionSection>>,
@@ -125,10 +151,12 @@ pub fn TabsManager(
     let mut renaming_tab_id = use_signal(|| None::<u64>);
     let mut rename_value = use_signal(String::new);
     let active_tab = use_memo(move || {
-        tabs.read()
-            .iter()
-            .find(|tab| tab.id == active_tab_id())
-            .cloned()
+        let id = store.active_tab_id();
+        let meta = store.meta.read().get(&id).cloned();
+        let editor = store.editor.read().get(&id).cloned();
+        let result = store.result.read().get(&id).cloned();
+        let pending = store.pending.read().get(&id).cloned();
+        meta.map(|m| (m, editor, result, pending))
     });
 
     let session_labels = {
@@ -139,11 +167,55 @@ pub fn TabsManager(
             .map(|session| (session.id, session.name.clone()))
             .collect::<std::collections::HashMap<_, _>>()
     };
-    let active_actionable_source = active_tab.read().as_ref().and_then(actionable_table_source);
+    let active_actionable_source = active_tab.read().as_ref().and_then(|(m, e, r, p)| {
+        let _ = (m, e, p);
+        r.as_ref().and_then(actionable_table_source)
+    });
     let generate_sql_busy = acp_panel_state().busy;
     let generate_sql_prompt_empty = generate_sql_prompt().trim().is_empty();
     let generate_sql_input_key = format!("generate-sql-{}", generate_sql_input_revision());
     let read_only_mode = read_only_mode_enabled();
+    let tab_list: Vec<(u64, TabMeta)> = store
+        .meta
+        .read()
+        .iter()
+        .map(|(id, meta)| (*id, meta.clone()))
+        .collect();
+    let active_ctx = active_tab.read().as_ref().map(|(m, e, r, p)| {
+        let _ = p;
+        ActiveTabContext {
+            id: m.id,
+            session_id: m.session_id,
+            sql: e.as_ref().map(|e| e.sql.clone()).unwrap_or_default(),
+            title: m.title.clone(),
+            page_size: r.as_ref().map(|r| r.page_size).unwrap_or(0),
+            result: r.as_ref().and_then(|r| r.result.clone()),
+            tab_kind: m.tab_kind,
+            preview_source: r.as_ref().and_then(|r| r.preview_source.clone()),
+            batch_results: r.as_ref().and_then(|r| r.batch_results.clone()),
+            show_execution_plan: r.as_ref().map(|r| r.show_execution_plan).unwrap_or(false),
+            execution_plan: r.as_ref().and_then(|r| r.execution_plan.clone()),
+        }
+    });
+    let active_tab_id_value = active_ctx.as_ref().map(|a| a.id).unwrap_or(0);
+    let active_session_id = active_ctx.as_ref().map(|a| a.session_id).unwrap_or(0);
+    let active_sql = active_ctx.as_ref().map(|a| a.sql.clone()).unwrap_or_default();
+    let active_sql_run = active_sql.clone();
+    let active_sql_explain = active_sql.clone();
+    let active_title = active_ctx.as_ref().map(|a| a.title.clone()).unwrap_or_default();
+    let active_page_size = active_ctx.as_ref().map(|a| a.page_size).unwrap_or(0);
+    let active_result = active_ctx.as_ref().and_then(|a| a.result.clone());
+    let active_tab_kind = active_ctx
+        .as_ref()
+        .map(|a| a.tab_kind)
+        .unwrap_or(WorkspaceTabKind::Query);
+    let active_preview_source = active_ctx.as_ref().and_then(|a| a.preview_source.clone());
+    let active_batch_results = active_ctx.as_ref().and_then(|a| a.batch_results.clone());
+    let active_show_execution_plan = active_ctx
+        .as_ref()
+        .map(|a| a.show_execution_plan)
+        .unwrap_or(false);
+    let active_execution_plan = active_ctx.as_ref().and_then(|a| a.execution_plan.clone());
 
     rsx! {
         div {
@@ -237,10 +309,10 @@ pub fn TabsManager(
             },
             div {
                 class: "tabbar",
-                for tab in tabs() {
+                for (tab_id, tab) in tab_list.iter().cloned() {
                     div {
                         class: {
-                            let mut class_name = if tab.id == active_tab_id() {
+                            let mut class_name = if tab_id == store.active_tab_id() {
                                 "tabbar__tab tabbar__tab--active".to_string()
                             } else {
                                 "tabbar__tab".to_string()
@@ -251,35 +323,34 @@ pub fn TabsManager(
                             class_name
                         },
                         onclick: {
-                            let tab_id = tab.id;
+                            let tab_id = tab_id;
                             let session_id = tab.session_id;
                             move |_| {
-                                active_tab_id.set(tab_id);
+                                store.active_tab_id.set(tab_id);
                                 crate::app_state::activate_session(session_id);
                             }
                         },
                         onauxclick: {
-                            let tab_id = tab.id;
+                            let tab_id = tab_id;
                             move |event| {
                                 if event.trigger_button() != Some(MouseButton::Auxiliary) {
                                     return;
                                 }
-                                close_tab_for_middle_click(tabs, active_tab_id, tab_id);
+                                close_tab_for_middle_click(store, tab_id);
                             }
                         },
                         oncontextmenu: {
-                            let tab_id = tab.id;
+                            let tab_id = tab_id;
                             move |event| {
                                 event.prevent_default();
                                 let coords = event.client_coordinates();
-                                let items =
-                                    build_tab_context_menu(tab_id, tabs, active_tab_id, next_tab_id);
+                                let items = build_tab_context_menu(tab_id, store);
                                 open_context_menu(coords.x, coords.y, items);
                             }
                         },
                         div {
                             class: "tabbar__copy",
-                            if renaming_tab_id() == Some(tab.id) {
+                            if renaming_tab_id() == Some(tab_id) {
                                 input {
                                     class: "tabbar__rename-input",
                                     value: "{rename_value}",
@@ -290,8 +361,8 @@ pub fn TabsManager(
                                             if !new_title.is_empty()
                                                 && let Some(tab_id) = renaming_tab_id()
                                             {
-                                                tabs.with_mut(|all_tabs| {
-                                                    if let Some(tab) = all_tabs.iter_mut().find(|t| t.id == tab_id) {
+                                                store.meta.with_mut(|m| {
+                                                    if let Some(tab) = m.get_mut(&tab_id) {
                                                         tab.title = new_title;
                                                     }
                                                 });
@@ -306,8 +377,8 @@ pub fn TabsManager(
                                         if !new_title.is_empty()
                                             && let Some(tab_id) = renaming_tab_id()
                                         {
-                                            tabs.with_mut(|all_tabs| {
-                                                if let Some(tab) = all_tabs.iter_mut().find(|t| t.id == tab_id) {
+                                            store.meta.with_mut(|m| {
+                                                if let Some(tab) = m.get_mut(&tab_id) {
                                                     tab.title = new_title;
                                                 }
                                             });
@@ -319,7 +390,7 @@ pub fn TabsManager(
                                 span {
                                     class: "tabbar__label",
                                     ondoubleclick: {
-                                        let tab_id = tab.id;
+                                        let tab_id = tab_id;
                                         move |_| {
                                             rename_value.set(tab.title.clone());
                                             renaming_tab_id.set(Some(tab_id));
@@ -343,10 +414,10 @@ pub fn TabsManager(
                         button {
                             class: "tabbar__close",
                             onclick: {
-                                let tab_id = tab.id;
+                                let tab_id = tab_id;
                                 move |event| {
                                     event.stop_propagation();
-                                    close_tab_for_middle_click(tabs, active_tab_id, tab_id);
+                                    close_tab_for_middle_click(store, tab_id);
                                 }
                             },
                             "x"
@@ -361,31 +432,33 @@ pub fn TabsManager(
                             return;
                         };
 
-                        let new_id = next_tab_id();
-                        next_tab_id += 1;
-                        tabs.with_mut(|all_tabs| {
-                            all_tabs.push(new_query_tab(
-                                new_id,
-                                session_id,
-                                format!("Query {new_id}"),
-                                String::new(),
-                            ));
-                        });
-                        active_tab_id.set(new_id);
+                        let new_id = store.next_tab_id();
+                        store.next_tab_id += 1;
+                        let (meta, editor, result, pending) = new_query_tab(
+                            new_id,
+                            session_id,
+                            format!("Query {new_id}"),
+                            String::new(),
+                        );
+                        store.meta.with_mut(|m| { m.insert(new_id, meta); });
+                        store.editor.with_mut(|m| { m.insert(new_id, editor); });
+                        store.result.with_mut(|m| { m.insert(new_id, result); });
+                        store.pending.with_mut(|m| { m.insert(new_id, pending); });
+                        store.active_tab_id.set(new_id);
                     },
                     "+ Tab"
                 }
             }
 
-            if let Some(ref tab) = *active_tab.read() {
+            if active_ctx.is_some() {
                 if APP_SHOW_SQL_EDITOR() {
                     div {
                         class: "editor",
                         SqlEditor {
-                            sql: tab.sql.clone(),
-                            active_tab: tab.clone(),
-                            tabs,
-                            active_tab_id,
+                            sql: active_sql.clone(),
+                            active_tab_id: active_tab_id_value,
+                            active_session_id,
+                            store,
                             explorer_sections,
                         }
                     }
@@ -431,43 +504,33 @@ pub fn TabsManager(
                         label: "Run SQL".to_string(),
                         primary: true,
                         onclick: move |_| {
-                            let current_id = active_tab_id();
-                            let current_tab = tabs
-                                .read()
-                                .iter()
-                                .find(|tab| tab.id == current_id)
-                                .cloned();
-
-                            let Some(current_tab) = current_tab else {
-                                return;
-                            };
-
-                            let sql = current_tab.sql.trim().to_string();
-                            let tab_title = current_tab.title.clone();
-                            let page_size = current_tab.page_size;
+                            let current_id = active_tab_id_value;
+                            let sql = active_sql_run.trim().to_string();
+                            let tab_title = active_title.clone();
+                            let page_size = active_page_size;
                             let connection_name = APP_STATE
                                 .read()
-                                .session(current_tab.session_id)
+                                .session(active_session_id)
                                 .map(|session| session.name.clone())
                                 .unwrap_or_else(|| "Detached session".to_string());
 
                             if sql.is_empty() {
-                                tabs.with_mut(|all_tabs| {
-                                    if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                                        tab.status = "Query is empty".to_string();
-                                    }
-                                });
+                                set_active_tab_status(
+                                    store,
+                                    current_id,
+                                    "Query is empty".to_string(),
+                                );
                                 return;
                             }
 
                             let Some(connection) =
-                                tab_connection_or_error(tabs, current_id, current_tab.session_id)
+                                tab_connection_or_error(store, current_id, active_session_id)
                             else {
                                 return;
                             };
 
                             run_query_for_tab(
-                                tabs,
+                                store,
                                 current_id,
                                 connection,
                                 sql,
@@ -481,9 +544,8 @@ pub fn TabsManager(
                         icon: ActionIcon::Format,
                         label: "Format SQL".to_string(),
                         onclick: {
-                            let current_tab = tab.clone();
                             let format_settings = APP_SQL_FORMAT_SETTINGS();
-                            move |_| format_active_sql(tabs, current_tab.clone(), format_settings.clone())
+                            move |_| format_active_sql(store, active_tab_id_value, format_settings.clone())
                         },
                     }
                     IconButton {
@@ -493,8 +555,8 @@ pub fn TabsManager(
                         onclick: move |_| {
                             if !APP_AI_FEATURES_ENABLED() {
                                 set_active_tab_status(
-                                    tabs,
-                                    active_tab_id(),
+                                    store,
+                                    active_tab_id_value,
                                     "Enable AI features in Settings to use Generate SQL."
                                         .to_string(),
                                 );
@@ -515,12 +577,9 @@ pub fn TabsManager(
                         label: "Open structure".to_string(),
                         disabled: active_actionable_source.is_none(),
                         onclick: {
-                            let current_tab = tab.clone();
                             move |_| open_structure_for_active_preview(
-                                tabs,
-                                active_tab_id,
-                                next_tab_id,
-                                current_tab.clone(),
+                                store,
+                                active_tab_id_value,
                             )
                         },
                     }
@@ -529,96 +588,82 @@ pub fn TabsManager(
                         label: "Explain Plan".to_string(),
                         onclick: {
                             move |_| {
-                                let current_id = active_tab_id();
-                                let Some(current_tab) = tabs
-                                    .read()
-                                    .iter()
-                                    .find(|tab| tab.id == current_id)
-                                    .cloned()
-                                else {
-                                    return;
-                                };
-                                let sql = current_tab.sql.trim().to_string();
-                                if toggle_execution_plan_for_tab(tabs, current_id, &sql) {
+                                let current_id = active_tab_id_value;
+                                let sql = active_sql_explain.trim().to_string();
+                                if toggle_execution_plan_for_tab(store, current_id, &sql) {
                                     return;
                                 }
                                 if sql.is_empty() {
-                                    tabs.with_mut(|all_tabs| {
-                                        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                                            tab.status = "Enter a query to explain".to_string();
-                                        }
-                                    });
+                                    set_active_tab_status(
+                                        store,
+                                        current_id,
+                                        "Enter a query to explain".to_string(),
+                                    );
                                     return;
                                 }
                                 if !services::is_read_only_sql(&sql) {
                                     set_active_tab_status(
-                                        tabs,
+                                        store,
                                         current_id,
                                         "Explain Plan is available only for read-only SQL.".to_string(),
                                     );
                                     return;
                                 }
                                 let Some(connection) =
-                                    tab_connection_or_error(tabs, current_id, current_tab.session_id)
+                                    tab_connection_or_error(store, current_id, active_session_id)
                                 else {
                                     return;
                                 };
-                                run_explain_for_tab(tabs, current_id, connection, sql);
+                                run_explain_for_tab(store, current_id, connection, sql);
                             }
                         },
                     }
                     IconButton {
                         icon: ActionIcon::ExportCsv,
                         label: "Export CSV".to_string(),
-                        disabled: !has_tabular_result(tab),
+                        disabled: !has_tabular_result(&active_result),
                         onclick: {
-                            let current_tab = tab.clone();
-                            move |_| export_active_page(tabs, current_tab.clone(), ExportFormat::Csv)
+                            move |_| export_active_page(store, active_tab_id_value, ExportFormat::Csv)
                         },
                     }
                     IconButton {
                         icon: ActionIcon::ExportJson,
                         label: "Export JSON".to_string(),
-                        disabled: !has_tabular_result(tab),
+                        disabled: !has_tabular_result(&active_result),
                         onclick: {
-                            let current_tab = tab.clone();
-                            move |_| export_active_page(tabs, current_tab.clone(), ExportFormat::Json)
+                            move |_| export_active_page(store, active_tab_id_value, ExportFormat::Json)
                         },
                     }
                     IconButton {
                         icon: ActionIcon::ExportXlsx,
                         label: "Export XLSX".to_string(),
-                        disabled: !has_tabular_result(tab),
+                        disabled: !has_tabular_result(&active_result),
                         onclick: {
-                            let current_tab = tab.clone();
-                            move |_| export_active_page(tabs, current_tab.clone(), ExportFormat::Xlsx)
+                            move |_| export_active_page(store, active_tab_id_value, ExportFormat::Xlsx)
                         },
                     }
                     IconButton {
                         icon: ActionIcon::ExportXml,
                         label: "Export XML".to_string(),
-                        disabled: !has_tabular_result(tab),
+                        disabled: !has_tabular_result(&active_result),
                         onclick: {
-                            let current_tab = tab.clone();
-                            move |_| export_active_page(tabs, current_tab.clone(), ExportFormat::Xml)
+                            move |_| export_active_page(store, active_tab_id_value, ExportFormat::Xml)
                         },
                     }
                     IconButton {
                         icon: ActionIcon::ExportHtml,
                         label: "Export HTML".to_string(),
-                        disabled: !has_tabular_result(tab),
+                        disabled: !has_tabular_result(&active_result),
                         onclick: {
-                            let current_tab = tab.clone();
-                            move |_| export_active_page(tabs, current_tab.clone(), ExportFormat::Html)
+                            move |_| export_active_page(store, active_tab_id_value, ExportFormat::Html)
                         },
                     }
                     IconButton {
                         icon: ActionIcon::ExportSql,
                         label: "SQL Dump".to_string(),
-                        disabled: !has_tabular_result(tab),
+                        disabled: !has_tabular_result(&active_result),
                         onclick: {
-                            let current_tab = tab.clone();
-                            move |_| export_active_page(tabs, current_tab.clone(), ExportFormat::SqlDump)
+                            move |_| export_active_page(store, active_tab_id_value, ExportFormat::SqlDump)
                         },
                     }
                     IconButton {
@@ -630,8 +675,7 @@ pub fn TabsManager(
                         },
                         disabled: active_actionable_source.is_none() || read_only_mode,
                         onclick: {
-                            let current_tab = tab.clone();
-                            move |_| import_csv_into_active_table(tabs, current_tab.clone())
+                            move |_| import_csv_into_active_table(store, active_tab_id_value)
                         },
                     }
                 }
@@ -673,19 +717,9 @@ pub fn TabsManager(
                                             }
                                             event.prevent_default();
 
-                                            let Some(current_tab) = tabs
-                                                .read()
-                                                .iter()
-                                                .find(|tab| tab.id == active_tab_id())
-                                                .cloned()
-                                            else {
-                                                return;
-                                            };
-
                                             submit_generated_sql_request(
-                                                tabs,
-                                                active_tab_id(),
-                                                current_tab,
+                                                store,
+                                                active_tab_id_value,
                                                 acp_panel_state,
                                                 chat_revision,
                                                 allow_agent_db_read(),
@@ -707,19 +741,9 @@ pub fn TabsManager(
                                         disabled: generate_sql_busy || generate_sql_prompt_empty,
                                         onclick: {
                                             move |_| {
-                                                let Some(current_tab) = tabs
-                                                    .read()
-                                                    .iter()
-                                                    .find(|tab| tab.id == active_tab_id())
-                                                    .cloned()
-                                                else {
-                                                    return;
-                                                };
-
                                                 submit_generated_sql_request(
-                                                    tabs,
-                                                    active_tab_id(),
-                                                    current_tab,
+                                                    store,
+                                                    active_tab_id_value,
                                                     acp_panel_state,
                                                     chat_revision,
                                                     allow_agent_db_read(),
@@ -733,37 +757,32 @@ pub fn TabsManager(
                                 }
                             }
                         }
-                    } else if tab.batch_results.is_some() {
+                    } else if active_batch_results.is_some() {
                         BatchResultsView {
-                            tabs,
-                            active_tab_id,
+                            store,
                         }
-                    } else if tab.show_execution_plan {
-                        if let Some(plan) = tab.execution_plan.clone() {
+                    } else if active_show_execution_plan {
+                        if let Some(plan) = active_execution_plan.clone() {
                             ExecutionPlanView {
                                 plan,
-                                tabs,
-                                active_tab_id,
+                                store,
                             }
                         } else {
                             ResultTable {
-                                result: tab.result.clone(),
-                                tabs,
-                                active_tab_id,
+                                result: active_result.clone(),
+                                store,
                             }
                         }
-                    } else if tab.tab_kind == WorkspaceTabKind::TablePreview
-                        && tab.preview_source.is_some()
+                    } else if active_tab_kind == WorkspaceTabKind::TablePreview
+                        && active_preview_source.is_some()
                     {
                         TableEditor {
-                            tabs,
-                            active_tab_id,
+                            store,
                         }
                     } else {
                         ResultTable {
-                            result: tab.result.clone(),
-                            tabs,
-                            active_tab_id,
+                            result: active_result.clone(),
+                            store,
                         }
                     }
                 }
@@ -779,15 +798,14 @@ pub fn TabsManager(
     }
 }
 
-fn export_active_page(
-    tabs: Signal<Vec<QueryTabState>>,
-    current_tab: QueryTabState,
-    format: ExportFormat,
-) {
+fn export_active_page(store: TabStore, current_id: u64, format: ExportFormat) {
+    let Some(current_tab) = materialize_tab_state(store, current_id) else {
+        return;
+    };
     let Some(QueryOutput::Table(page)) = current_tab.result.clone() else {
         set_active_tab_status(
-            tabs,
-            current_tab.id,
+            store,
+            current_id,
             "Nothing to export in the current tab".to_string(),
         );
         return;
@@ -795,8 +813,8 @@ fn export_active_page(
 
     let file_name = default_export_file_name(&current_tab, format);
     set_active_tab_status(
-        tabs,
-        current_tab.id,
+        store,
+        current_id,
         format!("Select a destination for the {} export", format.label()),
     );
 
@@ -807,14 +825,14 @@ fn export_active_page(
             .save_file()
             .await
         else {
-            set_active_tab_status(tabs, current_tab.id, "Export cancelled".to_string());
+            set_active_tab_status(store, current_id, "Export cancelled".to_string());
             return;
         };
 
         let path = file.path().to_path_buf();
         set_active_tab_status(
-            tabs,
-            current_tab.id,
+            store,
+            current_id,
             format!(
                 "Exporting {} rows to {}...",
                 page.rows.len(),
@@ -846,48 +864,67 @@ fn export_active_page(
                     .map(ToString::to_string)
                     .unwrap_or_else(|| path.to_string_lossy().to_string());
                 set_active_tab_status(
-                    tabs,
-                    current_tab.id,
+                    store,
+                    current_id,
                     format!("Exported {rows} row(s) to {destination}"),
                 );
             }
             Err(err) => set_active_tab_status(
-                tabs,
-                current_tab.id,
+                store,
+                current_id,
                 format!("{} export error: {err}", format.label()),
             ),
         }
     });
 }
 
-fn import_csv_into_active_table(tabs: Signal<Vec<QueryTabState>>, current_tab: QueryTabState) {
+fn import_csv_into_active_table(store: TabStore, current_id: u64) {
+    let Some(current_tab) = materialize_tab_state(store, current_id) else {
+        return;
+    };
     if read_only_mode_enabled() {
         set_active_tab_status(
-            tabs,
-            current_tab.id,
+            store,
+            current_id,
             read_only_mode_block_status("CSV import"),
         );
         return;
     }
 
-    let Some(source) = actionable_table_source(&current_tab) else {
+    let result_state = TabResultState {
+        result: current_tab.result.clone(),
+        status: current_tab.status.clone(),
+        current_offset: current_tab.current_offset,
+        page_size: current_tab.page_size,
+        last_run_sql: current_tab.last_run_sql.clone(),
+        preview_source: current_tab.preview_source.clone(),
+        filter: current_tab.filter.clone(),
+        sort: current_tab.sort.clone(),
+        is_loading_more: current_tab.is_loading_more,
+        execution_plan: current_tab.execution_plan.clone(),
+        show_execution_plan: current_tab.show_execution_plan,
+        batch_results: current_tab.batch_results.clone(),
+        batch_outputs: current_tab.batch_outputs.clone(),
+        last_duration_ms: current_tab.last_duration_ms,
+    };
+    let Some(source) = actionable_table_source(&result_state) else {
         set_active_tab_status(
-            tabs,
-            current_tab.id,
+            store,
+            current_id,
             "Import CSV is available for previewed tables and simple single-table SELECT queries"
                 .to_string(),
         );
         return;
     };
 
-    let Some(connection) = tab_connection_or_error(tabs, current_tab.id, current_tab.session_id)
+    let Some(connection) = tab_connection_or_error(store, current_id, current_tab.session_id)
     else {
         return;
     };
 
     set_active_tab_status(
-        tabs,
-        current_tab.id,
+        store,
+        current_id,
         format!("Select a CSV file to import into {}", source.table_name),
     );
 
@@ -897,35 +934,30 @@ fn import_csv_into_active_table(tabs: Signal<Vec<QueryTabState>>, current_tab: Q
             .pick_file()
             .await
         else {
-            set_active_tab_status(tabs, current_tab.id, "CSV import cancelled".to_string());
+            set_active_tab_status(store, current_id, "CSV import cancelled".to_string());
             return;
         };
 
         let path = file.path().to_path_buf();
         set_active_tab_status(
-            tabs,
-            current_tab.id,
+            store,
+            current_id,
             format!("Importing {}...", path.to_string_lossy()),
         );
 
         match services::import_csv_into_table(connection, source.clone(), path).await {
             Ok(rows) => {
                 set_active_tab_status(
-                    tabs,
-                    current_tab.id,
+                    store,
+                    current_id,
                     format!("Imported {rows} row(s) into {}", source.table_name),
                 );
-                if let Some(updated_tab) = tabs
-                    .read()
-                    .iter()
-                    .find(|tab| tab.id == current_tab.id)
-                    .cloned()
-                {
-                    refresh_tab_result(tabs, updated_tab, Some(source));
+                if let Some(updated_tab) = materialize_tab_state(store, current_id) {
+                    refresh_tab_result(store, updated_tab, Some(source));
                 }
             }
             Err(err) =>
-                set_active_tab_status(tabs, current_tab.id, format!("CSV import error: {err}")),
+                set_active_tab_status(store, current_id, format!("CSV import error: {err}")),
         }
     });
 }
@@ -961,20 +993,23 @@ fn sanitize_file_name(value: &str) -> String {
     }
 }
 
-fn has_tabular_result(tab: &QueryTabState) -> bool {
-    matches!(tab.result.as_ref(), Some(QueryOutput::Table(_)))
+fn has_tabular_result(result: &Option<QueryOutput>) -> bool {
+    matches!(result.as_ref(), Some(QueryOutput::Table(_)))
 }
 
 fn format_active_sql(
-    tabs: Signal<Vec<QueryTabState>>,
-    current_tab: QueryTabState,
+    store: TabStore,
+    current_id: u64,
     format_settings: SqlFormatSettings,
 ) {
+    let Some(current_tab) = materialize_tab_state(store, current_id) else {
+        return;
+    };
     let sql = current_tab.sql.trim();
     if sql.is_empty() {
         set_active_tab_status(
-            tabs,
-            current_tab.id,
+            store,
+            current_id,
             "Nothing to format in the current tab".to_string(),
         );
         return;
@@ -985,14 +1020,13 @@ fn format_active_sql(
         .session(current_tab.session_id)
         .map(|session| session.kind);
     let formatted = services::format_sql(session_kind, sql, &format_settings);
-    replace_active_tab_sql(tabs, current_tab.id, formatted, "SQL formatted".to_string());
+    replace_active_tab_sql(store, current_id, formatted, "SQL formatted".to_string());
 }
 
 #[allow(clippy::too_many_arguments)]
 fn submit_generated_sql_request(
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     active_tab_id: u64,
-    current_tab: QueryTabState,
     acp_panel_state: Signal<AcpPanelState>,
     chat_revision: Signal<u64>,
     allow_agent_db_read: bool,
@@ -1002,8 +1036,8 @@ fn submit_generated_sql_request(
     let request = prompt_draft().trim().to_string();
     if request.is_empty() {
         set_active_tab_status(
-            tabs,
-            current_tab.id,
+            store,
+            active_tab_id,
             "Enter a description before generating SQL.".to_string(),
         );
         return;
@@ -1011,13 +1045,20 @@ fn submit_generated_sql_request(
 
     let connection_label = APP_STATE
         .read()
-        .session(current_tab.session_id)
+        .session(
+            store
+                .meta
+                .read()
+                .get(&active_tab_id)
+                .map(|m| m.session_id)
+                .unwrap_or(0),
+        )
         .map(|session| session.name.clone())
         .unwrap_or_else(|| "Detached session".to_string());
 
     set_active_tab_status(
-        tabs,
-        current_tab.id,
+        store,
+        active_tab_id,
         "Generating SQL with the configured AI agent...".to_string(),
     );
 
@@ -1026,13 +1067,13 @@ fn submit_generated_sql_request(
         if let Err(err) =
             ensure_default_sql_agent_connected(acp_panel_state, chat_revision, deepseek).await
         {
-            set_active_tab_status(tabs, current_tab.id, format!("Generate SQL error: {err}"));
+            set_active_tab_status(store, active_tab_id, format!("Generate SQL error: {err}"));
             return;
         }
 
         send_sql_generation_request(
             acp_panel_state,
-            tabs,
+            store,
             active_tab_id,
             connection_label,
             chat_revision,
@@ -1045,40 +1086,53 @@ fn submit_generated_sql_request(
     });
 }
 
-fn open_structure_for_active_preview(
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    next_tab_id: Signal<u64>,
-    current_tab: QueryTabState,
-) {
-    let Some(source) = actionable_table_source(&current_tab) else {
+fn open_structure_for_active_preview(store: TabStore, current_id: u64) {
+    let Some(current_tab) = materialize_tab_state(store, current_id) else {
+        return;
+    };
+    let result_state = TabResultState {
+        result: current_tab.result.clone(),
+        status: current_tab.status.clone(),
+        current_offset: current_tab.current_offset,
+        page_size: current_tab.page_size,
+        last_run_sql: current_tab.last_run_sql.clone(),
+        preview_source: current_tab.preview_source.clone(),
+        filter: current_tab.filter.clone(),
+        sort: current_tab.sort.clone(),
+        is_loading_more: current_tab.is_loading_more,
+        execution_plan: current_tab.execution_plan.clone(),
+        show_execution_plan: current_tab.show_execution_plan,
+        batch_results: current_tab.batch_results.clone(),
+        batch_outputs: current_tab.batch_outputs.clone(),
+        last_duration_ms: current_tab.last_duration_ms,
+    };
+    let Some(source) = actionable_table_source(&result_state) else {
         set_active_tab_status(
-            tabs,
-            current_tab.id,
+            store,
+            current_id,
             "Structure view is available for previewed tables and simple single-table SELECT queries"
                 .to_string(),
         );
         return;
     };
 
-    let Some(connection) = tab_connection_or_error(tabs, current_tab.id, current_tab.session_id)
+    let Some(connection) = tab_connection_or_error(store, current_id, current_tab.session_id)
     else {
         return;
     };
 
     open_structure_tab(
-        tabs,
-        active_tab_id,
-        next_tab_id,
+        store,
         current_tab.session_id,
         connection,
         source,
     );
 }
 
-fn actionable_table_source(tab: &QueryTabState) -> Option<TablePreviewSource> {
-    tab.preview_source.clone().or_else(|| {
-        tab.last_run_sql
+fn actionable_table_source(result: &TabResultState) -> Option<TablePreviewSource> {
+    result.preview_source.clone().or_else(|| {
+        result
+            .last_run_sql
             .as_deref()
             .and_then(services::preview_source_for_sql)
     })
@@ -1088,13 +1142,16 @@ fn actionable_table_source(tab: &QueryTabState) -> Option<TablePreviewSource> {
 /// current active tab is no longer in the list. Used by every
 /// "close many" helper so the editor does not stay focused on a
 /// vanished tab.
-fn reassign_active_if_missing(tabs: Signal<Vec<QueryTabState>>, mut active_tab_id: Signal<u64>) {
-    if tabs.read().iter().any(|t| t.id == active_tab_id()) {
+fn reassign_active_if_missing(store: TabStore) {
+    let mut active_tab_id = store.active_tab_id;
+    if store.meta.read().contains_key(&active_tab_id()) {
         return;
     }
-    if let Some(next) = tabs.read().first().cloned() {
-        active_tab_id.set(next.id);
-        crate::app_state::activate_session(next.session_id);
+    if let Some((next_id, next_meta)) = store.meta.read().iter().next() {
+        let next_id = *next_id;
+        let session_id = next_meta.session_id;
+        active_tab_id.set(next_id);
+        crate::app_state::activate_session(session_id);
     }
 }
 
@@ -1104,32 +1161,40 @@ fn reassign_active_if_missing(tabs: Signal<Vec<QueryTabState>>, mut active_tab_i
 /// the user targeted (so pinning never silently blocks an
 /// intentional close). The closed tab is pushed onto the
 /// "recently closed" stack so "Reopen Closed Tab" can restore it.
-fn close_tab_for_middle_click(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    mut active_tab_id: Signal<u64>,
-    tab_id: u64,
-) {
-    let snapshot = tabs.read().clone();
-    if snapshot.len() <= 1 {
+fn close_tab_for_middle_click(mut store: TabStore, tab_id: u64) {
+    let mut active_tab_id = store.active_tab_id;
+    if store.meta.read().len() <= 1 {
         return;
     }
-    let Some(closed) = snapshot.iter().find(|tab| tab.id == tab_id).cloned() else {
+    let Some(closed) = materialize_tab_state(store, tab_id) else {
         return;
     };
 
     push_recently_closed_tab(closed);
-    tabs.with_mut(|all_tabs| all_tabs.retain(|tab| tab.id != tab_id));
+    store.meta.with_mut(|m| {
+        m.remove(&tab_id);
+    });
+    store.editor.with_mut(|m| {
+        m.remove(&tab_id);
+    });
+    store.result.with_mut(|m| {
+        m.remove(&tab_id);
+    });
+    store.pending.with_mut(|m| {
+        m.remove(&tab_id);
+    });
 
     if active_tab_id() == tab_id {
-        let remaining = tabs.read().clone();
-        let next_tab = remaining
-            .iter()
-            .find(|tab| !tab.pinned)
-            .or_else(|| remaining.first())
-            .cloned();
-        if let Some(next_tab) = next_tab {
-            active_tab_id.set(next_tab.id);
-            crate::app_state::activate_session(next_tab.session_id);
+        let next_tab = {
+            let meta = store.meta.read();
+            meta.iter()
+                .find(|(_, t)| !t.pinned)
+                .or_else(|| meta.iter().next())
+                .map(|(id, t)| (*id, t.session_id))
+        };
+        if let Some((next_id, session_id)) = next_tab {
+            active_tab_id.set(next_id);
+            crate::app_state::activate_session(session_id);
         }
     }
 }
@@ -1140,29 +1205,24 @@ fn close_tab_for_middle_click(
 /// "Close Others" / "Close to Right" / "Close All" — those items
 /// only affect non-pinned tabs (and "Close Others" keeps all
 /// pinned tabs).
-#[allow(clippy::too_many_arguments)]
-fn build_tab_context_menu(
-    tab_id: u64,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    next_tab_id: Signal<u64>,
-) -> Vec<ContextMenuItem> {
+fn build_tab_context_menu(tab_id: u64, store: TabStore) -> Vec<ContextMenuItem> {
     let mut items: Vec<ContextMenuItem> = Vec::new();
 
-    let snapshot: Option<QueryTabState> = tabs.read().iter().find(|t| t.id == tab_id).cloned();
-    let Some(tab) = snapshot else {
+    let Some(tab) = store.meta.read().get(&tab_id).cloned() else {
         return items;
     };
-    let total = tabs.read().len();
-    let tab_index = tabs.read().iter().position(|t| t.id == tab_id);
-    let non_pinned_total = tabs.read().iter().filter(|t| !t.pinned).count();
+    let total = store.meta.read().len();
+    let tab_index = store.meta.read().iter().position(|(id, _)| *id == tab_id);
+    let non_pinned_total = store.meta.read().iter().filter(|(_, t)| !t.pinned).count();
     let pinned_total = total - non_pinned_total;
     let tabs_to_right = tab_index
         .map(|idx| {
-            tabs.read()
+            store
+                .meta
+                .read()
                 .iter()
                 .skip(idx + 1)
-                .filter(|t| !t.pinned)
+                .filter(|(_, t)| !t.pinned)
                 .count()
         })
         .unwrap_or(0);
@@ -1170,7 +1230,7 @@ fn build_tab_context_menu(
     // 1. Close
     {
         let mut item = ContextMenuItem::new("Close", move || {
-            close_tab_for_middle_click(tabs, active_tab_id, tab_id);
+            close_tab_for_middle_click(store, tab_id);
         })
         .with_icon(ActionIcon::Close);
         item.disabled = total <= 1;
@@ -1182,7 +1242,7 @@ fn build_tab_context_menu(
         let closeable_others =
             non_pinned_total.saturating_sub(1) + (if tab.pinned { 0 } else { pinned_total });
         let mut item = ContextMenuItem::new("Close Others", move || {
-            close_other_tabs(tabs, active_tab_id, tab_id);
+            close_other_tabs(store, tab_id);
         })
         .with_icon(ActionIcon::Close);
         item.disabled = closeable_others == 0;
@@ -1192,7 +1252,7 @@ fn build_tab_context_menu(
     // 3. Close to Right — non-pinned tabs to the right of this one.
     {
         let mut item = ContextMenuItem::new("Close Tabs to the Right", move || {
-            close_tabs_to_the_right(tabs, active_tab_id, tab_id);
+            close_tabs_to_the_right(store, tab_id);
         })
         .with_icon(ActionIcon::Close);
         item.disabled = tabs_to_right == 0;
@@ -1202,7 +1262,7 @@ fn build_tab_context_menu(
     // 4. Close All — close every non-pinned tab.
     {
         let mut item = ContextMenuItem::new("Close All", move || {
-            close_all_non_pinned_tabs(tabs, active_tab_id, next_tab_id, tab_id);
+            close_all_non_pinned_tabs(store, tab_id);
         })
         .with_icon(ActionIcon::Close)
         .separator();
@@ -1214,11 +1274,11 @@ fn build_tab_context_menu(
     {
         if tab.pinned {
             items.push(ContextMenuItem::new("Unpin", move || {
-                set_tab_pinned(tabs, tab_id, false);
+                set_tab_pinned(store, tab_id, false);
             }));
         } else {
             items.push(ContextMenuItem::new("Pin", move || {
-                set_tab_pinned(tabs, tab_id, true);
+                set_tab_pinned(store, tab_id, true);
             }));
         }
     }
@@ -1228,20 +1288,22 @@ fn build_tab_context_menu(
     //    with " copy". Result, SQL, and preview_source are copied
     //    so the duplicate is ready to run.
     {
-        let source = tab.clone();
-        items.push(
-            ContextMenuItem::new("Duplicate", move || {
-                duplicate_tab(tabs, active_tab_id, next_tab_id, source.clone());
-            })
-            .with_icon(ActionIcon::Duplicate)
-            .separator(),
-        );
+        let source = materialize_tab_state(store, tab_id);
+        if let Some(source) = source {
+            items.push(
+                ContextMenuItem::new("Duplicate", move || {
+                    duplicate_tab(store, source.clone());
+                })
+                .with_icon(ActionIcon::Duplicate)
+                .separator(),
+            );
+        }
     }
 
     // 7. Reopen Closed Tab
     {
         let mut item = ContextMenuItem::new("Reopen Closed Tab", move || {
-            reopen_last_closed_tab(tabs, active_tab_id, next_tab_id);
+            reopen_last_closed_tab(store);
         });
         item.disabled = crate::app_state::APP_RECENTLY_CLOSED_TABS.peek().is_empty();
         items.push(item);
@@ -1250,20 +1312,17 @@ fn build_tab_context_menu(
     items
 }
 
-fn set_tab_pinned(mut tabs: Signal<Vec<QueryTabState>>, tab_id: u64, pinned: bool) {
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == tab_id) {
+fn set_tab_pinned(mut store: TabStore, tab_id: u64, pinned: bool) {
+    store.meta.with_mut(|m| {
+        if let Some(tab) = m.get_mut(&tab_id) {
             tab.pinned = pinned;
         }
     });
 }
 
-fn duplicate_tab(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    mut active_tab_id: Signal<u64>,
-    mut next_tab_id: Signal<u64>,
-    source: QueryTabState,
-) {
+fn duplicate_tab(store: TabStore, source: QueryTabState) {
+    let mut active_tab_id = store.active_tab_id;
+    let mut next_tab_id = store.next_tab_id;
     let source_id = source.id;
     let new_id = next_tab_id();
     next_tab_id.set(new_id + 1);
@@ -1274,41 +1333,31 @@ fn duplicate_tab(
     if !trimmed_lower.ends_with(" copy") {
         clone.title.push_str(" copy");
     }
-    let insert_at = tabs
-        .read()
-        .iter()
-        .position(|tab| tab.id == source_id)
-        .map(|idx| idx + 1)
-        .unwrap_or_else(|| tabs.read().len());
-    tabs.with_mut(|all_tabs| all_tabs.insert(insert_at, clone));
+    restore_tab_state(store, clone);
     active_tab_id.set(new_id);
+    let _ = source_id;
 }
 
-fn reopen_last_closed_tab(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    mut active_tab_id: Signal<u64>,
-    mut next_tab_id: Signal<u64>,
-) {
+fn reopen_last_closed_tab(store: TabStore) {
+    let mut active_tab_id = store.active_tab_id;
+    let mut next_tab_id = store.next_tab_id;
     let Some(restored) = pop_recently_closed_tab(&mut next_tab_id) else {
         return;
     };
     let new_id = restored.id;
     let session_id = restored.session_id;
-    tabs.with_mut(|all_tabs| all_tabs.push(restored));
+    restore_tab_state(store, restored);
     active_tab_id.set(new_id);
     crate::app_state::activate_session(session_id);
 }
 
-fn close_other_tabs(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    keep_tab_id: u64,
-) {
-    let to_close: Vec<QueryTabState> = tabs
+fn close_other_tabs(mut store: TabStore, keep_tab_id: u64) {
+    let to_close: Vec<QueryTabState> = store
+        .meta
         .read()
         .iter()
-        .filter(|t| t.id != keep_tab_id && !t.pinned)
-        .cloned()
+        .filter(|(id, t)| **id != keep_tab_id && !t.pinned)
+        .filter_map(|(id, _)| materialize_tab_state(store, *id))
         .collect();
     if to_close.is_empty() {
         return;
@@ -1316,26 +1365,38 @@ fn close_other_tabs(
     for tab in to_close {
         push_recently_closed_tab(tab);
     }
-    tabs.with_mut(|all_tabs| {
-        all_tabs.retain(|t| t.id == keep_tab_id || t.pinned);
+    store.meta.with_mut(|m| {
+        m.retain(|id, t| *id == keep_tab_id || t.pinned);
     });
-    reassign_active_if_missing(tabs, active_tab_id);
+    store.editor.with_mut(|m| {
+        m.retain(|id, _| store.meta.read().contains_key(id));
+    });
+    store.result.with_mut(|m| {
+        m.retain(|id, _| store.meta.read().contains_key(id));
+    });
+    store.pending.with_mut(|m| {
+        m.retain(|id, _| store.meta.read().contains_key(id));
+    });
+    reassign_active_if_missing(store);
 }
 
-fn close_tabs_to_the_right(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    anchor_tab_id: u64,
-) {
-    let snapshot = tabs.read().clone();
-    let Some(anchor_idx) = snapshot.iter().position(|t| t.id == anchor_tab_id) else {
+fn close_tabs_to_the_right(mut store: TabStore, anchor_tab_id: u64) {
+    let snapshot: Vec<u64> = store.meta.read().iter().map(|(id, _)| *id).collect();
+    let Some(anchor_idx) = snapshot.iter().position(|id| *id == anchor_tab_id) else {
         return;
     };
     let to_close: Vec<QueryTabState> = snapshot
         .iter()
         .skip(anchor_idx + 1)
-        .filter(|t| !t.pinned)
-        .cloned()
+        .filter(|id| {
+            store
+                .meta
+                .read()
+                .get(id)
+                .map(|t| !t.pinned)
+                .unwrap_or(false)
+        })
+        .filter_map(|id| materialize_tab_state(store, *id))
         .collect();
     if to_close.is_empty() {
         return;
@@ -1343,63 +1404,101 @@ fn close_tabs_to_the_right(
     for tab in to_close {
         push_recently_closed_tab(tab);
     }
-    tabs.with_mut(|all_tabs| {
-        let keep: std::collections::HashSet<u64> = all_tabs
-            .iter()
-            .take(anchor_idx + 1)
-            .map(|t| t.id)
-            .chain(all_tabs.iter().filter(|t| t.pinned).map(|t| t.id))
-            .collect();
-        all_tabs.retain(|t| keep.contains(&t.id));
+    let keep: std::collections::HashSet<u64> = snapshot
+        .iter()
+        .take(anchor_idx + 1)
+        .copied()
+        .chain(
+            store
+                .meta
+                .read()
+                .iter()
+                .filter(|(_, t)| t.pinned)
+                .map(|(id, _)| *id),
+        )
+        .collect();
+    store.meta.with_mut(|m| {
+        m.retain(|id, _| keep.contains(id));
     });
-    reassign_active_if_missing(tabs, active_tab_id);
+    store.editor.with_mut(|m| {
+        m.retain(|id, _| store.meta.read().contains_key(id));
+    });
+    store.result.with_mut(|m| {
+        m.retain(|id, _| store.meta.read().contains_key(id));
+    });
+    store.pending.with_mut(|m| {
+        m.retain(|id, _| store.meta.read().contains_key(id));
+    });
+    reassign_active_if_missing(store);
 }
 
-fn close_all_non_pinned_tabs(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    mut active_tab_id: Signal<u64>,
-    mut next_tab_id: Signal<u64>,
-    pin_origin: u64,
-) {
-    let to_close: Vec<QueryTabState> = tabs.read().iter().filter(|t| !t.pinned).cloned().collect();
+fn close_all_non_pinned_tabs(mut store: TabStore, pin_origin: u64) {
+    let mut active_tab_id = store.active_tab_id;
+    let mut next_tab_id = store.next_tab_id;
+    let to_close: Vec<QueryTabState> = store
+        .meta
+        .read()
+        .iter()
+        .filter(|(_, t)| !t.pinned)
+        .filter_map(|(id, _)| materialize_tab_state(store, *id))
+        .collect();
     if to_close.is_empty() {
         return;
     }
     for tab in to_close {
         push_recently_closed_tab(tab);
     }
-    tabs.with_mut(|all_tabs| {
-        all_tabs.retain(|t| t.pinned);
+    store.meta.with_mut(|m| {
+        m.retain(|_, t| t.pinned);
+    });
+    store.editor.with_mut(|m| {
+        m.retain(|id, _| store.meta.read().contains_key(id));
+    });
+    store.result.with_mut(|m| {
+        m.retain(|id, _| store.meta.read().contains_key(id));
+    });
+    store.pending.with_mut(|m| {
+        m.retain(|id, _| store.meta.read().contains_key(id));
     });
 
     // Always keep at least one non-pinned tab so the editor stays
     // open. The user just closed everything, so we spin up a fresh
     // query tab for the active session (or the origin tab's session
     // when no active tab remains).
-    let session_id = tabs
+    let session_id = store
+        .meta
         .read()
-        .iter()
-        .find(|t| t.id == pin_origin)
+        .get(&pin_origin)
         .map(|t| t.session_id)
-        .or_else(|| tabs.read().iter().find(|t| t.pinned).map(|t| t.session_id))
+        .or_else(|| store.meta.read().iter().next().map(|(_, t)| t.session_id))
         .or_else(|| crate::app_state::APP_STATE.read().active_session_id);
 
-    if !tabs.read().iter().any(|t| !t.pinned) {
+    if !store.meta.read().iter().any(|(_, t)| !t.pinned) {
         if let Some(session_id) = session_id {
             let new_id = next_tab_id();
             next_tab_id.set(new_id + 1);
-            tabs.with_mut(|all_tabs| {
-                all_tabs.push(new_query_tab(
-                    new_id,
-                    session_id,
-                    format!("Query {new_id}"),
-                    String::new(),
-                ));
+            let (meta, editor, result, pending) = new_query_tab(
+                new_id,
+                session_id,
+                format!("Query {new_id}"),
+                String::new(),
+            );
+            store.meta.with_mut(|m| {
+                m.insert(new_id, meta);
+            });
+            store.editor.with_mut(|m| {
+                m.insert(new_id, editor);
+            });
+            store.result.with_mut(|m| {
+                m.insert(new_id, result);
+            });
+            store.pending.with_mut(|m| {
+                m.insert(new_id, pending);
             });
             active_tab_id.set(new_id);
             crate::app_state::activate_session(session_id);
         }
     } else {
-        reassign_active_if_missing(tabs, active_tab_id);
+        reassign_active_if_missing(store);
     }
 }

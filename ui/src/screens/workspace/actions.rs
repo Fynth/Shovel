@@ -216,6 +216,7 @@ pub fn update_active_tab_sql(mut store: TabStore, active_tab_id: u64, sql: Strin
     });
 }
 
+#[cfg(test)]
 fn sync_tab_sql_draft(tab: &mut QueryTabState, sql: &str) {
     if tab.sql == sql {
         return;

@@ -33,9 +33,10 @@ use models::{
     ExplorerNode,
     ExplorerNodeKind,
     ExplorerViewSettings,
-    QueryTabState,
     TablePreviewSource,
 };
+
+use super::super::super::tab_store::TabStore;
 use rfd::{AsyncMessageDialog, MessageButtons, MessageDialogResult, MessageLevel};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -48,9 +49,7 @@ enum TableMutationKind {
 pub(super) fn ExplorerConnectionView(
     section: super::ExplorerConnectionSection,
     tree_reload: Signal<u64>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    next_tab_id: Signal<u64>,
+    store: TabStore,
     selected_node: Signal<String>,
     query: String,
     view: ExplorerViewSettings,
@@ -59,9 +58,7 @@ pub(super) fn ExplorerConnectionView(
     let object_count = count_objects(&section.nodes);
     let connection_menu = connection_actions_context_menu(
         section.session_id,
-        tabs,
-        active_tab_id,
-        next_tab_id,
+        store,
         tree_reload,
     );
 
@@ -121,7 +118,7 @@ pub(super) fn ExplorerConnectionView(
                         small: true,
                         onclick: {
                             let session_id = section.session_id;
-                            move |_| disconnect_session(tabs, active_tab_id, session_id)
+                            move |_| disconnect_session(store, session_id)
                         },
                     }
                 }
@@ -137,9 +134,7 @@ pub(super) fn ExplorerConnectionView(
                                 node,
                                 session_id: section.session_id,
                                 tree_reload,
-                                tabs,
-                                active_tab_id,
-                                next_tab_id,
+                                store,
                                 selected_node,
                                 query: query.clone(),
                                 view,
@@ -155,9 +150,7 @@ pub(super) fn ExplorerConnectionView(
                                     node: child,
                                     session_id: section.session_id,
                                     tree_reload,
-                                    tabs,
-                                    active_tab_id,
-                                    next_tab_id,
+                                    store,
                                     selected_node,
                                     query: query.clone(),
                                     view,
@@ -176,9 +169,7 @@ fn ExplorerSchemaView(
     node: ExplorerNode,
     session_id: u64,
     tree_reload: Signal<u64>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    next_tab_id: Signal<u64>,
+    store: TabStore,
     selected_node: Signal<String>,
     query: String,
     view: ExplorerViewSettings,
@@ -220,9 +211,7 @@ fn ExplorerSchemaView(
                             session_id,
                             tree_reload,
                             nodes: nodes.clone(),
-                            tabs,
-                            active_tab_id,
-                            next_tab_id,
+                            store,
                             selected_node,
                             query: query.clone(),
                             view,
@@ -240,9 +229,7 @@ fn ExplorerGroupView(
     session_id: u64,
     tree_reload: Signal<u64>,
     nodes: Vec<ExplorerNode>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    next_tab_id: Signal<u64>,
+    store: TabStore,
     selected_node: Signal<String>,
     query: String,
     view: ExplorerViewSettings,
@@ -256,9 +243,7 @@ fn ExplorerGroupView(
                         node,
                         session_id,
                         tree_reload,
-                        tabs,
-                        active_tab_id,
-                        next_tab_id,
+                        store,
                         selected_node,
                         query: query.clone(),
                         view,
@@ -274,9 +259,7 @@ fn ExplorerObjectRow(
     node: ExplorerNode,
     session_id: u64,
     mut tree_reload: Signal<u64>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    next_tab_id: Signal<u64>,
+    store: TabStore,
     mut selected_node: Signal<String>,
     query: String,
     view: ExplorerViewSettings,
@@ -301,9 +284,7 @@ fn ExplorerObjectRow(
         preview_source.clone(),
         node.kind,
         read_only_mode,
-        tabs,
-        active_tab_id,
-        next_tab_id,
+        store,
         selected_node,
         session_id,
         connection_kind,
@@ -324,8 +305,7 @@ fn ExplorerObjectRow(
             ContextMenuItem::new("Describe with AI", move || {
                 send_describe_object_request(
                     panel_state,
-                    tabs,
-                    active_tab_id(),
+                    store,
                     label.clone(),
                     chat_revision,
                     allow_db_read(),
@@ -362,25 +342,28 @@ fn ExplorerObjectRow(
                         selected_node.set(qualified_name.clone());
                         crate::app_state::set_explorer_selected_node(qualified_name.clone());
                         activate_session(session_id);
-                        let current_id =
-                            ensure_tab_for_session(tabs, active_tab_id, next_tab_id, session_id);
-                        let current_tab = tabs
+                        let current_id = ensure_tab_for_session(store, session_id);
+                        let current_tab = store
+                            .result
                             .read()
-                            .iter()
-                            .find(|tab| tab.id == current_id)
-                            .cloned();
-                        let Some(current_tab) = current_tab else {
+                            .get(&current_id)
+                            .cloned()
+                            .map(|r| (r, store.meta.read().get(&current_id).cloned()));
+                        let Some((current_tab, meta)) = current_tab else {
+                            return;
+                        };
+                        let Some(meta) = meta else {
                             return;
                         };
 
                         let Some(connection) =
-                            tab_connection_or_error(tabs, current_id, current_tab.session_id)
+                            tab_connection_or_error(store, current_id, meta.session_id)
                         else {
                             return;
                         };
 
                         run_table_preview_for_tab(
-                            tabs,
+                            store,
                             current_id,
                             connection,
                             source.clone(),
@@ -395,25 +378,28 @@ fn ExplorerObjectRow(
                     move |_| {
                         selected_node.set(qualified_name.clone());
                         crate::app_state::set_explorer_selected_node(qualified_name.clone());
-                        let current_id =
-                            ensure_tab_for_session(tabs, active_tab_id, next_tab_id, session_id);
-                        let current_tab = tabs
+                        let current_id = ensure_tab_for_session(store, session_id);
+                        let current_tab = store
+                            .result
                             .read()
-                            .iter()
-                            .find(|tab| tab.id == current_id)
-                            .cloned();
-                        let Some(current_tab) = current_tab else {
+                            .get(&current_id)
+                            .cloned()
+                            .map(|r| (r, store.meta.read().get(&current_id).cloned()));
+                        let Some((current_tab, meta)) = current_tab else {
+                            return;
+                        };
+                        let Some(meta) = meta else {
                             return;
                         };
 
                         let Some(connection) =
-                            tab_connection_or_error(tabs, current_id, current_tab.session_id)
+                            tab_connection_or_error(store, current_id, meta.session_id)
                         else {
                             return;
                         };
 
                         run_table_preview_for_tab(
-                            tabs,
+                            store,
                             current_id,
                             connection,
                             source.clone(),
@@ -514,9 +500,7 @@ fn build_explorer_context_menu(
     preview_source: TablePreviewSource,
     kind: ExplorerNodeKind,
     read_only_mode: bool,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    next_tab_id: Signal<u64>,
+    store: TabStore,
     selected_node: Signal<String>,
     session_id: u64,
     connection_kind: DatabaseKind,
@@ -555,9 +539,7 @@ fn build_explorer_context_menu(
                 &preview_source,
                 kind,
                 read_only_mode,
-                tabs,
-                active_tab_id,
-                next_tab_id,
+                store,
                 selected_node,
                 session_id,
                 connection_kind,
@@ -573,9 +555,7 @@ fn build_explorer_context_menu(
 /// session/tab signals, not the table-mutation helpers.
 fn connection_actions_context_menu(
     session_id: u64,
-    mut tabs: Signal<Vec<QueryTabState>>,
-    mut active_tab_id: Signal<u64>,
-    mut next_tab_id: Signal<u64>,
+    mut store: TabStore,
     mut tree_reload: Signal<u64>,
 ) -> Vec<ContextMenuItem> {
     use crate::app_state::actions::{self as actions};
@@ -585,7 +565,7 @@ fn connection_actions_context_menu(
         match *id {
             actions::ACTION_CONNECTION_DISCONNECT => items.push(
                 ContextMenuItem::new("Disconnect", move || {
-                    disconnect_session(tabs, active_tab_id, session_id);
+                    disconnect_session(store, session_id);
                 })
                 .with_icon(ActionIcon::Close)
                 .danger(),
@@ -600,16 +580,20 @@ fn connection_actions_context_menu(
                         else {
                             return;
                         };
-                        let tab_id = next_tab_id();
-                        next_tab_id += 1;
-                        let tab = crate::screens::workspace::actions::new_query_tab(
-                            tab_id,
-                            session.id,
-                            format!("Query {}", tabs.read().len() + 1),
-                            String::new(),
-                        );
-                        tabs.with_mut(|all_tabs| all_tabs.push(tab));
-                        active_tab_id.set(tab_id);
+                        let tab_id = store.next_tab_id();
+                        store.next_tab_id += 1;
+                        let (meta, editor, result, pending) =
+                            crate::screens::workspace::actions::new_query_tab(
+                                tab_id,
+                                session.id,
+                                format!("Query {}", store.meta.read().len() + 1),
+                                String::new(),
+                            );
+                        store.meta.with_mut(|m| { m.insert(tab_id, meta); });
+                        store.editor.with_mut(|m| { m.insert(tab_id, editor); });
+                        store.result.with_mut(|m| { m.insert(tab_id, result); });
+                        store.pending.with_mut(|m| { m.insert(tab_id, pending); });
+                        store.active_tab_id.set(tab_id);
                         crate::app_state::activate_session(session.id);
                     })
                     .with_icon(ActionIcon::SqlEditor),
@@ -638,9 +622,7 @@ fn menu_item_for_action(
     preview_source: &TablePreviewSource,
     kind: ExplorerNodeKind,
     read_only_mode: bool,
-    mut tabs: Signal<Vec<QueryTabState>>,
-    mut active_tab_id: Signal<u64>,
-    mut next_tab_id: Signal<u64>,
+    mut store: TabStore,
     selected_node: Signal<String>,
     session_id: u64,
     connection_kind: DatabaseKind,
@@ -655,20 +637,20 @@ fn menu_item_for_action(
         crate::app_state::actions::ACTION_TABLE_OPEN if kind.is_queryable() => Some(
             ContextMenuItem::new("Open in editor", move || {
                 let source = source.clone();
-                let current_id =
-                    ensure_tab_for_session(tabs, active_tab_id, next_tab_id, session_id);
-                let Some(current_tab) =
-                    tabs.read().iter().find(|tab| tab.id == current_id).cloned()
-                else {
+                let current_id = ensure_tab_for_session(store, session_id);
+                let Some(current_tab) = store.result.read().get(&current_id).cloned() else {
+                    return;
+                };
+                let Some(meta) = store.meta.read().get(&current_id).cloned() else {
                     return;
                 };
                 let Some(connection) =
-                    tab_connection_or_error(tabs, current_id, current_tab.session_id)
+                    tab_connection_or_error(store, current_id, meta.session_id)
                 else {
                     return;
                 };
                 run_table_preview_for_tab(
-                    tabs,
+                    store,
                     current_id,
                     connection,
                     source,
@@ -683,8 +665,8 @@ fn menu_item_for_action(
             ContextMenuItem::new("Select all rows", move || {
                 let sql = format!("SELECT * FROM {qualified}");
                 crate::screens::workspace::actions::set_active_tab_sql(
-                    tabs,
-                    active_tab_id(),
+                    store,
+                    store.active_tab_id(),
                     sql,
                     "Loaded query from explorer".to_string(),
                 );
@@ -844,7 +826,7 @@ fn menu_item_for_action(
                     source.clone(),
                     session_id,
                     connection_kind,
-                    tabs,
+                    store,
                 ));
             })
             .with_icon(ActionIcon::Truncate)
@@ -863,7 +845,7 @@ fn menu_item_for_action(
                     qualified.clone(),
                     session_id,
                     connection_kind,
-                    tabs,
+                    store,
                     Some(selected_node),
                     tree_reload,
                 ));
@@ -918,16 +900,20 @@ fn menu_item_for_action(
                 else {
                     return;
                 };
-                let tab_id = next_tab_id();
-                next_tab_id += 1;
-                let tab = crate::screens::workspace::actions::new_query_tab(
-                    tab_id,
-                    session.id,
-                    format!("Query {}", tabs.read().len() + 1),
-                    String::new(),
-                );
-                tabs.with_mut(|all_tabs| all_tabs.push(tab));
-                active_tab_id.set(tab_id);
+                let tab_id = store.next_tab_id();
+                store.next_tab_id += 1;
+                let (meta, editor, result, pending) =
+                    crate::screens::workspace::actions::new_query_tab(
+                        tab_id,
+                        session.id,
+                        format!("Query {}", store.meta.read().len() + 1),
+                        String::new(),
+                    );
+                store.meta.with_mut(|m| { m.insert(tab_id, meta); });
+                store.editor.with_mut(|m| { m.insert(tab_id, editor); });
+                store.result.with_mut(|m| { m.insert(tab_id, result); });
+                store.pending.with_mut(|m| { m.insert(tab_id, pending); });
+                store.active_tab_id.set(tab_id);
                 crate::app_state::activate_session(session.id);
             })
             .with_icon(ActionIcon::SqlEditor),
@@ -935,7 +921,7 @@ fn menu_item_for_action(
 
         crate::app_state::actions::ACTION_CONNECTION_DISCONNECT => Some(
             ContextMenuItem::new("Disconnect", move || {
-                disconnect_session(tabs, active_tab_id, session_id);
+                disconnect_session(store, session_id);
             })
             .with_icon(ActionIcon::Close)
             .danger(),
@@ -984,7 +970,7 @@ pub(super) async fn confirm_and_truncate_table(
     source: TablePreviewSource,
     session_id: u64,
     connection_kind: DatabaseKind,
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
 ) {
     let confirmation = AsyncMessageDialog::new()
         .set_title(table_mutation_dialog_title(TableMutationKind::Truncate))
@@ -1020,7 +1006,7 @@ pub(super) async fn confirm_and_truncate_table(
 
     match result {
         Ok(()) => {
-            mark_table_truncated(tabs, session_id, refresh_connection, source.clone());
+            mark_table_truncated(store, session_id, refresh_connection, source.clone());
         }
         Err(err) => {
             let _ = AsyncMessageDialog::new()
@@ -1043,7 +1029,7 @@ pub(super) async fn confirm_and_drop_table(
     selected_qualified_name: String,
     session_id: u64,
     connection_kind: DatabaseKind,
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     local_selected_node: Option<Signal<String>>,
     mut tree_reload: Signal<u64>,
 ) {
@@ -1085,7 +1071,7 @@ pub(super) async fn confirm_and_drop_table(
                     crate::app_state::set_explorer_selected_node(String::new());
                 }
             }
-            mark_table_deleted(tabs, session_id, source.clone());
+            mark_table_deleted(store, session_id, source.clone());
             tree_reload += 1;
         }
         Err(err) => {

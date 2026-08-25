@@ -8,16 +8,19 @@ mod setup;
 mod state;
 
 use dioxus::prelude::*;
-use models::{AcpMessageKind, AcpPanelState, ChatArtifact, ChatThreadSummary, QueryTabState};
+use models::{AcpMessageKind, AcpPanelState, ChatArtifact, ChatThreadSummary};
 
-use crate::app_state::{
-    APP_UI_SETTINGS,
-    set_deepseek_api_key,
-    set_deepseek_base_url,
-    set_deepseek_enabled,
-    set_deepseek_model,
-    set_deepseek_reasoning_effort,
-    set_deepseek_thinking_enabled,
+use crate::{
+    app_state::{
+        APP_UI_SETTINGS,
+        set_deepseek_api_key,
+        set_deepseek_base_url,
+        set_deepseek_enabled,
+        set_deepseek_model,
+        set_deepseek_reasoning_effort,
+        set_deepseek_thinking_enabled,
+    },
+    screens::workspace::tab_store::TabStore,
 };
 
 use super::{ActionIcon, IconButton};
@@ -77,8 +80,7 @@ pub(crate) enum AgentSqlExecutionMode {
 #[component]
 pub fn AcpAgentPanel(
     mut panel_state: Signal<AcpPanelState>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
+    store: TabStore,
     mut chat_revision: Signal<u64>,
     allow_agent_db_read: Signal<bool>,
     allow_agent_read_sql_run: Signal<bool>,
@@ -442,8 +444,8 @@ pub fn AcpAgentPanel(
                                                                                         event.stop_propagation();
                                                                                         insert_sql_into_editor(
                                                                                             panel_state,
-                                                                                            tabs,
-                                                                                            active_tab_id,
+                                                                                            store,
+                                                                                            store.active_tab_id,
                                                                                             sql.clone(),
                                                                                         );
                                                                                     }
@@ -463,8 +465,8 @@ pub fn AcpAgentPanel(
                                                                                         event.stop_propagation();
                                                                                         execute_agent_sql_request(
                                                                                             panel_state,
-                                                                                            tabs,
-                                                                                            active_tab_id,
+                                                                                            store,
+                                                                                            store.active_tab_id,
                                                                                             chat_revision,
                                                                                             sql.clone(),
                                                                                             AgentSqlExecutionMode::Manual,
@@ -516,8 +518,8 @@ pub fn AcpAgentPanel(
                                                                                 event.stop_propagation();
                                                                                 insert_sql_into_editor(
                                                                                     panel_state,
-                                                                                    tabs,
-                                                                                    active_tab_id,
+                                                                                    store,
+                                                                                    store.active_tab_id,
                                                                                     sql.clone(),
                                                                                 );
                                                                             }
@@ -537,8 +539,8 @@ pub fn AcpAgentPanel(
                                                                                 event.stop_propagation();
                                                                                 execute_agent_sql_request(
                                                                                     panel_state,
-                                                                                    tabs,
-                                                                                    active_tab_id,
+                                                                                    store,
+                                                                                    store.active_tab_id,
                                                                                     chat_revision,
                                                                                     sql.clone(),
                                                                                     AgentSqlExecutionMode::Manual,
@@ -577,8 +579,8 @@ pub fn AcpAgentPanel(
                                                                                 event.stop_propagation();
                                                                                 insert_sql_into_editor(
                                                                                     panel_state,
-                                                                                    tabs,
-                                                                                    active_tab_id,
+                                                                                    store,
+                                                                                    store.active_tab_id,
                                                                                     sql.clone(),
                                                                                 );
                                                                             }
@@ -598,8 +600,8 @@ pub fn AcpAgentPanel(
                                                                                 event.stop_propagation();
                                                                                 execute_agent_sql_request(
                                                                                     panel_state,
-                                                                                    tabs,
-                                                                                    active_tab_id,
+                                                                                    store,
+                                                                                    store.active_tab_id,
                                                                                     chat_revision,
                                                                                     sql.clone(),
                                                                                     AgentSqlExecutionMode::Manual,
@@ -641,8 +643,8 @@ pub fn AcpAgentPanel(
                                                                             event.stop_propagation();
                                                                             insert_sql_into_editor(
                                                                                 panel_state,
-                                                                                tabs,
-                                                                                active_tab_id,
+                                                                                store,
+                                                                                store.active_tab_id,
                                                                                 sql.clone(),
                                                                             );
                                                                         }
@@ -662,8 +664,8 @@ pub fn AcpAgentPanel(
                                                                             event.stop_propagation();
                                                                             execute_agent_sql_request(
                                                                                 panel_state,
-                                                                                tabs,
-                                                                                active_tab_id,
+                                                                                store,
+                                                                                store.active_tab_id,
                                                                                 chat_revision,
                                                                                 sql.clone(),
                                                                                 AgentSqlExecutionMode::Manual,
@@ -767,8 +769,7 @@ pub fn AcpAgentPanel(
                     AgentComposer {
                         key: format!("{:?}-{}", active_thread_id, state.connected),
                         panel_state,
-                        tabs,
-                        active_tab_id,
+                        store,
                         chat_revision,
                         allow_agent_db_read,
                         allow_agent_read_sql_run,
