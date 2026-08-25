@@ -224,7 +224,7 @@ Rules: severity and category must be lowercase. Do not invent exact costs or row
     prompt
 }
 
-pub(super) fn insert_sql_into_editor(
+pub(crate) fn insert_sql_into_editor(
     mut panel_state: Signal<AcpPanelState>,
     tabs: Signal<Vec<QueryTabState>>,
     mut active_tab_id: Signal<u64>,

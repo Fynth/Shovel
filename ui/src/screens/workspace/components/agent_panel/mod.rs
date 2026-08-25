@@ -51,7 +51,6 @@ use self::{
         rich_busy_label,
         should_render_message_text,
     },
-    prompt::insert_sql_into_editor,
     registry_card::RegistryAgentCard,
     requests::can_execute_agent_sql,
     setup::{AgentSetupMode, connect_embedded_deepseek, setup_mode_button_class},
@@ -65,7 +64,7 @@ use self::{
 };
 
 pub(crate) use self::{
-    prompt::{extract_sql_candidate, preferred_sql_target_tab_id},
+    prompt::{extract_sql_candidate, insert_sql_into_editor, preferred_sql_target_tab_id},
     requests::{
         execute_agent_sql_request,
         send_describe_object_request,

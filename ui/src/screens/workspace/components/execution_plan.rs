@@ -1,5 +1,16 @@
 use crate::screens::workspace::{
-    components::{ActionIcon, IconButton, send_sql_plan_request},
+    actions::{
+        apply_optimized_sql_impl,
+        run_explain_for_tab,
+        set_active_tab_status,
+        tab_connection_or_error,
+    },
+    components::{
+        ActionIcon,
+        IconButton,
+        agent_panel::insert_sql_into_editor,
+        send_sql_plan_request,
+    },
     context::WorkspaceAcpContext,
 };
 use dioxus::prelude::*;
@@ -742,6 +753,16 @@ pub fn ExecutionPlanView(
         .as_ref()
         .and_then(|result| result.rewritten_sql.clone());
 
+    // The active tab's session id, used to resolve the bound connection for
+    // re-running EXPLAIN on the optimized SQL.
+    let active_session_id = {
+        let current_id = active_tab_id();
+        tabs.read()
+            .iter()
+            .find(|tab| tab.id == current_id)
+            .map(|tab| tab.session_id)
+    };
+
     // The optimizer is busy while a request is in flight. This is derived from
     // the panel state (set when the request starts, cleared when the result
     // lands or the prompt finishes/errors) so the button re-enables once the
@@ -1082,6 +1103,47 @@ pub fn ExecutionPlanView(
                                 if let Some(sql) = &rewritten_sql {
                                     div { class: "execution-plan__optimizer-rewritten",
                                         code { {sql.to_string()} }
+                                    }
+                                    div { class: "execution-plan__optimizer-actions",
+                                        button {
+                                            class: "button button--ghost button--small",
+                                            onclick: {
+                                                let sql = sql.clone();
+                                                move |_| {
+                                                    if let Err(message) = apply_optimized_sql_impl(&sql) {
+                                                        set_active_tab_status(tabs, active_tab_id(), message);
+                                                        return;
+                                                    }
+                                                    if let Some(ctx) = try_use_context::<WorkspaceAcpContext>() {
+                                                        insert_sql_into_editor(
+                                                            ctx.acp_panel_state,
+                                                            tabs,
+                                                            active_tab_id,
+                                                            sql.clone(),
+                                                        );
+                                                    }
+                                                }
+                                            },
+                                            "Apply rewritten SQL"
+                                        }
+                                        button {
+                                            class: "button button--ghost button--small",
+                                            onclick: {
+                                                let sql = sql.clone();
+                                                move |_| {
+                                                    let Some(session_id) = active_session_id else {
+                                                        return;
+                                                    };
+                                                    let Some(connection) =
+                                                        tab_connection_or_error(tabs, active_tab_id(), session_id)
+                                                    else {
+                                                        return;
+                                                    };
+                                                    run_explain_for_tab(tabs, active_tab_id(), connection, sql.clone());
+                                                }
+                                            },
+                                            "Run EXPLAIN on optimized"
+                                        }
                                     }
                                 }
                             } else {
