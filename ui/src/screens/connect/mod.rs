@@ -76,9 +76,7 @@ pub fn DbConnect() -> Element {
                     saved_connections_revision,
                 }
 
-                if cfg!(debug_assertions) {
-                    MockDataToggle {}
-                }
+                DevTools {}
 
                 div {
                     class: "connect-screen__section",
@@ -93,6 +91,21 @@ pub fn DbConnect() -> Element {
                 }
             }
         }
+    }
+}
+
+// Always-present wrapper so the RSX call site compiles in release builds
+// (where `MockDataToggle` and `crate::dev` are compiled out). The inner
+// component is gated behind `debug_assertions`.
+#[component]
+fn DevTools() -> Element {
+    #[cfg(debug_assertions)]
+    {
+        return rsx! { MockDataToggle {} };
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        return rsx! {};
     }
 }
 

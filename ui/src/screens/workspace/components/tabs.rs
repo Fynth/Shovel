@@ -179,7 +179,6 @@ pub fn TabsManager(
     });
     let generate_sql_busy = acp_panel_state().busy;
     let generate_sql_prompt_empty = generate_sql_prompt().trim().is_empty();
-    let generate_sql_input_key = format!("generate-sql-{}", generate_sql_input_revision());
     let read_only_mode = read_only_mode_enabled();
     let tab_list: Vec<(u64, TabMeta)> = store
         .meta
@@ -718,7 +717,7 @@ pub fn TabsManager(
                                 div { class: "field",
                                     span { class: "field__label", "Query description" }
                                     textarea {
-                                        key: "{generate_sql_input_key}",
+                                        key: "generate-sql-{generate_sql_input_revision}",
                                         class: "input editor__generate-sql-input",
                                         placeholder: "For example: show failed payments from the last 7 days grouped by provider",
                                         initial_value: "{generate_sql_prompt}",
