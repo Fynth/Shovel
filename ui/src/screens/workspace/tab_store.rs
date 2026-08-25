@@ -100,7 +100,7 @@ pub fn tab_pending() -> TabPendingState {
 
 /// The four independent signals backing every tab. Writing to one signal
 /// notifies only that signal's subscribers.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct TabStore {
     pub meta: Signal<HashMap<u64, TabMeta>>,
     pub editor: Signal<HashMap<u64, TabEditorState>>,
