@@ -1,7 +1,4 @@
-use crate::screens::workspace::{
-    actions::tab_connection_or_error,
-    tab_store::TabStore,
-};
+use crate::screens::workspace::{actions::tab_connection_or_error, tab_store::TabStore};
 use dioxus::prelude::*;
 use models::{
     DatabaseConnection,
@@ -49,10 +46,7 @@ fn cache_key(source: &TablePreviewSource, suffix: &str) -> String {
 /// `tab_connection_or_error` and returns the live connection on
 /// success. Mirrors the helpers in `actions.rs` so panels share the
 /// same UX message.
-fn panel_connection(
-    store: TabStore,
-    session_id: u64,
-) -> Option<DatabaseConnection> {
+fn panel_connection(store: TabStore, session_id: u64) -> Option<DatabaseConnection> {
     if tab_connection_or_error(store, store.active_tab_id(), session_id).is_some() {
         crate::app_state::session_connection(session_id)
     } else {
@@ -162,11 +156,7 @@ pub fn StructurePanel(
 /// DDL loader treats the kind as a hint and falls back gracefully
 /// for views / materialized views.
 #[component]
-pub fn DdlPanel(
-    store: TabStore,
-    source: TablePreviewSource,
-    session_id: u64,
-) -> Element {
+pub fn DdlPanel(store: TabStore, source: TablePreviewSource, session_id: u64) -> Element {
     let mut state = use_signal(|| PanelState::Idle);
     let mut ddl_text = use_signal(String::new);
 
@@ -245,11 +235,7 @@ pub fn IndexesPanel(source: TablePreviewSource) -> Element {
 /// ER-diagram component. We filter server-side results down to
 /// rows where either end matches the active table.
 #[component]
-pub fn RelationsPanel(
-    store: TabStore,
-    source: TablePreviewSource,
-    session_id: u64,
-) -> Element {
+pub fn RelationsPanel(store: TabStore, source: TablePreviewSource, session_id: u64) -> Element {
     let mut state = use_signal(|| PanelState::Idle);
     let mut relations = use_signal(Vec::<TableForeignKey>::new);
 

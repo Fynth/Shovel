@@ -139,7 +139,10 @@ pub fn materialize_tab_state(store: TabStore, tab_id: u64) -> Option<QueryTabSta
         session_id: meta.session_id,
         title: meta.title,
         sql: editor.map(|e| e.sql).unwrap_or_default(),
-        status: result.as_ref().map(|r| r.status.clone()).unwrap_or_default(),
+        status: result
+            .as_ref()
+            .map(|r| r.status.clone())
+            .unwrap_or_default(),
         result: result.as_ref().and_then(|r| r.result.clone()),
         current_offset: result.as_ref().map(|r| r.current_offset).unwrap_or(0),
         page_size: result.as_ref().map(|r| r.page_size).unwrap_or(0),
@@ -149,11 +152,12 @@ pub fn materialize_tab_state(store: TabStore, tab_id: u64) -> Option<QueryTabSta
         sort: result.as_ref().and_then(|r| r.sort.clone()),
         tab_kind: meta.tab_kind,
         is_loading_more: result.as_ref().map(|r| r.is_loading_more).unwrap_or(false),
-        pending_table_changes: pending
-            .map(|p| p.pending_table_changes)
-            .unwrap_or_default(),
+        pending_table_changes: pending.map(|p| p.pending_table_changes).unwrap_or_default(),
         execution_plan: result.as_ref().and_then(|r| r.execution_plan.clone()),
-        show_execution_plan: result.as_ref().map(|r| r.show_execution_plan).unwrap_or(false),
+        show_execution_plan: result
+            .as_ref()
+            .map(|r| r.show_execution_plan)
+            .unwrap_or(false),
         batch_results: result.as_ref().and_then(|r| r.batch_results.clone()),
         batch_outputs: result
             .as_ref()

@@ -11,13 +11,9 @@ use models::{
 
 use crate::{
     app_state::{session_connection, set_show_sql_editor},
-    screens::workspace::actions::update_active_tab_sql,
-    screens::workspace::tab_store::{
-        TabEditorState,
-        TabMeta,
-        TabPendingState,
-        TabResultState,
-        TabStore,
+    screens::workspace::{
+        actions::update_active_tab_sql,
+        tab_store::{TabEditorState, TabMeta, TabPendingState, TabResultState, TabStore},
     },
 };
 
@@ -292,10 +288,7 @@ pub(super) fn insert_sql_into_editor(
     });
 }
 
-pub(crate) fn preferred_sql_target_tab_id(
-    store: TabStore,
-    active_tab_id: u64,
-) -> Option<u64> {
+pub(crate) fn preferred_sql_target_tab_id(store: TabStore, active_tab_id: u64) -> Option<u64> {
     preferred_sql_target_tab_id_from_meta(&store.meta.read(), active_tab_id)
 }
 
@@ -393,10 +386,7 @@ pub(super) fn build_thread_history_context(messages: &[AcpUiMessage]) -> Option<
     }
 }
 
-pub(super) fn active_editor_prompt_context(
-    store: TabStore,
-    active_tab_id: u64,
-) -> Option<String> {
+pub(super) fn active_editor_prompt_context(store: TabStore, active_tab_id: u64) -> Option<String> {
     let _meta = store.meta.read().get(&active_tab_id).cloned()?;
     let editor = store.editor.read().get(&active_tab_id).cloned()?;
     let result = store.result.read().get(&active_tab_id).cloned()?;
@@ -404,10 +394,7 @@ pub(super) fn active_editor_prompt_context(
     build_active_tab_context(&editor, &result, &pending)
 }
 
-pub(super) fn active_editor_sql(
-    store: TabStore,
-    active_tab_id: u64,
-) -> Option<String> {
+pub(super) fn active_editor_sql(store: TabStore, active_tab_id: u64) -> Option<String> {
     store
         .editor
         .read()
@@ -416,10 +403,7 @@ pub(super) fn active_editor_sql(
         .filter(|sql| !sql.is_empty())
 }
 
-pub(super) fn active_editor_error(
-    store: TabStore,
-    active_tab_id: u64,
-) -> Option<String> {
+pub(super) fn active_editor_error(store: TabStore, active_tab_id: u64) -> Option<String> {
     let status = store
         .result
         .read()
@@ -687,8 +671,8 @@ mod tests {
         };
         let pending = tab_pending();
 
-        let context =
-            build_active_tab_context(&editor, &result, &pending).expect("expected active tab context");
+        let context = build_active_tab_context(&editor, &result, &pending)
+            .expect("expected active tab context");
         assert!(context.contains("Active editor SQL"));
         assert!(context.contains("Loaded rows 1-10 from products"));
         assert!(context.contains("More rows exist beyond this preview."));

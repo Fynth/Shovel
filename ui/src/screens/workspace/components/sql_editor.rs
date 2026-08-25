@@ -491,10 +491,7 @@ fn open_sql_editor_context_menu(
         // and the selection may not be representative.
         let current_sql = {
             let editor = store.editor.peek();
-            editor
-                .get(&active_tab_id)
-                .map(|e| e.sql.len())
-                .unwrap_or(0)
+            editor.get(&active_tab_id).map(|e| e.sql.len()).unwrap_or(0)
         };
         let _ = toggle_line_comments_in_active_tab(store, active_tab_id, 0..current_sql);
     });

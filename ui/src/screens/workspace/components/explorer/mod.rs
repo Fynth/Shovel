@@ -337,10 +337,18 @@ pub(super) fn disconnect_session(mut store: TabStore, session_id: u64) {
         .map(|(id, _)| *id)
         .collect();
     for id in removed_ids {
-        store.meta.with_mut(|m| { m.remove(&id); });
-        store.editor.with_mut(|m| { m.remove(&id); });
-        store.result.with_mut(|m| { m.remove(&id); });
-        store.pending.with_mut(|m| { m.remove(&id); });
+        store.meta.with_mut(|m| {
+            m.remove(&id);
+        });
+        store.editor.with_mut(|m| {
+            m.remove(&id);
+        });
+        store.result.with_mut(|m| {
+            m.remove(&id);
+        });
+        store.pending.with_mut(|m| {
+            m.remove(&id);
+        });
     }
     let first_tab = store
         .meta

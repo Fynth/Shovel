@@ -1083,11 +1083,9 @@ pub fn Workspace() -> Element {
                     }
                 },
             x if x == CMD_NEXT_TAB.0 => {
-                let all_tabs: Vec<u64> = store.meta.read().iter().map(|(id, _)| *id).collect();
+                let all_tabs: Vec<u64> = store.meta.read().keys().copied().collect();
                 if all_tabs.len() > 1 {
-                    let current_idx = all_tabs
-                        .iter()
-                        .position(|id| *id == store.active_tab_id());
+                    let current_idx = all_tabs.iter().position(|id| *id == store.active_tab_id());
                     if let Some(idx) = current_idx {
                         let next_idx = (idx + 1) % all_tabs.len();
                         let next_id = all_tabs[next_idx];
@@ -1445,11 +1443,7 @@ fn flatten_into(item: &ExplorerObjectNode<'_>, out: &mut Vec<GlobalSearchObjectI
 /// exists for the session, then run a table preview. Non-queryable
 /// kinds (schema, function, procedure, trigger) just activate the
 /// session so the explorer panel focuses on the right connection.
-fn open_object_hit(
-    store: TabStore,
-    _tree_reload: Signal<u64>,
-    object: &GlobalSearchObjectItem,
-) {
+fn open_object_hit(store: TabStore, _tree_reload: Signal<u64>, object: &GlobalSearchObjectItem) {
     crate::app_state::activate_session(object.session_id);
 
     if !object.kind.is_queryable() {

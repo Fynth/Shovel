@@ -56,11 +56,7 @@ pub(super) fn ExplorerConnectionView(
 ) -> Element {
     let mut expanded = use_signal(|| true);
     let object_count = count_objects(&section.nodes);
-    let connection_menu = connection_actions_context_menu(
-        section.session_id,
-        store,
-        tree_reload,
-    );
+    let connection_menu = connection_actions_context_menu(section.session_id, store, tree_reload);
 
     rsx! {
         div { class: if section.is_active {
@@ -589,10 +585,18 @@ fn connection_actions_context_menu(
                                 format!("Query {}", store.meta.read().len() + 1),
                                 String::new(),
                             );
-                        store.meta.with_mut(|m| { m.insert(tab_id, meta); });
-                        store.editor.with_mut(|m| { m.insert(tab_id, editor); });
-                        store.result.with_mut(|m| { m.insert(tab_id, result); });
-                        store.pending.with_mut(|m| { m.insert(tab_id, pending); });
+                        store.meta.with_mut(|m| {
+                            m.insert(tab_id, meta);
+                        });
+                        store.editor.with_mut(|m| {
+                            m.insert(tab_id, editor);
+                        });
+                        store.result.with_mut(|m| {
+                            m.insert(tab_id, result);
+                        });
+                        store.pending.with_mut(|m| {
+                            m.insert(tab_id, pending);
+                        });
                         store.active_tab_id.set(tab_id);
                         crate::app_state::activate_session(session.id);
                     })
@@ -644,8 +648,7 @@ fn menu_item_for_action(
                 let Some(meta) = store.meta.read().get(&current_id).cloned() else {
                     return;
                 };
-                let Some(connection) =
-                    tab_connection_or_error(store, current_id, meta.session_id)
+                let Some(connection) = tab_connection_or_error(store, current_id, meta.session_id)
                 else {
                     return;
                 };
@@ -909,10 +912,18 @@ fn menu_item_for_action(
                         format!("Query {}", store.meta.read().len() + 1),
                         String::new(),
                     );
-                store.meta.with_mut(|m| { m.insert(tab_id, meta); });
-                store.editor.with_mut(|m| { m.insert(tab_id, editor); });
-                store.result.with_mut(|m| { m.insert(tab_id, result); });
-                store.pending.with_mut(|m| { m.insert(tab_id, pending); });
+                store.meta.with_mut(|m| {
+                    m.insert(tab_id, meta);
+                });
+                store.editor.with_mut(|m| {
+                    m.insert(tab_id, editor);
+                });
+                store.result.with_mut(|m| {
+                    m.insert(tab_id, result);
+                });
+                store.pending.with_mut(|m| {
+                    m.insert(tab_id, pending);
+                });
                 store.active_tab_id.set(tab_id);
                 crate::app_state::activate_session(session.id);
             })

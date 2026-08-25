@@ -24,13 +24,7 @@ use crate::{
             tab_connection_or_error,
             toggle_execution_plan_for_tab,
         },
-        tab_store::{
-            TabMeta,
-            TabResultState,
-            TabStore,
-            materialize_tab_state,
-            restore_tab_state,
-        },
+        tab_store::{TabMeta, TabResultState, TabStore, materialize_tab_state, restore_tab_state},
     },
 };
 use dioxus::{html::input_data::MouseButton, prelude::*};
@@ -199,10 +193,16 @@ pub fn TabsManager(
     });
     let active_tab_id_value = active_ctx.as_ref().map(|a| a.id).unwrap_or(0);
     let active_session_id = active_ctx.as_ref().map(|a| a.session_id).unwrap_or(0);
-    let active_sql = active_ctx.as_ref().map(|a| a.sql.clone()).unwrap_or_default();
+    let active_sql = active_ctx
+        .as_ref()
+        .map(|a| a.sql.clone())
+        .unwrap_or_default();
     let active_sql_run = active_sql.clone();
     let active_sql_explain = active_sql.clone();
-    let active_title = active_ctx.as_ref().map(|a| a.title.clone()).unwrap_or_default();
+    let active_title = active_ctx
+        .as_ref()
+        .map(|a| a.title.clone())
+        .unwrap_or_default();
     let active_page_size = active_ctx.as_ref().map(|a| a.page_size).unwrap_or(0);
     let active_result = active_ctx.as_ref().and_then(|a| a.result.clone());
     let active_tab_kind = active_ctx
@@ -323,7 +323,6 @@ pub fn TabsManager(
                             class_name
                         },
                         onclick: {
-                            let tab_id = tab_id;
                             let session_id = tab.session_id;
                             move |_| {
                                 store.active_tab_id.set(tab_id);
@@ -331,7 +330,6 @@ pub fn TabsManager(
                             }
                         },
                         onauxclick: {
-                            let tab_id = tab_id;
                             move |event| {
                                 if event.trigger_button() != Some(MouseButton::Auxiliary) {
                                     return;
@@ -340,7 +338,6 @@ pub fn TabsManager(
                             }
                         },
                         oncontextmenu: {
-                            let tab_id = tab_id;
                             move |event| {
                                 event.prevent_default();
                                 let coords = event.client_coordinates();
@@ -390,7 +387,6 @@ pub fn TabsManager(
                                 span {
                                     class: "tabbar__label",
                                     ondoubleclick: {
-                                        let tab_id = tab_id;
                                         move |_| {
                                             rename_value.set(tab.title.clone());
                                             renaming_tab_id.set(Some(tab_id));
@@ -414,7 +410,6 @@ pub fn TabsManager(
                         button {
                             class: "tabbar__close",
                             onclick: {
-                                let tab_id = tab_id;
                                 move |event| {
                                     event.stop_propagation();
                                     close_tab_for_middle_click(store, tab_id);
@@ -883,11 +878,7 @@ fn import_csv_into_active_table(store: TabStore, current_id: u64) {
         return;
     };
     if read_only_mode_enabled() {
-        set_active_tab_status(
-            store,
-            current_id,
-            read_only_mode_block_status("CSV import"),
-        );
+        set_active_tab_status(store, current_id, read_only_mode_block_status("CSV import"));
         return;
     }
 
@@ -997,11 +988,7 @@ fn has_tabular_result(result: &Option<QueryOutput>) -> bool {
     matches!(result.as_ref(), Some(QueryOutput::Table(_)))
 }
 
-fn format_active_sql(
-    store: TabStore,
-    current_id: u64,
-    format_settings: SqlFormatSettings,
-) {
+fn format_active_sql(store: TabStore, current_id: u64, format_settings: SqlFormatSettings) {
     let Some(current_tab) = materialize_tab_state(store, current_id) else {
         return;
     };
@@ -1129,12 +1116,7 @@ fn open_structure_for_active_preview(store: TabStore, current_id: u64) {
         return;
     };
 
-    open_structure_tab(
-        store,
-        current_tab.session_id,
-        connection,
-        source,
-    );
+    open_structure_tab(store, current_tab.session_id, connection, source);
 }
 
 fn actionable_table_source(result: &TabResultState) -> Option<TablePreviewSource> {
@@ -1389,7 +1371,7 @@ fn close_other_tabs(mut store: TabStore, keep_tab_id: u64) {
 }
 
 fn close_tabs_to_the_right(mut store: TabStore, anchor_tab_id: u64) {
-    let snapshot: Vec<u64> = store.meta.read().iter().map(|(id, _)| *id).collect();
+    let snapshot: Vec<u64> = store.meta.read().keys().copied().collect();
     let Some(anchor_idx) = snapshot.iter().position(|id| *id == anchor_tab_id) else {
         return;
     };
@@ -1485,12 +1467,8 @@ fn close_all_non_pinned_tabs(mut store: TabStore, pin_origin: u64) {
         if let Some(session_id) = session_id {
             let new_id = next_tab_id();
             next_tab_id.set(new_id + 1);
-            let (meta, editor, result, pending) = new_query_tab(
-                new_id,
-                session_id,
-                format!("Query {new_id}"),
-                String::new(),
-            );
+            let (meta, editor, result, pending) =
+                new_query_tab(new_id, session_id, format!("Query {new_id}"), String::new());
             store.meta.with_mut(|m| {
                 m.insert(new_id, meta);
             });

@@ -232,10 +232,7 @@ fn is_empty_table_result(page: &models::QueryPage, display_rows: &[DisplayRow]) 
 }
 
 #[component]
-pub fn ResultTable(
-    result: Option<QueryOutput>,
-    store: TabStore,
-) -> Element {
+pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
     let mut editing_cell = use_signal(|| None::<EditingCell>);
     let mut filter_draft = use_signal(|| QueryFilter {
         mode: QueryFilterMode::And,
@@ -2266,11 +2263,7 @@ fn filter_visible_columns(columns: &[String], hidden_columns: &[String]) -> Vec<
 /// Going from descending to `None` (i.e. clear sort) is handled by
 /// the existing `toggle_active_tab_sort` state machine — calling
 /// that helper three times cycles ascending → descending → none.
-fn sort_by_column(
-    column_name: &str,
-    descending: bool,
-    store: TabStore,
-) {
+fn sort_by_column(column_name: &str, descending: bool, store: TabStore) {
     // Inspect the current sort. If it matches the requested
     // direction, no-op. Otherwise walk the state machine by calling
     // `toggle_active_tab_sort` until the desired state is reached.
