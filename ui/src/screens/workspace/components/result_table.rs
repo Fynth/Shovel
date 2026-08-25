@@ -38,6 +38,7 @@ use crate::{
             },
         },
         helpers::format_duration,
+        tab_store::{TabResultState, TabStore},
     },
     windows,
 };
@@ -54,16 +55,16 @@ use models::{
     QueryFilterRule,
     QueryOutput,
     QuerySort,
-    QueryTabState,
 };
 
 /// Resolve the qualified table name backing the active tab's result, if any.
 /// Falls back to the `<table>` placeholder so generated INSERT statements stay
 /// editable when the result comes from an arbitrary query.
-fn active_table_name(tabs: Signal<Vec<QueryTabState>>, active_tab_id: Signal<u64>) -> String {
-    tabs.read()
-        .iter()
-        .find(|tab| tab.id == active_tab_id())
+fn active_table_name(store: TabStore) -> String {
+    store
+        .result
+        .read()
+        .get(&store.active_tab_id())
         .and_then(|tab| tab.preview_source.as_ref())
         .map(|source| source.qualified_name.clone())
         .unwrap_or_else(|| "<table>".to_string())
@@ -148,8 +149,7 @@ fn ResultsStateBlock(
     title: String,
     body: Option<String>,
     action: ResultsStateAction,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
+    store: TabStore,
 ) -> Element {
     let mut class_name = match variant {
         ResultsStateVariant::Empty => "results__state results__state--empty".to_string(),
@@ -164,7 +164,7 @@ fn ResultsStateBlock(
         ResultsStateVariant::Error => ActionIcon::Delete,
     };
 
-    let can_retry = can_retry_active_tab(tabs, active_tab_id());
+    let can_retry = can_retry_active_tab(store);
     let show_retry_button = match action {
         ResultsStateAction::None => false,
         ResultsStateAction::RunAgain | ResultsStateAction::Retry => can_retry,
@@ -199,15 +199,15 @@ fn ResultsStateBlock(
                             class: "button button--primary button--small",
                             "aria-label": retry_aria,
                             onclick: move |_| {
-                                let Some(current_tab) = tabs
-                                    .read()
-                                    .iter()
-                                    .find(|tab| tab.id == active_tab_id())
-                                    .cloned()
+                                let Some(current_tab) =
+                                    crate::screens::workspace::tab_store::materialize_tab_state(
+                                        store,
+                                        store.active_tab_id(),
+                                    )
                                 else {
                                     return;
                                 };
-                                refresh_tab_result(tabs, current_tab, None);
+                                refresh_tab_result(store, current_tab, None);
                             },
                             {retry_label.to_string()}
                         }
@@ -219,10 +219,11 @@ fn ResultsStateBlock(
 }
 
 /// True when the active tab has a SQL preview or a last-run query — i.e. the standard `refresh_tab_result` entry point has work to do.
-fn can_retry_active_tab(tabs: Signal<Vec<QueryTabState>>, active_tab_id: u64) -> bool {
-    tabs.read()
-        .iter()
-        .find(|tab| tab.id == active_tab_id)
+fn can_retry_active_tab(store: TabStore) -> bool {
+    store
+        .result
+        .read()
+        .get(&store.active_tab_id())
         .is_some_and(|tab| tab.preview_source.is_some() || tab.last_run_sql.is_some())
 }
 
@@ -231,11 +232,7 @@ fn is_empty_table_result(page: &models::QueryPage, display_rows: &[DisplayRow]) 
 }
 
 #[component]
-pub fn ResultTable(
-    result: Option<QueryOutput>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-) -> Element {
+pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
     let mut editing_cell = use_signal(|| None::<EditingCell>);
     let mut filter_draft = use_signal(|| QueryFilter {
         mode: QueryFilterMode::And,
@@ -256,18 +253,16 @@ pub fn ResultTable(
     let mut quick_filter_value = use_signal(String::new);
     // Materialized only when the active tab's result or pending changes change,
     // not after every render (scroll, selection, hover). `use_memo` auto-tracks
-    // the `tabs`/`active_tab_id()` reads, so this recomputes on dependency change
+    // the `store.result`/`store.pending` reads, so this recomputes on dependency change
     // instead of on every render cycle like a `use_effect` would.
     let display_rows_cache = use_memo(move || {
-        let tab = tabs
+        let id = store.active_tab_id();
+        let result = store.result.read().get(&id).and_then(|r| r.result.clone());
+        let pending = store
+            .pending
             .read()
-            .iter()
-            .find(|tab| tab.id == active_tab_id())
-            .cloned();
-        let result = tab.as_ref().and_then(|t| t.result.clone());
-        let pending = tab
-            .as_ref()
-            .map(|t| t.pending_table_changes.clone())
+            .get(&id)
+            .map(|p| p.pending_table_changes.clone())
             .unwrap_or_default();
 
         match result.as_ref() {
@@ -290,20 +285,18 @@ pub fn ResultTable(
     let mut column_resize_active = use_signal(|| None::<(String, f64, f64)>);
 
     let current_editing = editing_cell();
-    let active_tab = tabs
-        .read()
-        .iter()
-        .find(|tab| tab.id == active_tab_id())
-        .cloned();
+    let active_tab = store.result.read().get(&store.active_tab_id()).cloned();
     let active_filter = active_tab.as_ref().and_then(|tab| tab.filter.clone());
     let has_active_filter = active_filter.is_some();
     let active_sort = active_tab.as_ref().and_then(|tab| tab.sort.clone());
     let active_error = active_tab
         .as_ref()
         .and_then(|tab| result_error_message(&tab.status));
-    let pending_changes = active_tab
-        .as_ref()
-        .map(|tab| tab.pending_table_changes.clone())
+    let pending_changes = store
+        .pending
+        .read()
+        .get(&store.active_tab_id())
+        .map(|p| p.pending_table_changes.clone())
         .unwrap_or_default();
     let has_pending_changes = !pending_changes.is_empty();
     let is_loading_more = active_tab.as_ref().is_some_and(|tab| tab.is_loading_more);
@@ -312,7 +305,11 @@ pub fn ResultTable(
     let current_columns = result_columns(result.as_ref());
     let next_filter_draft = filter_draft_from_state(active_filter.as_ref(), &current_columns);
     let next_filter_sync_key = filter_sync_key_for_tab(active_tab.as_ref(), &current_columns);
-    let next_row_sync_key = row_sync_key_for_tab(active_tab.as_ref(), result.as_ref());
+    let next_row_sync_key = row_sync_key_for_tab(
+        active_tab.as_ref(),
+        result.as_ref(),
+        pending_changes.inserted_rows.len(),
+    );
 
     use_effect(move || {
         if filter_sync_key() != next_filter_sync_key {
@@ -466,7 +463,7 @@ pub fn ResultTable(
                             col_index,
                             value: new_value,
                         };
-                        commit_cell_edit(editing_cell, tabs, active_tab_id, editing);
+                        commit_cell_edit(editing_cell, store, editing);
                     }
                     value_editor_target.set(None);
                     value_editor.set(None);
@@ -484,8 +481,7 @@ pub fn ResultTable(
                             title: "Query returned no rows.".to_string(),
                             body: None,
                             action: ResultsStateAction::RunAgain,
-                            tabs,
-                            active_tab_id,
+                            store,
                         }
                     } else {
                         div {
@@ -589,13 +585,15 @@ pub fn ResultTable(
                                             small: true,
                                             disabled: !has_previous_page,
                                             onclick: {
-                                                let current_tab = active_tab.clone();
+                                                let current_id = store.active_tab_id();
                                                 move |_| {
-                                                    let Some(current_tab) = current_tab.clone() else {
+                                                    let Some(current_tab) =
+                                                        crate::screens::workspace::tab_store::materialize_tab_state(store, current_id)
+                                                    else {
                                                         return;
                                                     };
                                                     load_tab_page(
-                                                        tabs,
+                                                        store,
                                                         current_tab.clone(),
                                                         page.offset.saturating_sub(current_tab.page_size as u64),
                                                     );
@@ -608,12 +606,14 @@ pub fn ResultTable(
                                             small: true,
                                             disabled: !has_next_page,
                                             onclick: {
-                                                let current_tab = active_tab.clone();
+                                                let current_id = store.active_tab_id();
                                                 move |_| {
-                                                    let Some(current_tab) = current_tab.clone() else {
+                                                    let Some(current_tab) =
+                                                        crate::screens::workspace::tab_store::materialize_tab_state(store, current_id)
+                                                    else {
                                                         return;
                                                     };
-                                                    append_next_tab_page(tabs, current_tab);
+                                                    append_next_tab_page(store, current_tab);
                                                 }
                                             },
                                         }
@@ -627,7 +627,7 @@ pub fn ResultTable(
                                                 },
                                                 small: true,
                                                 disabled: read_only_mode,
-                                                onclick: move |_| insert_empty_row(tabs, active_tab_id),
+                                                onclick: move |_| insert_empty_row(store),
                                             }
                                             IconButton {
                                                 icon: ActionIcon::Apply,
@@ -638,14 +638,14 @@ pub fn ResultTable(
                                                 },
                                                 small: true,
                                                 disabled: !has_pending_changes || read_only_mode,
-                                                onclick: move |_| apply_pending_changes(tabs, active_tab_id),
+                                                onclick: move |_| apply_pending_changes(store),
                                             }
                                             IconButton {
                                                 icon: ActionIcon::Undo,
                                                 label: "Discard pending changes".to_string(),
                                                 small: true,
                                                 disabled: !has_pending_changes,
-                                                onclick: move |_| discard_pending_changes(tabs, active_tab_id),
+                                                onclick: move |_| discard_pending_changes(store),
                                             }
                                             IconButton {
                                                 icon: ActionIcon::Delete,
@@ -660,7 +660,7 @@ pub fn ResultTable(
                                                     let selected_row_index = selected_row_index();
                                                     move |_| {
                                                         if let Some(row_index) = selected_row_index {
-                                                            delete_selected_row(tabs, active_tab_id, row_index);
+                                                            delete_selected_row(store, row_index);
                                                         }
                                                     }
                                                 },
@@ -793,8 +793,7 @@ pub fn ResultTable(
                                                             onkeydown: move |event| {
                                                                 if event.key() == Key::Enter {
                                                                     apply_quick_filter(
-                                                                        tabs,
-                                                                        active_tab_id,
+                                                                        store,
                                                                         filter_draft,
                                                                         quick_filter_column,
                                                                         quick_filter_operator,
@@ -812,8 +811,7 @@ pub fn ResultTable(
                                                             let columns = page.columns.clone();
                                                             move |_| {
                                                                 apply_quick_filter_with_columns(
-                                                                    tabs,
-                                                                    active_tab_id,
+                                                                    store,
                                                                     filter_draft,
                                                                     quick_filter_column,
                                                                     quick_filter_operator,
@@ -830,7 +828,7 @@ pub fn ResultTable(
                                                         small: true,
                                                         onclick: move |_| {
                                                             quick_filter_value.set(String::new());
-                                                            clear_active_tab_filter(tabs, active_tab_id());
+                                                            clear_active_tab_filter(store, store.active_tab_id());
                                                         },
                                                         disabled: !has_active_filter && quick_filter_value().is_empty(),
                                                     }
@@ -859,7 +857,7 @@ pub fn ResultTable(
                                                     label: "Apply filters".to_string(),
                                                     small: true,
                                                     onclick: move |_| {
-                                                        apply_active_tab_filter(tabs, active_tab_id(), filter_draft());
+                                                        apply_active_tab_filter(store, store.active_tab_id(), filter_draft());
                                                     },
                                                     disabled: !has_meaningful_rules(&filter_draft()),
                                                 }
@@ -871,7 +869,7 @@ pub fn ResultTable(
                                                         let columns = page.columns.clone();
                                                         move |_| {
                                                             filter_draft.set(blank_filter(&columns));
-                                                            clear_active_tab_filter(tabs, active_tab_id());
+                                                            clear_active_tab_filter(store, store.active_tab_id());
                                                             filter_panel_open.set(false);
                                                         }
                                                     },
@@ -1149,17 +1147,14 @@ pub fn ResultTable(
                                                 return;
                                             }
 
-                                            let current_tab = tabs
-                                                .read()
-                                                .iter()
-                                                .find(|tab| tab.id == active_tab_id())
-                                                .cloned();
-
-                                            let Some(current_tab) = current_tab else {
+                                            let current_id = store.active_tab_id();
+                                            let Some(current_tab) =
+                                                crate::screens::workspace::tab_store::materialize_tab_state(store, current_id)
+                                            else {
                                                 return;
                                             };
 
-                                            append_next_tab_page(tabs, current_tab);
+                                            append_next_tab_page(store, current_tab);
                                         },
                                         table {
                                             class: "results__table",
@@ -1175,8 +1170,6 @@ pub fn ResultTable(
                                                                 .unwrap_or_default(),
                                                             oncontextmenu: {
                                                                 let column_name = column.clone();
-                                                                let tabs_for_header_menu = tabs;
-                                                                let active_tab_id_for_header_menu = active_tab_id;
                                                                 let hidden_columns_for_menu = hidden_columns;
                                                                 let column_widths_for_menu = column_widths;
                                                                 move |event| {
@@ -1186,8 +1179,7 @@ pub fn ResultTable(
                                                                         column_name.clone(),
                                                                         hidden_columns_for_menu,
                                                                         column_widths_for_menu,
-                                                                        tabs_for_header_menu,
-                                                                        active_tab_id_for_header_menu,
+                                                                        store,
                                                                     );
                                                                     open_context_menu(coords.x, coords.y, items);
                                                                 }
@@ -1199,8 +1191,8 @@ pub fn ResultTable(
                                                                     onclick: {
                                                                         let column_name = column.clone();
                                                                         move |_| toggle_active_tab_sort(
-                                                                            tabs,
-                                                                            active_tab_id(),
+                                                                            store,
+                                                                            store.active_tab_id(),
                                                                             column_name.clone(),
                                                                         )
                                                                     },
@@ -1270,12 +1262,10 @@ pub fn ResultTable(
                                                                 }
                                                             },
                                                             oncontextmenu: {
-                                                                let tabs_for_row_menu = tabs;
-                                                                let active_tab_id_for_row_menu = active_tab_id;
                                                                 let columns_for_row_menu = page.columns.clone();
                                                                 let row_values = row.values.clone();
                                                                 let has_pending_changes_for_menu = has_pending_changes;
-                                                                let table_name_for_menu = active_table_name(tabs, active_tab_id);
+                                                                let table_name_for_menu = active_table_name(store);
                                                                 let all_rows_for_menu = page.rows.clone();
                                                                 move |event| {
                                                                     event.prevent_default();
@@ -1283,8 +1273,7 @@ pub fn ResultTable(
                                                                     let items = build_row_context_menu(
                                                                         columns_for_row_menu.clone(),
                                                                         row_values.clone(),
-                                                                        tabs_for_row_menu,
-                                                                        active_tab_id_for_row_menu,
+                                                                        store,
                                                                         has_pending_changes_for_menu,
                                                                         table_name_for_menu.clone(),
                                                                         all_rows_for_menu.clone(),
@@ -1306,8 +1295,6 @@ pub fn ResultTable(
                                                                         .map(|width| format!("width: {width}px; min-width: {width}px; max-width: {width}px;"))
                                                                         .unwrap_or_default(),
                                                                     oncontextmenu: {
-                                                                        let tabs_for_cell_menu = tabs;
-                                                                        let active_tab_id_for_cell_menu = active_tab_id;
                                                                         let columns_for_cell_menu = page.columns.clone();
                                                                         let row_values = row.values.clone();
                                                                         let cell_value = row.values.get(col_index).cloned().unwrap_or_default();
@@ -1332,8 +1319,7 @@ pub fn ResultTable(
                                                                                 editing_cell_for_menu,
                                                                                 value_editor_for_menu,
                                                                                 value_editor_target_for_menu,
-                                                                                tabs_for_cell_menu,
-                                                                                active_tab_id_for_cell_menu,
+                                                                                store,
                                                                             );
                                                                             open_context_menu(coords.x, coords.y, items);
                                                                         }
@@ -1374,8 +1360,7 @@ pub fn ResultTable(
                                                                                             if let Some(editing) = editing_cell() {
                                                                                                 commit_cell_edit(
                                                                                                     editing_cell,
-                                                                                                    tabs,
-                                                                                                    active_tab_id,
+                                                                                                    store,
                                                                                                     editing,
                                                                                                 );
                                                                                             }
@@ -1464,8 +1449,7 @@ pub fn ResultTable(
                                                                                     if let Some(editing) = editing_cell() {
                                                                                         commit_cell_edit(
                                                                                             editing_cell,
-                                                                                            tabs,
-                                                                                            active_tab_id,
+                                                                                            store,
                                                                                             editing,
                                                                                         );
                                                                                     }
@@ -1500,8 +1484,7 @@ pub fn ResultTable(
                                                                                         column_name.clone(),
                                                                                         cell_value.clone(),
                                                                                         QueryFilterOperator::Contains,
-                                                                                        tabs,
-                                                                                        active_tab_id,
+                                                                                        store,
                                                                                     );
                                                                                 }
                                                                             },
@@ -1628,8 +1611,7 @@ pub fn ResultTable(
                                                             };
                                                             commit_cell_edit(
                                                                 editing_cell,
-                                                                tabs,
-                                                                active_tab_id,
+                                                                store,
                                                                 cell_edit,
                                                             );
                                                         }
@@ -1716,8 +1698,7 @@ pub fn ResultTable(
                         title: "Query failed".to_string(),
                         body: Some(error),
                         action: ResultsStateAction::Retry,
-                        tabs,
-                        active_tab_id,
+                        store,
                     }
                 } else {
                     ResultsStateBlock {
@@ -1728,8 +1709,7 @@ pub fn ResultTable(
                                 .to_string(),
                         ),
                         action: ResultsStateAction::None,
-                        tabs,
-                        active_tab_id,
+                        store,
                     }
                 }
             },
@@ -1794,8 +1774,7 @@ fn build_header_context_menu(
     column_name: String,
     hidden_columns: Signal<Vec<String>>,
     column_widths: Signal<HashMap<String, f64>>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
+    store: TabStore,
 ) -> Vec<ContextMenuItem> {
     let mut items: Vec<ContextMenuItem> = Vec::new();
 
@@ -1803,7 +1782,7 @@ fn build_header_context_menu(
         let column_name = column_name.clone();
         items.push(
             ContextMenuItem::new("Sort ascending", move || {
-                sort_by_column(&column_name, false, tabs, active_tab_id);
+                sort_by_column(&column_name, false, store);
             })
             .with_icon(ActionIcon::Previous),
         );
@@ -1813,7 +1792,7 @@ fn build_header_context_menu(
         let column_name = column_name.clone();
         items.push(
             ContextMenuItem::new("Sort descending", move || {
-                sort_by_column(&column_name, true, tabs, active_tab_id);
+                sort_by_column(&column_name, true, store);
             })
             .with_icon(ActionIcon::Next),
         );
@@ -1827,8 +1806,7 @@ fn build_header_context_menu(
                     column_name.clone(),
                     String::new(),
                     QueryFilterOperator::Contains,
-                    tabs,
-                    active_tab_id,
+                    store,
                 );
             })
             .with_icon(ActionIcon::Filter)
@@ -1837,17 +1815,17 @@ fn build_header_context_menu(
     }
 
     {
-        let active_id = active_tab_id();
-        let has_filter = tabs
+        let active_id = store.active_tab_id();
+        let has_filter = store
+            .result
             .read()
-            .iter()
-            .find(|tab| tab.id == active_id)
+            .get(&active_id)
             .and_then(|tab| tab.filter.as_ref())
             .is_some();
         if has_filter {
             items.push(
                 ContextMenuItem::new("Clear filter", move || {
-                    clear_active_tab_filter(tabs, active_tab_id());
+                    clear_active_tab_filter(store, store.active_tab_id());
                 })
                 .with_icon(ActionIcon::FilterClear),
             );
@@ -1904,8 +1882,7 @@ fn build_header_context_menu(
 fn build_row_context_menu(
     columns: Vec<String>,
     row_values: Vec<String>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
+    store: TabStore,
     has_pending_changes: bool,
     table_name: String,
     all_rows: Vec<Vec<String>>,
@@ -2049,8 +2026,7 @@ fn build_row_context_menu(
                         column.clone(),
                         value.clone(),
                         QueryFilterOperator::Contains,
-                        tabs,
-                        active_tab_id,
+                        store,
                     );
                 })
                 .with_icon(ActionIcon::Filter),
@@ -2064,7 +2040,7 @@ fn build_row_context_menu(
     if let Some(first) = columns.first().cloned() {
         items.push(
             ContextMenuItem::new("Sort by first column", move || {
-                sort_by_column(&first, false, tabs, active_tab_id);
+                sort_by_column(&first, false, store);
             })
             .with_icon(ActionIcon::Previous),
         );
@@ -2078,7 +2054,7 @@ fn build_row_context_menu(
                 // The user can also click the row to open the details
                 // aside. We just make sure the existing `click` flow
                 // is also available from the menu.
-                set_active_tab_status(tabs, active_tab_id(), "Row selected.".to_string());
+                set_active_tab_status(store, store.active_tab_id(), "Row selected.".to_string());
             })
             .with_icon(ActionIcon::Details),
         );
@@ -2099,8 +2075,7 @@ fn build_cell_context_menu(
     mut editing_cell: Signal<Option<EditingCell>>,
     mut value_editor: Signal<Option<ValueEditorState>>,
     mut value_editor_target: Signal<Option<(EditableRowRef, usize)>>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
+    store: TabStore,
 ) -> Vec<ContextMenuItem> {
     use crate::app_state::context_menu::copy_to_clipboard;
 
@@ -2231,8 +2206,7 @@ fn build_cell_context_menu(
                     column_name_contains.clone(),
                     cell_value_contains.clone(),
                     QueryFilterOperator::Contains,
-                    tabs,
-                    active_tab_id,
+                    store,
                 );
             })
             .with_icon(ActionIcon::Filter),
@@ -2245,8 +2219,7 @@ fn build_cell_context_menu(
                     column_name_equals.clone(),
                     cell_value_equals.clone(),
                     QueryFilterOperator::Equals,
-                    tabs,
-                    active_tab_id,
+                    store,
                 );
             })
             .with_icon(ActionIcon::FilterApply)
@@ -2258,14 +2231,14 @@ fn build_cell_context_menu(
         let col_asc = resolved_column.clone();
         items.push(
             ContextMenuItem::new("Sort ascending", move || {
-                sort_by_column(&col_asc, false, tabs, active_tab_id);
+                sort_by_column(&col_asc, false, store);
             })
             .with_icon(ActionIcon::Previous),
         );
         let col_desc = resolved_column;
         items.push(
             ContextMenuItem::new("Sort descending", move || {
-                sort_by_column(&col_desc, true, tabs, active_tab_id);
+                sort_by_column(&col_desc, true, store);
             })
             .with_icon(ActionIcon::Next),
         );
@@ -2313,20 +2286,15 @@ fn filter_visible_columns(columns: &[String], hidden_columns: &[String]) -> Vec<
 /// Going from descending to `None` (i.e. clear sort) is handled by
 /// the existing `toggle_active_tab_sort` state machine — calling
 /// that helper three times cycles ascending → descending → none.
-fn sort_by_column(
-    column_name: &str,
-    descending: bool,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-) {
+fn sort_by_column(column_name: &str, descending: bool, store: TabStore) {
     // Inspect the current sort. If it matches the requested
     // direction, no-op. Otherwise walk the state machine by calling
     // `toggle_active_tab_sort` until the desired state is reached.
     for _ in 0..2 {
-        let current = tabs
+        let current = store
+            .result
             .read()
-            .iter()
-            .find(|tab| tab.id == active_tab_id())
+            .get(&store.active_tab_id())
             .and_then(|tab| tab.sort.clone());
         let matches = match (&current, descending) {
             (Some(sort), false) => sort.column_name == column_name && !sort.descending,
@@ -2336,7 +2304,7 @@ fn sort_by_column(
         if matches {
             return;
         }
-        toggle_active_tab_sort(tabs, active_tab_id(), column_name.to_string());
+        toggle_active_tab_sort(store, store.active_tab_id(), column_name.to_string());
     }
 }
 
@@ -2356,8 +2324,7 @@ fn apply_filter_for_value(
     column_name: String,
     value: String,
     operator: QueryFilterOperator,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
+    store: TabStore,
 ) {
     let filter = QueryFilter {
         mode: QueryFilterMode::And,
@@ -2367,7 +2334,7 @@ fn apply_filter_for_value(
             value,
         }],
     };
-    apply_active_tab_filter(tabs, active_tab_id(), filter);
+    apply_active_tab_filter(store, store.active_tab_id(), filter);
 }
 
 fn quick_filter_is_meaningful(operator: QueryFilterOperator, value: &str) -> bool {
@@ -2391,8 +2358,7 @@ fn build_quick_filter(column: String, operator: QueryFilterOperator, value: Stri
 
 #[allow(clippy::too_many_arguments)]
 fn apply_quick_filter(
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
+    store: TabStore,
     mut filter_draft: Signal<QueryFilter>,
     quick_filter_column: Signal<String>,
     quick_filter_operator: Signal<QueryFilterOperator>,
@@ -2411,13 +2377,12 @@ fn apply_quick_filter(
         *filter = build_quick_filter(column.clone(), operator, value.clone());
     });
     let filter = build_quick_filter(column, operator, value);
-    apply_active_tab_filter(tabs, active_tab_id(), filter);
+    apply_active_tab_filter(store, store.active_tab_id(), filter);
 }
 
 #[allow(clippy::too_many_arguments)]
 fn apply_quick_filter_with_columns(
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
+    store: TabStore,
     mut filter_draft: Signal<QueryFilter>,
     quick_filter_column: Signal<String>,
     quick_filter_operator: Signal<QueryFilterOperator>,
@@ -2442,7 +2407,7 @@ fn apply_quick_filter_with_columns(
         *filter = build_quick_filter(column.clone(), operator, value.clone());
     });
     let filter = build_quick_filter(column, operator, value);
-    apply_active_tab_filter(tabs, active_tab_id(), filter);
+    apply_active_tab_filter(store, store.active_tab_id(), filter);
 }
 
 #[cfg(test)]
@@ -2672,11 +2637,11 @@ mod tests {
     }
 }
 
-fn can_sort_tab(tab: &QueryTabState) -> bool {
+fn can_sort_tab(tab: &TabResultState) -> bool {
     tab.preview_source.is_some() || tab.last_run_sql.as_deref().is_some_and(is_sortable_sql)
 }
 
-fn can_filter_tab(tab: &QueryTabState) -> bool {
+fn can_filter_tab(tab: &TabResultState) -> bool {
     can_sort_tab(tab)
 }
 
@@ -2911,21 +2876,21 @@ fn filter_draft_from_state(active_filter: Option<&QueryFilter>, columns: &[Strin
     filter
 }
 
-fn filter_sync_key_for_tab(active_tab: Option<&QueryTabState>, columns: &[String]) -> String {
+fn filter_sync_key_for_tab(active_tab: Option<&TabResultState>, columns: &[String]) -> String {
     match active_tab {
-        Some(tab) => format!("{}|{:?}|{:?}", tab.id, tab.filter.as_ref(), columns),
+        Some(tab) => format!("{:?}|{:?}", tab.filter.as_ref(), columns),
         None => "no-tab".to_string(),
     }
 }
 
 fn row_sync_key_for_tab(
-    active_tab: Option<&QueryTabState>,
+    active_tab: Option<&TabResultState>,
     result: Option<&QueryOutput>,
+    inserted_rows: usize,
 ) -> String {
     match (active_tab, result) {
         (Some(tab), Some(QueryOutput::Table(page))) => format!(
-            "{}|{:?}|{:?}|{}|{}|{}|{}",
-            tab.id,
+            "{:?}|{:?}|{}|{}|{}|{}",
             tab.preview_source
                 .as_ref()
                 .map(|source| &source.qualified_name),
@@ -2933,9 +2898,9 @@ fn row_sync_key_for_tab(
             page.offset,
             page.rows.len(),
             page.columns.len(),
-            tab.pending_table_changes.inserted_rows.len()
+            inserted_rows
         ),
-        (Some(tab), _) => format!("{}|no-table", tab.id),
+        (Some(_), _) => "no-table".to_string(),
         _ => "no-tab".to_string(),
     }
 }
@@ -3118,18 +3083,17 @@ fn original_cell_value(
 
 fn commit_cell_edit(
     mut editing_cell: Signal<Option<EditingCell>>,
-    mut tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
+    mut store: TabStore,
     editing: EditingCell,
 ) {
-    let current_id = active_tab_id();
+    let current_id = store.active_tab_id();
     if read_only_mode_enabled() {
         editing_cell.set(None);
-        set_active_tab_status(tabs, current_id, read_only_mode_block_status("cell edit"));
+        set_active_tab_status(store, current_id, read_only_mode_block_status("cell edit"));
         return;
     }
 
-    let current_tab = tabs.read().iter().find(|tab| tab.id == current_id).cloned();
+    let current_tab = store.result.read().get(&current_id).cloned();
     let Some(current_tab) = current_tab else {
         editing_cell.set(None);
         return;
@@ -3148,8 +3112,8 @@ fn commit_cell_edit(
     };
 
     editing_cell.set(None);
-    tabs.with_mut(|all_tabs| {
-        let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) else {
+    store.pending.with_mut(|pending| {
+        let Some(tab) = pending.get_mut(&current_id) else {
             return;
         };
 
@@ -3193,32 +3157,37 @@ fn commit_cell_edit(
             }
         }
 
-        tab.status = pending_changes_summary(&tab.pending_table_changes);
+        let summary = pending_changes_summary(&tab.pending_table_changes);
+        store.result.with_mut(|r| {
+            if let Some(res) = r.get_mut(&current_id) {
+                res.status = summary;
+            }
+        });
     });
 }
 
-fn insert_empty_row(mut tabs: Signal<Vec<QueryTabState>>, active_tab_id: Signal<u64>) {
-    let current_id = active_tab_id();
+fn insert_empty_row(mut store: TabStore) {
+    let current_id = store.active_tab_id();
     if read_only_mode_enabled() {
         set_active_tab_status(
-            tabs,
+            store,
             current_id,
             read_only_mode_block_status("draft row insert"),
         );
         return;
     }
 
-    let current_tab = tabs.read().iter().find(|tab| tab.id == current_id).cloned();
+    let current_tab = store.result.read().get(&current_id).cloned();
     let Some(current_tab) = current_tab else {
         return;
     };
     let Some(QueryOutput::Table(page)) = current_tab.result.clone() else {
-        set_active_tab_status(tabs, current_id, "No editable table is open".to_string());
+        set_active_tab_status(store, current_id, "No editable table is open".to_string());
         return;
     };
     let Some(_) = page.editable.clone() else {
         set_active_tab_status(
-            tabs,
+            store,
             current_id,
             "Row insert is available only for editable table views".to_string(),
         );
@@ -3227,8 +3196,8 @@ fn insert_empty_row(mut tabs: Signal<Vec<QueryTabState>>, active_tab_id: Signal<
     let editable = page.editable.clone();
     let page_columns = page.columns.clone();
     let mut inserted_row_id = None;
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
+    store.pending.with_mut(|pending| {
+        if let Some(tab) = pending.get_mut(&current_id) {
             let insert_id = tab.pending_table_changes.next_insert_id;
             tab.pending_table_changes.next_insert_id += 1;
             tab.pending_table_changes.inserted_rows.insert(
@@ -3238,22 +3207,33 @@ fn insert_empty_row(mut tabs: Signal<Vec<QueryTabState>>, active_tab_id: Signal<
                     values: vec![None; page.columns.len()],
                 },
             );
-            tab.status = pending_changes_summary(&tab.pending_table_changes);
+            let summary = pending_changes_summary(&tab.pending_table_changes);
+            store.result.with_mut(|r| {
+                if let Some(res) = r.get_mut(&current_id) {
+                    res.status = summary;
+                }
+            });
             inserted_row_id = Some(insert_id);
         }
     });
     let (Some(editable), Some(inserted_row_id)) = (editable, inserted_row_id) else {
         return;
     };
-    let Some(connection) = tab_connection_or_error(tabs, current_id, current_tab.session_id) else {
+    let session_id = store
+        .meta
+        .read()
+        .get(&current_id)
+        .map(|m| m.session_id)
+        .unwrap_or(0);
+    let Some(connection) = tab_connection_or_error(store, current_id, session_id) else {
         return;
     };
 
     spawn(async move {
         match services::next_table_primary_key_id(connection, editable.source.clone()).await {
             Ok(Some((column_name, remote_next_id))) => {
-                tabs.with_mut(|all_tabs| {
-                    let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) else {
+                store.pending.with_mut(|pending| {
+                    let Some(tab) = pending.get_mut(&current_id) else {
                         return;
                     };
                     let Some(column_index) = page_columns
@@ -3287,7 +3267,7 @@ fn insert_empty_row(mut tabs: Signal<Vec<QueryTabState>>, active_tab_id: Signal<
             Ok(None) => {}
             Err(err) => {
                 set_active_tab_status(
-                    tabs,
+                    store,
                     current_id,
                     format_row_edit_error("Draft row added without auto id", err),
                 );
@@ -3296,46 +3276,57 @@ fn insert_empty_row(mut tabs: Signal<Vec<QueryTabState>>, active_tab_id: Signal<
     });
 }
 
-fn apply_pending_changes(mut tabs: Signal<Vec<QueryTabState>>, active_tab_id: Signal<u64>) {
-    let current_id = active_tab_id();
+fn apply_pending_changes(mut store: TabStore) {
+    let current_id = store.active_tab_id();
     if read_only_mode_enabled() {
         set_active_tab_status(
-            tabs,
+            store,
             current_id,
             read_only_mode_block_status("pending table changes"),
         );
         return;
     }
 
-    let current_tab = tabs.read().iter().find(|tab| tab.id == current_id).cloned();
+    let current_tab = store.result.read().get(&current_id).cloned();
     let Some(current_tab) = current_tab else {
         return;
     };
     let Some(QueryOutput::Table(page)) = current_tab.result.clone() else {
-        set_active_tab_status(tabs, current_id, "No editable table is open".to_string());
+        set_active_tab_status(store, current_id, "No editable table is open".to_string());
         return;
     };
     let Some(editable) = page.editable.clone() else {
         set_active_tab_status(
-            tabs,
+            store,
             current_id,
             "Changes can be applied only for editable table views".to_string(),
         );
         return;
     };
-    let pending_changes = current_tab.pending_table_changes.clone();
+    let pending_changes = store
+        .pending
+        .read()
+        .get(&current_id)
+        .map(|p| p.pending_table_changes.clone())
+        .unwrap_or_default();
     if pending_changes.is_empty() {
-        set_active_tab_status(tabs, current_id, "No pending changes".to_string());
+        set_active_tab_status(store, current_id, "No pending changes".to_string());
         return;
     }
 
-    let Some(connection) = tab_connection_or_error(tabs, current_id, current_tab.session_id) else {
+    let session_id = store
+        .meta
+        .read()
+        .get(&current_id)
+        .map(|m| m.session_id)
+        .unwrap_or(0);
+    let Some(connection) = tab_connection_or_error(store, current_id, session_id) else {
         return;
     };
 
     let columns = page.columns.clone();
     let summary = pending_changes_summary(&pending_changes);
-    set_active_tab_status(tabs, current_id, format!("Applying {summary}..."));
+    set_active_tab_status(store, current_id, format!("Applying {summary}..."));
 
     spawn(async move {
         for row in pending_changes.inserted_rows {
@@ -3353,7 +3344,7 @@ fn apply_pending_changes(mut tabs: Signal<Vec<QueryTabState>>, active_tab_id: Si
             )
             .await
             {
-                set_active_tab_status(tabs, current_id, format_row_edit_error("Row insert", err));
+                set_active_tab_status(store, current_id, format_row_edit_error("Row insert", err));
                 return;
             }
         }
@@ -3368,7 +3359,7 @@ fn apply_pending_changes(mut tabs: Signal<Vec<QueryTabState>>, active_tab_id: Si
             )
             .await
             {
-                set_active_tab_status(tabs, current_id, format_row_edit_error("Cell update", err));
+                set_active_tab_status(store, current_id, format_row_edit_error("Cell update", err));
                 return;
             }
         }
@@ -3381,67 +3372,77 @@ fn apply_pending_changes(mut tabs: Signal<Vec<QueryTabState>>, active_tab_id: Si
             )
             .await
             {
-                set_active_tab_status(tabs, current_id, format_row_edit_error("Row delete", err));
+                set_active_tab_status(store, current_id, format_row_edit_error("Row delete", err));
                 return;
             }
         }
 
-        let mut updated_tab = None;
-        tabs.with_mut(|all_tabs| {
-            if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
+        store.pending.with_mut(|pending| {
+            if let Some(tab) = pending.get_mut(&current_id) {
                 tab.pending_table_changes = PendingTableChanges::default();
-                tab.status = format!("Applied changes to {}", editable.source.table_name);
-                updated_tab = Some(tab.clone());
+            }
+        });
+        store.result.with_mut(|r| {
+            if let Some(res) = r.get_mut(&current_id) {
+                res.status = format!("Applied changes to {}", editable.source.table_name);
             }
         });
 
-        if let Some(updated_tab) = updated_tab {
-            refresh_tab_result(tabs, updated_tab, Some(editable.source));
+        if let Some(updated_tab) =
+            crate::screens::workspace::tab_store::materialize_tab_state(store, current_id)
+        {
+            refresh_tab_result(store, updated_tab, Some(editable.source));
         }
     });
 }
 
-fn discard_pending_changes(mut tabs: Signal<Vec<QueryTabState>>, active_tab_id: Signal<u64>) {
-    let current_id = active_tab_id();
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
+fn discard_pending_changes(mut store: TabStore) {
+    let current_id = store.active_tab_id();
+    store.pending.with_mut(|pending| {
+        if let Some(tab) = pending.get_mut(&current_id) {
             tab.pending_table_changes = PendingTableChanges::default();
-            tab.status = "Discarded pending changes".to_string();
+        }
+    });
+    store.result.with_mut(|r| {
+        if let Some(res) = r.get_mut(&current_id) {
+            res.status = "Discarded pending changes".to_string();
         }
     });
 }
 
-fn delete_selected_row(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    row_index: usize,
-) {
-    let current_id = active_tab_id();
+fn delete_selected_row(mut store: TabStore, row_index: usize) {
+    let current_id = store.active_tab_id();
     if read_only_mode_enabled() {
-        set_active_tab_status(tabs, current_id, read_only_mode_block_status("row delete"));
+        set_active_tab_status(store, current_id, read_only_mode_block_status("row delete"));
         return;
     }
 
-    let current_tab = tabs.read().iter().find(|tab| tab.id == current_id).cloned();
+    let current_tab = store.result.read().get(&current_id).cloned();
     let Some(current_tab) = current_tab else {
         return;
     };
     let Some(QueryOutput::Table(page)) = current_tab.result.clone() else {
-        set_active_tab_status(tabs, current_id, "No editable table is open".to_string());
+        set_active_tab_status(store, current_id, "No editable table is open".to_string());
         return;
     };
     let Some(_editable) = page.editable.clone() else {
         set_active_tab_status(
-            tabs,
+            store,
             current_id,
             "Row delete is available only for editable table views".to_string(),
         );
         return;
     };
-    let display_rows = materialize_display_rows(&page, &current_tab.pending_table_changes);
+    let pending_changes = store
+        .pending
+        .read()
+        .get(&current_id)
+        .map(|p| p.pending_table_changes.clone())
+        .unwrap_or_default();
+    let display_rows = materialize_display_rows(&page, &pending_changes);
     let Some(row) = display_rows.get(row_index).cloned() else {
         set_active_tab_status(
-            tabs,
+            store,
             current_id,
             "The selected row is no longer available".to_string(),
         );
@@ -3449,12 +3450,17 @@ fn delete_selected_row(
     };
 
     if let EditableRowRef::PendingInsert(insert_id) = row.row_ref {
-        tabs.with_mut(|all_tabs| {
-            if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
+        store.pending.with_mut(|pending| {
+            if let Some(tab) = pending.get_mut(&current_id) {
                 tab.pending_table_changes
                     .inserted_rows
                     .retain(|row| row.id != insert_id);
-                tab.status = pending_changes_summary(&tab.pending_table_changes);
+                let summary = pending_changes_summary(&tab.pending_table_changes);
+                store.result.with_mut(|r| {
+                    if let Some(res) = r.get_mut(&current_id) {
+                        res.status = summary;
+                    }
+                });
             }
         });
         return;
@@ -3464,8 +3470,8 @@ fn delete_selected_row(
         return;
     };
 
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
+    store.pending.with_mut(|pending| {
+        if let Some(tab) = pending.get_mut(&current_id) {
             tab.pending_table_changes
                 .deleted_rows
                 .push(PendingDeleteRow {
@@ -3474,7 +3480,12 @@ fn delete_selected_row(
             tab.pending_table_changes
                 .updated_cells
                 .retain(|change| change.locator != locator);
-            tab.status = pending_changes_summary(&tab.pending_table_changes);
+            let summary = pending_changes_summary(&tab.pending_table_changes);
+            store.result.with_mut(|r| {
+                if let Some(res) = r.get_mut(&current_id) {
+                    res.status = summary;
+                }
+            });
         }
     });
 }

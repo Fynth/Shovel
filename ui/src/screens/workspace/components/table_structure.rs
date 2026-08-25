@@ -1,10 +1,9 @@
-use crate::screens::workspace::actions::tab_connection_or_error;
+use crate::screens::workspace::{actions::tab_connection_or_error, tab_store::TabStore};
 use dioxus::prelude::*;
 use models::{
     DatabaseConnection,
     ExplorerNodeKind,
     QueryOutput,
-    QueryTabState,
     TableForeignKey,
     TablePreviewSource,
 };
@@ -47,12 +46,8 @@ fn cache_key(source: &TablePreviewSource, suffix: &str) -> String {
 /// `tab_connection_or_error` and returns the live connection on
 /// success. Mirrors the helpers in `actions.rs` so panels share the
 /// same UX message.
-fn panel_connection(
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    session_id: u64,
-) -> Option<DatabaseConnection> {
-    if tab_connection_or_error(tabs, active_tab_id(), session_id).is_some() {
+fn panel_connection(store: TabStore, session_id: u64) -> Option<DatabaseConnection> {
+    if tab_connection_or_error(store, store.active_tab_id(), session_id).is_some() {
         crate::app_state::session_connection(session_id)
     } else {
         None
@@ -67,8 +62,7 @@ fn panel_connection(
 /// selection.
 #[component]
 pub fn StructurePanel(
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
+    store: TabStore,
     source: TablePreviewSource,
     session_id: u64,
     existing_result: Option<QueryOutput>,
@@ -83,10 +77,9 @@ pub fn StructurePanel(
     let mut last_key = use_signal(String::new);
     if last_key() != key {
         last_key.set(key.clone());
-        if let Some(connection) = panel_connection(tabs, active_tab_id, session_id) {
+        if let Some(connection) = panel_connection(store, session_id) {
             state.set(PanelState::Loading);
-            let mut tabs_sig = tabs;
-            let active_id_sig = active_tab_id;
+            let mut store_sig = store;
             let source_clone = source.clone();
             spawn(async move {
                 match services::describe_table(
@@ -101,9 +94,9 @@ pub fn StructurePanel(
                         // the dedicated Structure tab variant and the
                         // shared cache stay aligned. This matches what
                         // `open_structure_tab` already does.
-                        let tab_id = active_id_sig();
-                        tabs_sig.with_mut(|all_tabs| {
-                            if let Some(tab) = all_tabs.iter_mut().find(|t| t.id == tab_id)
+                        let tab_id = store_sig.active_tab_id();
+                        store_sig.result.with_mut(|m| {
+                            if let Some(tab) = m.get_mut(&tab_id)
                                 && matches!(tab.preview_source.as_ref(), Some(s) if s == &source_clone)
                             {
                                 tab.result = Some(output.clone());
@@ -163,12 +156,7 @@ pub fn StructurePanel(
 /// DDL loader treats the kind as a hint and falls back gracefully
 /// for views / materialized views.
 #[component]
-pub fn DdlPanel(
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    source: TablePreviewSource,
-    session_id: u64,
-) -> Element {
+pub fn DdlPanel(store: TabStore, source: TablePreviewSource, session_id: u64) -> Element {
     let mut state = use_signal(|| PanelState::Idle);
     let mut ddl_text = use_signal(String::new);
 
@@ -176,7 +164,7 @@ pub fn DdlPanel(
     let mut last_key = use_signal(String::new);
     if last_key() != key {
         last_key.set(key.clone());
-        if let Some(connection) = panel_connection(tabs, active_tab_id, session_id) {
+        if let Some(connection) = panel_connection(store, session_id) {
             state.set(PanelState::Loading);
             let source_clone = source.clone();
             spawn(async move {
@@ -247,12 +235,7 @@ pub fn IndexesPanel(source: TablePreviewSource) -> Element {
 /// ER-diagram component. We filter server-side results down to
 /// rows where either end matches the active table.
 #[component]
-pub fn RelationsPanel(
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    source: TablePreviewSource,
-    session_id: u64,
-) -> Element {
+pub fn RelationsPanel(store: TabStore, source: TablePreviewSource, session_id: u64) -> Element {
     let mut state = use_signal(|| PanelState::Idle);
     let mut relations = use_signal(Vec::<TableForeignKey>::new);
 
@@ -260,7 +243,7 @@ pub fn RelationsPanel(
     let mut last_key = use_signal(String::new);
     if last_key() != key {
         last_key.set(key.clone());
-        if let Some(connection) = panel_connection(tabs, active_tab_id, session_id) {
+        if let Some(connection) = panel_connection(store, session_id) {
             state.set(PanelState::Loading);
             let source_clone = source.clone();
             spawn(async move {

@@ -7,10 +7,13 @@ use crate::{
         remove_session,
         toggle_panel_collapsed,
     },
-    screens::workspace::components::{ActionIcon, Chevron, IconButton},
+    screens::workspace::{
+        components::{ActionIcon, Chevron, IconButton},
+        tab_store::TabStore,
+    },
 };
 use dioxus::prelude::*;
-use models::{ConnectionRequest, QueryTabState, WorkspaceToolPanel};
+use models::{ConnectionRequest, WorkspaceToolPanel};
 
 fn open_context_menu(mut context_menu: Signal<Option<u64>>, session_id: u64, event: MouseEvent) {
     event.prevent_default();
@@ -19,10 +22,7 @@ fn open_context_menu(mut context_menu: Signal<Option<u64>>, session_id: u64, eve
 }
 
 #[component]
-pub fn SessionRail(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    mut active_tab_id: Signal<u64>,
-) -> Element {
+pub fn SessionRail(store: TabStore) -> Element {
     let mut context_menu = use_signal(|| None::<u64>);
     let (sessions, active_session_id) = {
         let app_state = APP_STATE.read();
@@ -132,7 +132,7 @@ pub fn SessionRail(
                                     let session_id = session.id;
                                     move |_| {
                                         context_menu.set(None);
-                                        disconnect_session(tabs, active_tab_id, session_id);
+                                        disconnect_session(store, session_id);
                                     }
                                 },
                             }
@@ -146,7 +146,7 @@ pub fn SessionRail(
                                         class: "session-list__context-action",
                                         onclick: move |_| {
                                             context_menu.set(None);
-                                            disconnect_session(tabs, active_tab_id, session.id);
+                                            disconnect_session(store, session.id);
                                         },
                                         "Disconnect"
                                     }
@@ -173,17 +173,40 @@ fn session_target_label(request: &ConnectionRequest) -> String {
     request.short_name()
 }
 
-fn disconnect_session(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    mut active_tab_id: Signal<u64>,
-    session_id: u64,
-) {
-    tabs.with_mut(|all_tabs| all_tabs.retain(|tab| tab.session_id != session_id));
-    if let Some(first_tab) = tabs.read().first() {
-        active_tab_id.set(first_tab.id);
-        activate_session(first_tab.session_id);
+fn disconnect_session(mut store: TabStore, session_id: u64) {
+    let removed_ids: Vec<u64> = store
+        .meta
+        .read()
+        .iter()
+        .filter(|(_, meta)| meta.session_id == session_id)
+        .map(|(id, _)| *id)
+        .collect();
+    for id in removed_ids {
+        store.meta.with_mut(|m| {
+            m.remove(&id);
+        });
+        store.editor.with_mut(|m| {
+            m.remove(&id);
+        });
+        store.result.with_mut(|m| {
+            m.remove(&id);
+        });
+        store.pending.with_mut(|m| {
+            m.remove(&id);
+        });
+    }
+
+    let first_tab = store
+        .meta
+        .read()
+        .iter()
+        .next()
+        .map(|(id, meta)| (*id, meta.session_id));
+    if let Some((first_id, first_session_id)) = first_tab {
+        store.active_tab_id.set(first_id);
+        activate_session(first_session_id);
     } else {
-        active_tab_id.set(0);
+        store.active_tab_id.set(0);
     }
     remove_session(session_id);
 }

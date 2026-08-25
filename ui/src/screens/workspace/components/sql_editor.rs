@@ -28,10 +28,11 @@ use crate::{
         },
         components::{explorer::ExplorerConnectionSection, send_sql_explanation_request},
         context::{WorkspaceAcpContext, WorkspaceQueryContext},
+        tab_store::TabStore,
     },
 };
 use dioxus::prelude::*;
-use models::{ExplorerNodeKind, QueryHistoryItem, QueryTabState};
+use models::{ExplorerNodeKind, QueryHistoryItem};
 use std::time::Duration;
 
 use self::{
@@ -157,7 +158,7 @@ fn is_completion_accept_key(event: &KeyboardEvent) -> bool {
 #[allow(clippy::too_many_arguments)]
 fn apply_inline_completion(
     completion_runtime: Signal<CompletionRuntime>,
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     active_tab_id_value: u64,
     mut draft_sql: Signal<String>,
     mut editor_selection: Signal<EditorSelection>,
@@ -214,7 +215,7 @@ fn apply_inline_completion(
         );
         editor_revision += 1;
         let new_sql_for_dom = new_sql.clone();
-        replace_active_tab_sql(tabs, active_tab_id_value, new_sql, "Ready".to_string());
+        replace_active_tab_sql(store, active_tab_id_value, new_sql, "Ready".to_string());
         spawn(async move {
             let _ = document::eval(&set_editor_value_script(
                 SQL_EDITOR_TEXTAREA_ID,
@@ -243,7 +244,7 @@ fn apply_inline_completion(
 #[allow(clippy::too_many_arguments)]
 fn schedule_auto_apply(
     completion_runtime: Signal<CompletionRuntime>,
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     active_tab_id_value: u64,
     draft_sql: Signal<String>,
     editor_selection: Signal<EditorSelection>,
@@ -297,7 +298,7 @@ fn schedule_auto_apply(
 
         apply_inline_completion(
             completion_runtime,
-            tabs,
+            store,
             active_tab_id_value,
             draft_sql,
             editor_selection,
@@ -388,7 +389,7 @@ fn event_selection_range(_event: &Event<KeyboardData>) -> EditorSelectionRange {
 fn open_sql_editor_context_menu(
     x: f64,
     y: f64,
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     active_tab_id: u64,
     saved_queries_signal: Signal<Vec<models::SavedQuery>>,
     next_saved_query_id: Signal<u64>,
@@ -400,8 +401,8 @@ fn open_sql_editor_context_menu(
     // so the callbacks don't race the editor while the user is
     // clicking through the menu.
     let snapshot = {
-        let tabs_read = tabs.read();
-        tabs_read.iter().find(|t| t.id == active_tab_id).cloned()
+        let editor = store.editor.read();
+        editor.get(&active_tab_id).cloned()
     };
     let Some(tab_snapshot) = snapshot else {
         return;
@@ -476,7 +477,7 @@ fn open_sql_editor_context_menu(
 
     // ── Editor actions (separator before) ──────────────────────
     let mut clear_item = ContextMenuItem::new(clear_label, move || {
-        clear_active_tab_sql(tabs, active_tab_id);
+        clear_active_tab_sql(store, active_tab_id);
     })
     .separator();
     if sql_len == 0 {
@@ -489,14 +490,10 @@ fn open_sql_editor_context_menu(
         // textarea content, since the user has just right-clicked
         // and the selection may not be representative.
         let current_sql = {
-            let tabs_read = tabs.peek();
-            tabs_read
-                .iter()
-                .find(|t| t.id == active_tab_id)
-                .map(|t| t.sql.len())
-                .unwrap_or(0)
+            let editor = store.editor.peek();
+            editor.get(&active_tab_id).map(|e| e.sql.len()).unwrap_or(0)
         };
-        let _ = toggle_line_comments_in_active_tab(tabs, active_tab_id, 0..current_sql);
+        let _ = toggle_line_comments_in_active_tab(store, active_tab_id, 0..current_sql);
     });
     if sql_len == 0 {
         comment_item = comment_item.disabled();
@@ -505,7 +502,7 @@ fn open_sql_editor_context_menu(
 
     // ── SQL actions (separator before) ─────────────────────────
     let mut format_item = ContextMenuItem::new(format_label, move || {
-        format_active_tab(tabs, active_tab_id, APP_SQL_FORMAT_SETTINGS());
+        format_active_tab(store, active_tab_id, APP_SQL_FORMAT_SETTINGS());
     })
     .separator();
     if !can_format {
@@ -514,7 +511,7 @@ fn open_sql_editor_context_menu(
     items.push(format_item);
 
     let mut run_item = ContextMenuItem::new(run_label, move || {
-        run_active_tab(tabs, active_tab_id, (history, next_history_id));
+        run_active_tab(store, active_tab_id, (history, next_history_id));
     });
     if !can_run {
         run_item = run_item.disabled();
@@ -522,7 +519,7 @@ fn open_sql_editor_context_menu(
     items.push(run_item);
 
     let mut explain_item = ContextMenuItem::new(explain_label, move || {
-        run_active_tab_explain(tabs, active_tab_id);
+        run_active_tab_explain(store, active_tab_id);
     });
     if !can_run {
         explain_item = explain_item.disabled();
@@ -540,7 +537,7 @@ fn open_sql_editor_context_menu(
             ContextMenuItem::new("Explain with AI\t\tCtrl+Shift+E", move || {
                 send_sql_explanation_request(
                     panel_state,
-                    tabs,
+                    store,
                     active_tab_id,
                     label.clone(),
                     chat_revision,
@@ -556,7 +553,7 @@ fn open_sql_editor_context_menu(
 
     let mut save_item = ContextMenuItem::new(save_label, move || {
         let status = save_active_tab_as_saved_query(
-            tabs,
+            store,
             active_tab_id,
             saved_queries_signal,
             next_saved_query_id,
@@ -823,14 +820,12 @@ fn surrounding_sql_context(sql: &str, cursor: usize) -> String {
 #[component]
 pub fn SqlEditor(
     sql: String,
-    active_tab: QueryTabState,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
+    active_tab_id: u64,
+    active_session_id: u64,
+    store: TabStore,
     explorer_sections: Signal<Vec<ExplorerConnectionSection>>,
 ) -> Element {
-    let _active_tab_id_signal = active_tab_id;
-    let active_tab_id_value = active_tab.id;
-    let active_session_id = active_tab.session_id;
+    let active_tab_id_value = active_tab_id;
     let mut scroll_top = use_signal(|| 0.0_f64);
     let mut scroll_left = use_signal(|| 0.0_f64);
     let mut draft_sql = use_signal(|| sql.clone());
@@ -967,16 +962,16 @@ pub fn SqlEditor(
             if selection_changed {
                 editor_selection.set(next_selection);
             }
-            let already_synced = tabs
+            let already_synced = store
+                .editor
                 .read()
-                .iter()
-                .find(|tab| tab.id == active_tab_id_value)
-                .is_some_and(|tab| tab.sql == next_sql);
+                .get(&active_tab_id_value)
+                .is_some_and(|ed| ed.sql == next_sql);
             if already_synced {
                 return;
             }
 
-            sync_active_tab_sql_draft(tabs, active_tab_id_value, next_sql);
+            sync_active_tab_sql_draft(store, active_tab_id_value, next_sql);
         });
     });
 
@@ -1124,7 +1119,7 @@ pub fn SqlEditor(
                             });
                             schedule_auto_apply(
                                 completion_runtime,
-                                tabs,
+                                store,
                                 active_tab_id_value,
                                 draft_sql,
                                 editor_selection,
@@ -1211,7 +1206,7 @@ pub fn SqlEditor(
                     open_sql_editor_context_menu(
                         coords.x,
                         coords.y,
-                        tabs,
+                        store,
                         active_tab_id_value,
                         saved_queries_signal_for_editor,
                         next_saved_query_id_for_editor,
@@ -1231,7 +1226,7 @@ pub fn SqlEditor(
                         // Keep the render snapshot aligned with the live textarea so the
                         // highlight layer never wakes up with stale SQL after the typing debounce.
                         draft_sql.set(next_sql.clone());
-                        sync_active_tab_sql_draft(tabs, active_tab_id_value, next_sql);
+                        sync_active_tab_sql_draft(store, active_tab_id_value, next_sql);
                     }
                     let already_typing = {
                         let typing = is_typing.peek();
@@ -1259,7 +1254,7 @@ pub fn SqlEditor(
                                 // Ctrl+Enter — run the query.
                                 event.prevent_default();
                                 run_active_tab(
-                                    tabs,
+                                    store,
                                     active_tab_id_value,
                                     (history_for_editor, next_history_id_for_editor),
                                 );
@@ -1270,7 +1265,7 @@ pub fn SqlEditor(
                                 event.prevent_default();
                                 let sel = event_selection_range(&event);
                                 toggle_line_comments_in_active_tab(
-                                    tabs,
+                                    store,
                                     active_tab_id_value,
                                     sel.start..sel.end,
                                 );
@@ -1280,7 +1275,7 @@ pub fn SqlEditor(
                                 && !mods.contains(Modifiers::SHIFT) => {
                                     // Ctrl+L — clear editor.
                                     event.prevent_default();
-                                    clear_active_tab_sql(tabs, active_tab_id_value);
+                                    clear_active_tab_sql(store, active_tab_id_value);
                                     return;
                                 }
                             Key::Character(ref c) if (c == "s" || c == "S")
@@ -1288,7 +1283,7 @@ pub fn SqlEditor(
                                     // Ctrl+S — save as saved query.
                                     event.prevent_default();
                                     let status = save_active_tab_as_saved_query(
-                                        tabs,
+                                        store,
                                         active_tab_id_value,
                                         saved_queries_signal_for_editor,
                                         next_saved_query_id_for_editor,
@@ -1306,13 +1301,13 @@ pub fn SqlEditor(
                                 Key::Character(ref c) if c == "F" || c == "f" => {
                                     // Ctrl+Shift+F — format SQL.
                                     event.prevent_default();
-                                    format_active_tab(tabs, active_tab_id_value, APP_SQL_FORMAT_SETTINGS());
+                                    format_active_tab(store, active_tab_id_value, APP_SQL_FORMAT_SETTINGS());
                                     return;
                                 }
                                 Key::Character(ref c) if c == "E" || c == "e" => {
                                     // Ctrl+Shift+E — explain query.
                                     event.prevent_default();
-                                    run_active_tab_explain(tabs, active_tab_id_value);
+                                    run_active_tab_explain(store, active_tab_id_value);
                                     return;
                                 }
                                 _ => {}
@@ -1331,7 +1326,7 @@ pub fn SqlEditor(
                         };
                         let sel = event_selection_range(&event);
                         indent_lines_in_active_tab(
-                            tabs,
+                            store,
                             active_tab_id_value,
                             sel.start..sel.end,
                             direction,
@@ -1354,7 +1349,7 @@ pub fn SqlEditor(
                         let completion_text_raw = completion_state.text.clone();
                         apply_inline_completion(
                             completion_runtime,
-                            tabs,
+                            store,
                             active_tab_id_value,
                             draft_sql,
                             editor_selection,

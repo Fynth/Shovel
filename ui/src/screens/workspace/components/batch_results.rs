@@ -1,6 +1,10 @@
-use crate::screens::workspace::{components::ResultTable, helpers::format_duration};
+use crate::screens::workspace::{
+    components::ResultTable,
+    helpers::format_duration,
+    tab_store::TabStore,
+};
 use dioxus::prelude::*;
-use models::{BatchOutcome, BatchRunState, QueryTabState};
+use models::{BatchOutcome, BatchRunState};
 
 /// Цвет/подпись исхода оператора для индикатора во вкладке.
 fn outcome_label(outcome: BatchOutcome) -> &'static str {
@@ -24,18 +28,15 @@ fn outcome_class(outcome: BatchOutcome) -> &'static str {
 /// Переключает активную вкладку пакетного результата и синхронизирует
 /// `tab.result` с выходом выбранного оператора, чтобы экспорт и
 /// статус-бар работали как для обычного однооператорного запроса.
-fn select_batch_index(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    index: usize,
-) {
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == active_tab_id()) {
-            if let Some(batch) = tab.batch_results.as_mut() {
+fn select_batch_index(mut store: TabStore, index: usize) {
+    let active_tab_id = store.active_tab_id();
+    store.result.with_mut(|m| {
+        if let Some(res) = m.get_mut(&active_tab_id) {
+            if let Some(batch) = res.batch_results.as_mut() {
                 batch.active_index = index;
             }
-            tab.result = if index < tab.batch_outputs.len() {
-                tab.batch_outputs[index].clone()
+            res.result = if index < res.batch_outputs.len() {
+                res.batch_outputs[index].clone()
             } else {
                 None
             };
@@ -48,12 +49,9 @@ fn select_batch_index(
 /// Выбранная вкладка оператора рендерит свой `QueryOutput` через
 /// `ResultTable`; вкладка Status показывает сводку по всем операторам.
 #[component]
-pub fn BatchResultsView(tabs: Signal<Vec<QueryTabState>>, active_tab_id: Signal<u64>) -> Element {
-    let current_tab = tabs
-        .read()
-        .iter()
-        .find(|tab| tab.id == active_tab_id())
-        .cloned();
+pub fn BatchResultsView(store: TabStore) -> Element {
+    let active_tab_id = store.active_tab_id();
+    let current_tab = store.result.read().get(&active_tab_id).cloned();
     let Some(current_tab) = current_tab else {
         return rsx! {};
     };
@@ -93,9 +91,9 @@ pub fn BatchResultsView(tabs: Signal<Vec<QueryTabState>>, active_tab_id: Signal<
                         rsx! {
                             button {
                                 class,
-                                title: {label.to_string()},
-                                onclick: move |_| select_batch_index(tabs, active_tab_id, pos),
-                                span { class: "batch-results__tab-label", {label.to_string()} }
+                                title: "{label}",
+                                onclick: move |_| select_batch_index(store, pos),
+                                span { class: "batch-results__tab-label", "{label}" }
                                 span { class: "batch-results__tab-meta",
                                     span { class: "batch-results__chip {chip_class}", {chip_label.to_string()} }
                                     if !meta.is_empty() {
@@ -115,7 +113,7 @@ pub fn BatchResultsView(tabs: Signal<Vec<QueryTabState>>, active_tab_id: Signal<
                     rsx! {
                         button {
                             class,
-                            onclick: move |_| select_batch_index(tabs, active_tab_id, status_index),
+                            onclick: move |_| select_batch_index(store, status_index),
                             "Status"
                         }
                     }
@@ -128,8 +126,7 @@ pub fn BatchResultsView(tabs: Signal<Vec<QueryTabState>>, active_tab_id: Signal<
                 div { class: "batch-results__grid",
                     ResultTable {
                         result: Some(output),
-                        tabs,
-                        active_tab_id,
+                        store,
                     }
                 }
             } else {

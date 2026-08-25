@@ -107,6 +107,17 @@ pub fn build_er_diagram(
     })
 }
 
+/// Async wrapper that runs the (potentially heavy) ER-diagram build on a
+/// blocking thread so it never stalls the async executor / render loop.
+pub async fn build_er_diagram_async(
+    sections: Vec<ExplorerConnectionSection>,
+    foreign_keys: Vec<models::TableForeignKey>,
+) -> Option<ErDiagramState> {
+    tokio::task::spawn_blocking(move || build_er_diagram(&sections, &foreign_keys))
+        .await
+        .unwrap_or(None)
+}
+
 pub fn should_render_explorer_status(status: &str) -> bool {
     let status = status.trim();
     if status.is_empty() {

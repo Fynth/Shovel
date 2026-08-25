@@ -1,10 +1,11 @@
 use dioxus::prelude::*;
-use models::QueryTabState;
 
 use super::{
     ResultTable,
     table_structure::{DdlPanel, IndexesPanel, RelationsPanel, StructurePanel},
 };
+
+use crate::screens::workspace::tab_store::TabStore;
 
 /// Coarse index for the sub-tab strip inside the table editor.
 ///
@@ -59,16 +60,25 @@ impl TableEditorTab {
 /// first selection and are cached for subsequent selections inside
 /// the component's lifetime.
 #[component]
-pub fn TableEditor(tabs: Signal<Vec<QueryTabState>>, active_tab_id: Signal<u64>) -> Element {
+pub fn TableEditor(store: TabStore) -> Element {
     let mut active_subtab = use_signal(|| TableEditorTab::Data);
 
-    let current_tab = tabs
+    let active_tab_id = store.active_tab_id();
+    let current_tab = store
+        .result
         .read()
-        .iter()
-        .find(|tab| tab.id == active_tab_id())
-        .cloned();
+        .get(&active_tab_id)
+        .cloned()
+        .map(|r| (r, store.meta.read().get(&active_tab_id).cloned()));
 
-    let Some(tab) = current_tab else {
+    let Some((tab, meta)) = current_tab else {
+        return rsx! {
+            div { class: "table-editor",
+                p { class: "empty-state", "No active tab." }
+            }
+        };
+    };
+    let Some(meta) = meta else {
         return rsx! {
             div { class: "table-editor",
                 p { class: "empty-state", "No active tab." }
@@ -87,7 +97,7 @@ pub fn TableEditor(tabs: Signal<Vec<QueryTabState>>, active_tab_id: Signal<u64>)
         };
     };
 
-    let session_id = tab.session_id;
+    let session_id = meta.session_id;
     let table_name = source.table_name.clone();
     let schema = source.schema.clone();
     let result = tab.result.clone();
@@ -126,14 +136,12 @@ pub fn TableEditor(tabs: Signal<Vec<QueryTabState>>, active_tab_id: Signal<u64>)
                     TableEditorTab::Data => rsx! {
                         ResultTable {
                             result,
-                            tabs,
-                            active_tab_id,
+                            store,
                         }
                     },
                     TableEditorTab::Structure => rsx! {
                         StructurePanel {
-                            tabs,
-                            active_tab_id,
+                            store,
                             source: source.clone(),
                             session_id,
                             existing_result,
@@ -141,8 +149,7 @@ pub fn TableEditor(tabs: Signal<Vec<QueryTabState>>, active_tab_id: Signal<u64>)
                     },
                     TableEditorTab::Ddl => rsx! {
                         DdlPanel {
-                            tabs,
-                            active_tab_id,
+                            store,
                             source: source.clone(),
                             session_id,
                         }
@@ -154,8 +161,7 @@ pub fn TableEditor(tabs: Signal<Vec<QueryTabState>>, active_tab_id: Signal<u64>)
                     },
                     TableEditorTab::Relations => rsx! {
                         RelationsPanel {
-                            tabs,
-                            active_tab_id,
+                            store,
                             source: source.clone(),
                             session_id,
                         }

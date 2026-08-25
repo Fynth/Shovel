@@ -27,6 +27,18 @@ use models::{
 };
 use std::time::Instant;
 
+use super::tab_store::{
+    TabEditorState,
+    TabMeta,
+    TabPendingState,
+    TabResultState,
+    TabStore,
+    tab_editor,
+    tab_meta,
+    tab_pending,
+    tab_result,
+};
+
 fn redact_sql(sql: &str) -> String {
     let lower = sql.to_lowercase();
     if lower.contains("password") || lower.contains("secret") || lower.contains("token") {
@@ -113,77 +125,99 @@ pub fn read_only_mode_block_status(action: &str) -> String {
     format!("Read-only mode blocked {action}. Disable read-only mode in Settings to allow writes.")
 }
 
-pub fn new_query_tab(id: u64, session_id: u64, title: String, sql: String) -> QueryTabState {
-    QueryTabState {
-        id,
-        session_id,
-        title,
-        sql,
-        status: "Ready".to_string(),
-        page_size: APP_UI_SETTINGS().default_page_size,
-        tab_kind: WorkspaceTabKind::Query,
-        ..QueryTabState::default()
-    }
+pub fn new_query_tab(
+    id: u64,
+    session_id: u64,
+    title: String,
+    sql: String,
+) -> (TabMeta, TabEditorState, TabResultState, TabPendingState) {
+    let page_size = APP_UI_SETTINGS().default_page_size;
+    (
+        tab_meta(id, session_id, title, WorkspaceTabKind::Query, false),
+        tab_editor(sql),
+        tab_result(page_size),
+        tab_pending(),
+    )
 }
 
-pub fn ensure_tab_for_session(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    mut active_tab_id: Signal<u64>,
-    mut next_tab_id: Signal<u64>,
-    session_id: u64,
-) -> u64 {
+pub fn ensure_tab_for_session(mut store: TabStore, session_id: u64) -> u64 {
     activate_session(session_id);
+    let mut active_tab_id = store.active_tab_id;
+    let mut next_tab_id = store.next_tab_id;
 
-    if let Some(existing_tab_id) = tabs
+    if let Some(existing_id) = store
+        .meta
         .read()
         .iter()
-        .find(|tab| tab.session_id == session_id && tab.tab_kind == WorkspaceTabKind::Query)
-        .map(|tab| tab.id)
+        .find(|(_, t)| t.session_id == session_id && t.tab_kind == WorkspaceTabKind::Query)
+        .map(|(id, _)| *id)
     {
-        active_tab_id.set(existing_tab_id);
-        return existing_tab_id;
+        active_tab_id.set(existing_id);
+        return existing_id;
     }
 
     let tab_id = next_tab_id();
     next_tab_id += 1;
-    tabs.with_mut(|all_tabs| {
-        all_tabs.push(new_query_tab(
-            tab_id,
-            session_id,
-            format!("Query {tab_id}"),
-            "select 1 as id;".to_string(),
-        ));
+    let (meta, editor, result, pending) = new_query_tab(
+        tab_id,
+        session_id,
+        format!("Query {tab_id}"),
+        "select 1 as id;".to_string(),
+    );
+    store.meta.with_mut(|m| {
+        m.insert(tab_id, meta);
+    });
+    store.editor.with_mut(|m| {
+        m.insert(tab_id, editor);
+    });
+    store.result.with_mut(|m| {
+        m.insert(tab_id, result);
+    });
+    store.pending.with_mut(|m| {
+        m.insert(tab_id, pending);
     });
     active_tab_id.set(tab_id);
     tab_id
 }
 
-pub fn update_active_tab_sql(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: u64,
-    sql: String,
-    status: String,
-) {
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == active_tab_id) {
-            if tab.sql != sql {
-                tab.show_execution_plan = false;
+pub fn update_active_tab_sql(mut store: TabStore, active_tab_id: u64, sql: String, status: String) {
+    store.editor.with_mut(|m| {
+        if let Some(ed) = m.get_mut(&active_tab_id) {
+            if ed.sql != sql {
+                store.result.with_mut(|r| {
+                    if let Some(res) = r.get_mut(&active_tab_id) {
+                        res.show_execution_plan = false;
+                    }
+                });
             }
-            tab.sql = sql;
-            tab.status = status.clone();
-            tab.result = None;
-            tab.current_offset = 0;
-            tab.last_run_sql = None;
-            tab.preview_source = None;
-            tab.filter = None;
-            tab.sort = None;
-            tab.tab_kind = WorkspaceTabKind::Query;
-            tab.is_loading_more = false;
-            tab.pending_table_changes = PendingTableChanges::default();
+            ed.sql = sql;
+        }
+    });
+    store.result.with_mut(|r| {
+        if let Some(res) = r.get_mut(&active_tab_id) {
+            res.status = status;
+            res.result = None;
+            res.current_offset = 0;
+            res.last_run_sql = None;
+            res.preview_source = None;
+            res.filter = None;
+            res.sort = None;
+            res.is_loading_more = false;
+        }
+    });
+    store.meta.with_mut(|m| {
+        if let Some(meta) = m.get_mut(&active_tab_id) {
+            meta.tab_kind = WorkspaceTabKind::Query;
+        }
+    });
+    store.pending.with_mut(|m| {
+        if let Some(p) = m.get_mut(&active_tab_id) {
+            p.pending_table_changes = PendingTableChanges::default();
         }
     });
 }
 
+#[cfg(test)]
 fn sync_tab_sql_draft(tab: &mut QueryTabState, sql: &str) {
     if tab.sql == sql {
         return;
@@ -193,72 +227,80 @@ fn sync_tab_sql_draft(tab: &mut QueryTabState, sql: &str) {
     tab.show_execution_plan = false;
 }
 
-pub fn sync_active_tab_sql_draft(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: u64,
-    sql: String,
-) {
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == active_tab_id) {
-            sync_tab_sql_draft(tab, &sql);
-        }
-    });
-}
-
-pub fn set_active_tab_sql(
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: u64,
-    sql: String,
-    status: String,
-) {
-    update_active_tab_sql(tabs, active_tab_id, sql, status);
-}
-
-pub fn append_to_tab_sql(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    tab_id: u64,
-    sql_fragment: String,
-    status: String,
-) {
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == tab_id) {
-            if tab.sql.trim().is_empty() {
-                tab.sql = sql_fragment;
-            } else if sql_fragment.trim().is_empty() {
+pub fn sync_active_tab_sql_draft(mut store: TabStore, active_tab_id: u64, sql: String) {
+    store.editor.with_mut(|m| {
+        if let Some(ed) = m.get_mut(&active_tab_id) {
+            if ed.sql == sql {
                 return;
-            } else if tab.sql.ends_with('\n') {
-                tab.sql.push_str(&sql_fragment);
-            } else {
-                tab.sql.push_str("\n\n");
-                tab.sql.push_str(&sql_fragment);
             }
-
-            tab.status = status.clone();
-            tab.result = None;
-            tab.current_offset = 0;
-            tab.last_run_sql = None;
-            tab.preview_source = None;
-            tab.filter = None;
-            tab.sort = None;
-            tab.tab_kind = WorkspaceTabKind::Query;
-            tab.is_loading_more = false;
-            tab.pending_table_changes = PendingTableChanges::default();
+            ed.sql = sql;
+            store.result.with_mut(|r| {
+                if let Some(res) = r.get_mut(&active_tab_id) {
+                    res.show_execution_plan = false;
+                }
+            });
         }
     });
 }
 
-pub fn set_active_tab_status(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: u64,
-    status: String,
-) {
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == active_tab_id) {
-            tab.status = status.clone();
+pub fn set_active_tab_sql(store: TabStore, active_tab_id: u64, sql: String, status: String) {
+    update_active_tab_sql(store, active_tab_id, sql, status);
+}
+
+pub fn append_to_tab_sql(mut store: TabStore, tab_id: u64, sql_fragment: String, status: String) {
+    let current_sql = store.editor.read().get(&tab_id).map(|ed| ed.sql.clone());
+    let Some(current_sql) = current_sql else {
+        return;
+    };
+
+    let new_sql = if current_sql.trim().is_empty() {
+        sql_fragment
+    } else if sql_fragment.trim().is_empty() {
+        return;
+    } else if current_sql.ends_with('\n') {
+        format!("{current_sql}{sql_fragment}")
+    } else {
+        format!("{current_sql}\n\n{sql_fragment}")
+    };
+
+    store.editor.with_mut(|m| {
+        if let Some(ed) = m.get_mut(&tab_id) {
+            ed.sql = new_sql;
+        }
+    });
+    store.result.with_mut(|r| {
+        if let Some(res) = r.get_mut(&tab_id) {
+            res.status = status;
+            res.result = None;
+            res.current_offset = 0;
+            res.last_run_sql = None;
+            res.preview_source = None;
+            res.filter = None;
+            res.sort = None;
+            res.is_loading_more = false;
+        }
+    });
+    store.meta.with_mut(|m| {
+        if let Some(meta) = m.get_mut(&tab_id) {
+            meta.tab_kind = WorkspaceTabKind::Query;
+        }
+    });
+    store.pending.with_mut(|m| {
+        if let Some(p) = m.get_mut(&tab_id) {
+            p.pending_table_changes = PendingTableChanges::default();
         }
     });
 }
 
+pub fn set_active_tab_status(mut store: TabStore, active_tab_id: u64, status: String) {
+    store.result.with_mut(|r| {
+        if let Some(res) = r.get_mut(&active_tab_id) {
+            res.status = status;
+        }
+    });
+}
+
+#[cfg(test)]
 fn toggle_cached_execution_plan(tab: &mut QueryTabState, sql: &str) -> bool {
     if tab.show_execution_plan && tab.execution_plan.is_some() {
         tab.show_execution_plan = false;
@@ -277,82 +319,111 @@ fn toggle_cached_execution_plan(tab: &mut QueryTabState, sql: &str) -> bool {
     false
 }
 
-pub fn toggle_execution_plan_for_tab(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: u64,
-    sql: &str,
-) -> bool {
+pub fn toggle_execution_plan_for_tab(mut store: TabStore, active_tab_id: u64, sql: &str) -> bool {
     let mut handled = false;
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == active_tab_id) {
-            handled = toggle_cached_execution_plan(tab, sql);
+    store.result.with_mut(|m| {
+        if let Some(res) = m.get_mut(&active_tab_id) {
+            if res.show_execution_plan && res.execution_plan.is_some() {
+                res.show_execution_plan = false;
+                handled = true;
+                return;
+            }
+            let normalized_sql = sql.trim();
+            let can_reopen_cached_plan = res.execution_plan.as_ref().is_some_and(|plan| {
+                !normalized_sql.is_empty() && plan.explained_sql.trim() == normalized_sql
+            });
+            if can_reopen_cached_plan {
+                res.show_execution_plan = true;
+                handled = true;
+            }
         }
     });
     handled
 }
 
 pub fn replace_active_tab_sql(
-    mut tabs: Signal<Vec<QueryTabState>>,
+    mut store: TabStore,
     active_tab_id: u64,
     sql: String,
     status: String,
 ) {
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == active_tab_id) {
-            if tab.sql != sql {
-                tab.show_execution_plan = false;
+    store.editor.with_mut(|m| {
+        if let Some(ed) = m.get_mut(&active_tab_id) {
+            if ed.sql != sql {
+                store.result.with_mut(|r| {
+                    if let Some(res) = r.get_mut(&active_tab_id) {
+                        res.show_execution_plan = false;
+                    }
+                });
             }
-            tab.sql = sql;
-            tab.status = status.clone();
+            ed.sql = sql;
+        }
+    });
+    store.result.with_mut(|r| {
+        if let Some(res) = r.get_mut(&active_tab_id) {
+            res.status = status;
         }
     });
 }
 
 pub fn open_structure_tab(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    mut active_tab_id: Signal<u64>,
-    mut next_tab_id: Signal<u64>,
+    mut store: TabStore,
     session_id: u64,
     connection: DatabaseConnection,
     source: TablePreviewSource,
 ) {
+    let mut next_tab_id = store.next_tab_id;
     let tab_id = next_tab_id();
     next_tab_id += 1;
 
     let title = format!("Structure · {}", source.table_name);
 
-    tabs.with_mut(|all_tabs| {
-        let mut tab = new_query_tab(tab_id, session_id, title, String::new());
-        tab.tab_kind = WorkspaceTabKind::Structure;
-        tab.status = format!("Loading structure for {}...", source.table_name);
-        all_tabs.push(tab);
+    let (mut meta, editor, mut result, pending) =
+        new_query_tab(tab_id, session_id, title, String::new());
+    meta.tab_kind = WorkspaceTabKind::Structure;
+    result.status = format!("Loading structure for {}...", source.table_name);
+    store.meta.with_mut(|m| {
+        m.insert(tab_id, meta);
     });
-    active_tab_id.set(tab_id);
+    store.editor.with_mut(|m| {
+        m.insert(tab_id, editor);
+    });
+    store.result.with_mut(|m| {
+        m.insert(tab_id, result);
+    });
+    store.pending.with_mut(|m| {
+        m.insert(tab_id, pending);
+    });
+    store.active_tab_id.set(tab_id);
 
     spawn(async move {
         match services::describe_table(connection, source.schema.clone(), source.table_name.clone())
             .await
         {
             Ok(output) => {
-                tabs.with_mut(|all_tabs| {
-                    if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == tab_id) {
-                        tab.result = Some(output);
-                        tab.status = format!("Loaded structure for {}", source.table_name);
-                        tab.current_offset = 0;
-                        tab.last_run_sql = None;
-                        tab.preview_source = None;
-                        tab.filter = None;
-                        tab.sort = None;
-                        tab.is_loading_more = false;
-                        tab.pending_table_changes = PendingTableChanges::default();
+                store.result.with_mut(|m| {
+                    if let Some(res) = m.get_mut(&tab_id) {
+                        res.result = Some(output);
+                        res.status = format!("Loaded structure for {}", source.table_name);
+                        res.current_offset = 0;
+                        res.last_run_sql = None;
+                        res.preview_source = None;
+                        res.filter = None;
+                        res.sort = None;
+                        res.is_loading_more = false;
+                    }
+                });
+                store.pending.with_mut(|m| {
+                    if let Some(p) = m.get_mut(&tab_id) {
+                        p.pending_table_changes = PendingTableChanges::default();
                     }
                 });
             }
             Err(err) => {
-                tabs.with_mut(|all_tabs| {
-                    if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == tab_id) {
-                        tab.result = None;
-                        tab.status = format!("Structure error: {err}");
+                store.result.with_mut(|m| {
+                    if let Some(res) = m.get_mut(&tab_id) {
+                        res.result = None;
+                        res.status = format!("Structure error: {err}");
                     }
                 });
             }
@@ -361,21 +432,21 @@ pub fn open_structure_tab(
 }
 
 pub fn tab_connection_or_error(
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     tab_id: u64,
     session_id: u64,
 ) -> Option<DatabaseConnection> {
     match session_connection(session_id) {
         Some(connection) => Some(connection),
         None => {
-            set_active_tab_status(tabs, tab_id, "The bound connection was closed".to_string());
+            set_active_tab_status(store, tab_id, "The bound connection was closed".to_string());
             None
         }
     }
 }
 
 pub fn run_query_for_tab(
-    mut tabs: Signal<Vec<QueryTabState>>,
+    mut store: TabStore,
     current_id: u64,
     connection: DatabaseConnection,
     sql: String,
@@ -387,11 +458,11 @@ pub fn run_query_for_tab(
     // :memory: pool never has to answer a SQL statement.
     #[cfg(debug_assertions)]
     {
-        let tab_session_id = tabs
+        let tab_session_id = store
+            .meta
             .read()
-            .iter()
-            .find(|tab| tab.id == current_id)
-            .map(|tab| tab.session_id);
+            .get(&current_id)
+            .map(|meta| meta.session_id);
         if let Some(session_id) = tab_session_id
             && crate::dev::is_mock_session(session_id)
             && let Some(output) = crate::dev::mock_query_for(&sql)
@@ -400,17 +471,21 @@ pub fn run_query_for_tab(
                 QueryOutput::Table(page) => format_loaded_rows_status(page.offset, page.rows.len()),
                 QueryOutput::AffectedRows(rows) => format!("Rows affected: {rows}"),
             };
-            tabs.with_mut(|all_tabs| {
-                if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                    tab.result = Some(output);
-                    tab.status = status;
-                    tab.current_offset = 0;
-                    tab.page_size = page_size;
-                    tab.last_run_sql = Some(sql.clone());
-                    tab.preview_source = None;
-                    tab.is_loading_more = false;
-                    tab.pending_table_changes = PendingTableChanges::default();
-                    tab.last_duration_ms = Some(0);
+            store.result.with_mut(|m| {
+                if let Some(res) = m.get_mut(&current_id) {
+                    res.result = Some(output);
+                    res.status = status;
+                    res.current_offset = 0;
+                    res.page_size = page_size;
+                    res.last_run_sql = Some(sql.clone());
+                    res.preview_source = None;
+                    res.is_loading_more = false;
+                    res.last_duration_ms = Some(0);
+                }
+            });
+            store.pending.with_mut(|m| {
+                if let Some(p) = m.get_mut(&current_id) {
+                    p.pending_table_changes = PendingTableChanges::default();
                 }
             });
             let _ = connection;
@@ -419,7 +494,6 @@ pub fn run_query_for_tab(
         }
     }
     // Многооператорные скрипты уходят в пакетный исполнитель, который
-    // Многооператорные скрипты уходят в пакетный исполнитель, который
     // показывает пооператорные результаты. Однооператорные запросы
     // остаются на существующем пути с пагинацией/фильтрами.
     let non_empty_count = services::split_sql(&sql)
@@ -427,36 +501,40 @@ pub fn run_query_for_tab(
         .filter(|stmt| !stmt.is_empty())
         .count();
     if non_empty_count > 1 {
-        run_batch_for_tab(tabs, current_id, connection, sql, page_size, history);
+        run_batch_for_tab(store, current_id, connection, sql, page_size, history);
         return;
     }
 
     if read_only_mode_blocks_sql(&sql) {
-        set_active_tab_status(tabs, current_id, read_only_mode_block_status("write SQL"));
+        set_active_tab_status(store, current_id, read_only_mode_block_status("write SQL"));
         return;
     }
 
-    let filter = tabs
+    let filter = store
+        .result
         .read()
-        .iter()
-        .find(|tab| tab.id == current_id)
-        .and_then(|tab| tab.filter.clone());
-    let sort = tabs
+        .get(&current_id)
+        .and_then(|r| r.filter.clone());
+    let sort = store
+        .result
         .read()
-        .iter()
-        .find(|tab| tab.id == current_id)
-        .and_then(|tab| tab.sort.clone());
+        .get(&current_id)
+        .and_then(|r| r.sort.clone());
 
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-            tab.status = format!("Running query at offset {offset}...");
-            tab.preview_source = None;
-            tab.is_loading_more = false;
-            tab.pending_table_changes = PendingTableChanges::default();
-            tab.show_execution_plan = false;
-            tab.last_duration_ms = None;
-            tab.batch_results = None;
-            tab.batch_outputs.clear();
+    store.result.with_mut(|m| {
+        if let Some(res) = m.get_mut(&current_id) {
+            res.status = format!("Running query at offset {offset}...");
+            res.preview_source = None;
+            res.is_loading_more = false;
+            res.show_execution_plan = false;
+            res.last_duration_ms = None;
+            res.batch_results = None;
+            res.batch_outputs.clear();
+        }
+    });
+    store.pending.with_mut(|m| {
+        if let Some(p) = m.get_mut(&current_id) {
+            p.pending_table_changes = PendingTableChanges::default();
         }
     });
 
@@ -487,17 +565,21 @@ pub fn run_query_for_tab(
                     QueryOutput::AffectedRows(count) => Some(*count as usize),
                 };
 
-                tabs.with_mut(|all_tabs| {
-                    if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                        tab.result = Some(output);
-                        tab.status = status.clone();
-                        tab.current_offset = current_offset;
-                        tab.page_size = page_size;
-                        tab.last_run_sql = Some(sql.clone());
-                        tab.preview_source = None;
-                        tab.is_loading_more = false;
-                        tab.pending_table_changes = PendingTableChanges::default();
-                        tab.last_duration_ms = Some(duration_ms);
+                store.result.with_mut(|m| {
+                    if let Some(res) = m.get_mut(&current_id) {
+                        res.result = Some(output);
+                        res.status = status.clone();
+                        res.current_offset = current_offset;
+                        res.page_size = page_size;
+                        res.last_run_sql = Some(sql.clone());
+                        res.preview_source = None;
+                        res.is_loading_more = false;
+                        res.last_duration_ms = Some(duration_ms);
+                    }
+                });
+                store.pending.with_mut(|m| {
+                    if let Some(p) = m.get_mut(&current_id) {
+                        p.pending_table_changes = PendingTableChanges::default();
                     }
                 });
 
@@ -537,14 +619,18 @@ pub fn run_query_for_tab(
                 let duration_ms = start_time.elapsed().as_millis() as u64;
                 let duration_suffix =
                     format!(" · {}", super::helpers::format_duration(duration_ms));
-                tabs.with_mut(|all_tabs| {
-                    if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                        tab.result = None;
-                        tab.status = format!("Error: {err}{duration_suffix}");
-                        tab.preview_source = None;
-                        tab.is_loading_more = false;
-                        tab.pending_table_changes = PendingTableChanges::default();
-                        tab.last_duration_ms = Some(duration_ms);
+                store.result.with_mut(|m| {
+                    if let Some(res) = m.get_mut(&current_id) {
+                        res.result = None;
+                        res.status = format!("Error: {err}{duration_suffix}");
+                        res.preview_source = None;
+                        res.is_loading_more = false;
+                        res.last_duration_ms = Some(duration_ms);
+                    }
+                });
+                store.pending.with_mut(|m| {
+                    if let Some(p) = m.get_mut(&current_id) {
+                        p.pending_table_changes = PendingTableChanges::default();
                     }
                 });
 
@@ -596,7 +682,7 @@ pub fn run_query_for_tab(
 /// На первой ошибке выполнение останавливается, оставшиеся операторы
 /// помечаются `Skipped`.
 fn run_batch_for_tab(
-    mut tabs: Signal<Vec<QueryTabState>>,
+    mut store: TabStore,
     current_id: u64,
     connection: DatabaseConnection,
     sql: String,
@@ -607,11 +693,11 @@ fn run_batch_for_tab(
     let plan = services::plan_batch(&sql, family);
 
     if APP_READ_ONLY_MODE() && plan.has_writes {
-        set_active_tab_status(tabs, current_id, read_only_mode_block_status("write SQL"));
+        set_active_tab_status(store, current_id, read_only_mode_block_status("write SQL"));
         return;
     }
     if plan.executable_count == 0 {
-        set_active_tab_status(tabs, current_id, "Query is empty".to_string());
+        set_active_tab_status(store, current_id, "Query is empty".to_string());
         return;
     }
 
@@ -632,22 +718,26 @@ fn run_batch_for_tab(
     let statement_count = results.len();
     let connection_type = get_connection_type(&connection);
 
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-            tab.status = format!("Running batch: {statement_count} statements...");
-            tab.result = None;
-            tab.preview_source = None;
-            tab.is_loading_more = false;
-            tab.pending_table_changes = PendingTableChanges::default();
-            tab.show_execution_plan = false;
-            tab.last_duration_ms = None;
-            tab.batch_results = Some(BatchRunState {
+    store.result.with_mut(|m| {
+        if let Some(res) = m.get_mut(&current_id) {
+            res.status = format!("Running batch: {statement_count} statements...");
+            res.result = None;
+            res.preview_source = None;
+            res.is_loading_more = false;
+            res.show_execution_plan = false;
+            res.last_duration_ms = None;
+            res.batch_results = Some(BatchRunState {
                 results,
                 active_index: 0,
                 tx_state: BatchTransactionState::None,
                 total_duration_ms: 0,
             });
-            tab.batch_outputs = vec![None; statement_count];
+            res.batch_outputs = vec![None; statement_count];
+        }
+    });
+    store.pending.with_mut(|m| {
+        if let Some(p) = m.get_mut(&current_id) {
+            p.pending_table_changes = PendingTableChanges::default();
         }
     });
 
@@ -684,9 +774,9 @@ fn run_batch_for_tab(
                     // Первый успешный оператор становится активным по умолчанию.
                     first_output_pos.get_or_insert(pos);
                     let output_for_slot = Some(output.clone());
-                    tabs.with_mut(|all_tabs| {
-                        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                            if let Some(batch) = tab.batch_results.as_mut() {
+                    store.result.with_mut(|m| {
+                        if let Some(res) = m.get_mut(&current_id) {
+                            if let Some(batch) = res.batch_results.as_mut() {
                                 if let Some(result) = batch.results.get_mut(pos) {
                                     result.outcome = BatchOutcome::Ok;
                                     result.duration_ms = Some(duration_ms);
@@ -694,7 +784,7 @@ fn run_batch_for_tab(
                                 }
                                 batch.total_duration_ms = total_ms;
                             }
-                            if let Some(slot) = tab.batch_outputs.get_mut(pos) {
+                            if let Some(slot) = res.batch_outputs.get_mut(pos) {
                                 *slot = output_for_slot;
                             }
                         }
@@ -702,9 +792,9 @@ fn run_batch_for_tab(
                 }
                 Err(err) => {
                     let message = err.to_string();
-                    tabs.with_mut(|all_tabs| {
-                        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id)
-                            && let Some(batch) = tab.batch_results.as_mut()
+                    store.result.with_mut(|m| {
+                        if let Some(res) = m.get_mut(&current_id)
+                            && let Some(batch) = res.batch_results.as_mut()
                         {
                             if let Some(result) = batch.results.get_mut(pos) {
                                 result.outcome = BatchOutcome::Error;
@@ -723,9 +813,9 @@ fn run_batch_for_tab(
 
         // Оставшиеся после ошибки операторы — пропущены.
         if let Some(failed_pos) = error_pos {
-            tabs.with_mut(|all_tabs| {
-                if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id)
-                    && let Some(batch) = tab.batch_results.as_mut()
+            store.result.with_mut(|m| {
+                if let Some(res) = m.get_mut(&current_id)
+                    && let Some(batch) = res.batch_results.as_mut()
                 {
                     for result in batch.results.iter_mut().skip(failed_pos + 1) {
                         result.outcome = BatchOutcome::Skipped;
@@ -754,15 +844,15 @@ fn run_batch_for_tab(
         };
 
         let active_index = first_output_pos.unwrap_or(0);
-        tabs.with_mut(|all_tabs| {
-            if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                tab.status = status_label.clone();
-                tab.last_duration_ms = Some(total_duration_ms);
-                tab.result = tab
+        store.result.with_mut(|m| {
+            if let Some(res) = m.get_mut(&current_id) {
+                res.status = status_label.clone();
+                res.last_duration_ms = Some(total_duration_ms);
+                res.result = res
                     .batch_outputs
                     .get(active_index)
                     .and_then(|slot| slot.clone());
-                if let Some(batch) = tab.batch_results.as_mut() {
+                if let Some(batch) = res.batch_results.as_mut() {
                     batch.total_duration_ms = total_duration_ms;
                     batch.active_index = active_index;
                 }
@@ -779,11 +869,11 @@ fn run_batch_for_tab(
             let history_id = next_history_id();
             next_history_id += 1;
             let rows_returned = {
-                let total: usize = tabs
+                let total: usize = store
+                    .result
                     .read()
-                    .iter()
-                    .find(|tab| tab.id == current_id)
-                    .and_then(|tab| tab.batch_results.as_ref())
+                    .get(&current_id)
+                    .and_then(|res| res.batch_results.as_ref())
                     .map(|batch| batch.results.iter().filter_map(|r| r.rows).sum())
                     .unwrap_or(0);
                 if total > 0 { Some(total) } else { None }
@@ -794,10 +884,11 @@ fn run_batch_for_tab(
                 "Success".to_string()
             };
             let error_message = if failed {
-                tabs.read()
-                    .iter()
-                    .find(|tab| tab.id == current_id)
-                    .and_then(|tab| tab.batch_results.as_ref())
+                store
+                    .result
+                    .read()
+                    .get(&current_id)
+                    .and_then(|res| res.batch_results.as_ref())
                     .and_then(|batch| batch.results.iter().find_map(|r| r.error_message.clone()))
             } else {
                 None
@@ -826,24 +917,24 @@ fn run_batch_for_tab(
 }
 
 pub fn run_explain_for_tab(
-    mut tabs: Signal<Vec<QueryTabState>>,
+    mut store: TabStore,
     current_id: u64,
     connection: DatabaseConnection,
     sql: String,
 ) {
     if sql.trim().is_empty() {
-        tabs.with_mut(|all_tabs| {
-            if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                tab.status = "Query is empty".to_string();
+        store.result.with_mut(|m| {
+            if let Some(res) = m.get_mut(&current_id) {
+                res.status = "Query is empty".to_string();
             }
         });
         return;
     }
 
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-            tab.status = "Running EXPLAIN...".to_string();
-            tab.execution_plan = None;
+    store.result.with_mut(|m| {
+        if let Some(res) = m.get_mut(&current_id) {
+            res.status = "Running EXPLAIN...".to_string();
+            res.execution_plan = None;
         }
     });
 
@@ -851,18 +942,18 @@ pub fn run_explain_for_tab(
         match services::execute_explain(connection, &sql, false).await {
             Ok(plan) => {
                 let node_count = plan.flattened_with_depth().len();
-                tabs.with_mut(|all_tabs| {
-                    if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                        tab.execution_plan = Some(plan);
-                        tab.show_execution_plan = true;
-                        tab.status = format!("Execution plan loaded ({} operations)", node_count);
+                store.result.with_mut(|m| {
+                    if let Some(res) = m.get_mut(&current_id) {
+                        res.execution_plan = Some(plan);
+                        res.show_execution_plan = true;
+                        res.status = format!("Execution plan loaded ({} operations)", node_count);
                     }
                 });
             }
             Err(err) => {
-                tabs.with_mut(|all_tabs| {
-                    if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                        tab.status = format!("EXPLAIN error: {err}");
+                store.result.with_mut(|m| {
+                    if let Some(res) = m.get_mut(&current_id) {
+                        res.status = format!("EXPLAIN error: {err}");
                     }
                 });
             }
@@ -871,7 +962,7 @@ pub fn run_explain_for_tab(
 }
 
 pub fn run_table_preview_for_tab(
-    mut tabs: Signal<Vec<QueryTabState>>,
+    mut store: TabStore,
     current_id: u64,
     connection: DatabaseConnection,
     source: TablePreviewSource,
@@ -897,59 +988,63 @@ pub fn run_table_preview_for_tab(
                 ),
                 QueryOutput::AffectedRows(rows) => format!("Rows affected: {rows}"),
             };
-            tabs.with_mut(|all_tabs| {
-                if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                    tab.preview_source = Some(source.clone());
-                    tab.tab_kind = WorkspaceTabKind::TablePreview;
-                    tab.result = Some(output);
-                    tab.status = status;
-                    tab.current_offset = offset;
-                    tab.page_size = page_size;
-                    tab.last_run_sql = Some(format!(
+            store.result.with_mut(|m| {
+                if let Some(res) = m.get_mut(&current_id) {
+                    res.preview_source = Some(source.clone());
+                    res.result = Some(output);
+                    res.status = status;
+                    res.current_offset = offset;
+                    res.page_size = page_size;
+                    res.last_run_sql = Some(format!(
                         "select * from {} limit {};",
                         source.qualified_name, page_size
                     ));
-                    tab.is_loading_more = false;
+                    res.is_loading_more = false;
+                }
+            });
+            store.meta.with_mut(|m| {
+                if let Some(meta) = m.get_mut(&current_id) {
+                    meta.tab_kind = WorkspaceTabKind::TablePreview;
                 }
             });
             let _ = connection;
             return;
         }
     }
-    let filter = tabs
-        .read()
-        .iter()
-        .find(|tab| tab.id == current_id)
-        .and_then(|tab| {
-            if tab.preview_source.as_ref() == Some(&source) {
-                tab.filter.clone()
-            } else {
-                None
-            }
-        });
-    let sort = tabs
-        .read()
-        .iter()
-        .find(|tab| tab.id == current_id)
-        .and_then(|tab| {
-            if tab.preview_source.as_ref() == Some(&source) {
-                tab.sort.clone()
-            } else {
-                None
-            }
-        });
+    let filter = store.result.read().get(&current_id).and_then(|res| {
+        if res.preview_source.as_ref() == Some(&source) {
+            res.filter.clone()
+        } else {
+            None
+        }
+    });
+    let sort = store.result.read().get(&current_id).and_then(|res| {
+        if res.preview_source.as_ref() == Some(&source) {
+            res.sort.clone()
+        } else {
+            None
+        }
+    });
 
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-            tab.status = format!("Loading rows from {}...", source.table_name);
-            if tab.preview_source.as_ref() != Some(&source) {
-                tab.filter = None;
-                tab.sort = None;
-                tab.is_loading_more = false;
-                tab.pending_table_changes = PendingTableChanges::default();
+    store.result.with_mut(|m| {
+        if let Some(res) = m.get_mut(&current_id) {
+            res.status = format!("Loading rows from {}...", source.table_name);
+            if res.preview_source.as_ref() != Some(&source) {
+                res.filter = None;
+                res.sort = None;
+                res.is_loading_more = false;
             }
-            tab.preview_source = Some(source.clone());
-            tab.tab_kind = WorkspaceTabKind::TablePreview;
+            res.preview_source = Some(source.clone());
+        }
+    });
+    store.pending.with_mut(|m| {
+        if let Some(p) = m.get_mut(&current_id) {
+            p.pending_table_changes = PendingTableChanges::default();
+        }
+    });
+    store.meta.with_mut(|m| {
+        if let Some(meta) = m.get_mut(&current_id) {
+            meta.tab_kind = WorkspaceTabKind::TablePreview;
         }
     });
 
@@ -974,28 +1069,28 @@ pub fn run_table_preview_for_tab(
                     QueryOutput::AffectedRows(rows) => format!("Rows affected: {rows}"),
                 };
 
-                tabs.with_mut(|all_tabs| {
-                    if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                        tab.result = Some(output);
-                        tab.status = status;
-                        tab.current_offset = offset;
-                        tab.page_size = page_size;
-                        tab.last_run_sql = Some(format!(
+                store.result.with_mut(|m| {
+                    if let Some(res) = m.get_mut(&current_id) {
+                        res.result = Some(output);
+                        res.status = status;
+                        res.current_offset = offset;
+                        res.page_size = page_size;
+                        res.last_run_sql = Some(format!(
                             "select * from {} limit {};",
                             source.qualified_name, page_size
                         ));
-                        tab.preview_source = Some(source.clone());
-                        tab.is_loading_more = false;
+                        res.preview_source = Some(source.clone());
+                        res.is_loading_more = false;
                     }
                 });
             }
             Err(err) => {
-                tabs.with_mut(|all_tabs| {
-                    if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                        tab.result = None;
-                        tab.status = format!("Preview error: {err}");
-                        tab.preview_source = Some(source.clone());
-                        tab.is_loading_more = false;
+                store.result.with_mut(|m| {
+                    if let Some(res) = m.get_mut(&current_id) {
+                        res.result = None;
+                        res.status = format!("Preview error: {err}");
+                        res.preview_source = Some(source.clone());
+                        res.is_loading_more = false;
                     }
                 });
             }
@@ -1050,7 +1145,7 @@ fn append_query_page(existing_page: &mut models::QueryPage, next_page: models::Q
     }
 }
 
-pub fn append_next_tab_page(mut tabs: Signal<Vec<QueryTabState>>, current_tab: QueryTabState) {
+pub fn append_next_tab_page(mut store: TabStore, current_tab: QueryTabState) {
     let Some(QueryOutput::Table(current_page)) = current_tab.result.clone() else {
         return;
     };
@@ -1069,15 +1164,15 @@ pub fn append_next_tab_page(mut tabs: Signal<Vec<QueryTabState>>, current_tab: Q
     let expected_filter = current_tab.filter.clone();
     let expected_sort = current_tab.sort.clone();
 
-    let Some(connection) = tab_connection_or_error(tabs, current_tab.id, current_tab.session_id)
+    let Some(connection) = tab_connection_or_error(store, current_tab.id, current_tab.session_id)
     else {
         return;
     };
 
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_tab.id) {
-            tab.is_loading_more = true;
-            tab.status = format!("Loading more rows from {}...", next_offset + 1);
+    store.result.with_mut(|m| {
+        if let Some(res) = m.get_mut(&current_tab.id) {
+            res.is_loading_more = true;
+            res.status = format!("Loading more rows from {}...", next_offset + 1);
         }
     });
 
@@ -1103,9 +1198,9 @@ pub fn append_next_tab_page(mut tabs: Signal<Vec<QueryTabState>>, current_tab: Q
             )
             .await
         } else {
-            tabs.with_mut(|all_tabs| {
-                if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_tab.id) {
-                    tab.is_loading_more = false;
+            store.result.with_mut(|m| {
+                if let Some(res) = m.get_mut(&current_tab.id) {
+                    res.is_loading_more = false;
                 }
             });
             return;
@@ -1113,23 +1208,23 @@ pub fn append_next_tab_page(mut tabs: Signal<Vec<QueryTabState>>, current_tab: Q
 
         match next_page_result {
             Ok(QueryOutput::Table(next_page)) => {
-                tabs.with_mut(|all_tabs| {
-                    let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_tab.id) else {
+                store.result.with_mut(|m| {
+                    let Some(res) = m.get_mut(&current_tab.id) else {
                         return;
                     };
 
-                    let same_request = tab.last_run_sql == expected_sql
-                        && tab.preview_source == expected_preview_source
-                        && tab.filter == expected_filter
-                        && tab.sort == expected_sort;
+                    let same_request = res.last_run_sql == expected_sql
+                        && res.preview_source == expected_preview_source
+                        && res.filter == expected_filter
+                        && res.sort == expected_sort;
 
                     if !same_request {
-                        tab.is_loading_more = false;
+                        res.is_loading_more = false;
                         return;
                     }
 
                     let mut loaded_range = None;
-                    if let Some(QueryOutput::Table(existing_page)) = tab.result.as_mut() {
+                    if let Some(QueryOutput::Table(existing_page)) = res.result.as_mut() {
                         append_query_page(existing_page, next_page);
                         loaded_range = Some((
                             existing_page.offset,
@@ -1138,30 +1233,30 @@ pub fn append_next_tab_page(mut tabs: Signal<Vec<QueryTabState>>, current_tab: Q
                     }
 
                     if let Some((offset, last_row)) = loaded_range {
-                        tab.current_offset = offset;
-                        tab.status = format_loaded_rows_status(
+                        res.current_offset = offset;
+                        res.status = format_loaded_rows_status(
                             offset,
                             last_row.saturating_sub(offset) as usize,
                         );
                     }
 
-                    tab.is_loading_more = false;
+                    res.is_loading_more = false;
                 });
             }
             Ok(other_output) => {
-                tabs.with_mut(|all_tabs| {
-                    if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_tab.id) {
-                        tab.result = Some(other_output);
-                        tab.is_loading_more = false;
-                        tab.status = "Loaded additional result".to_string();
+                store.result.with_mut(|m| {
+                    if let Some(res) = m.get_mut(&current_tab.id) {
+                        res.result = Some(other_output);
+                        res.is_loading_more = false;
+                        res.status = "Loaded additional result".to_string();
                     }
                 });
             }
             Err(err) => {
-                tabs.with_mut(|all_tabs| {
-                    if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_tab.id) {
-                        tab.is_loading_more = false;
-                        tab.status = format!("Load more error: {err}");
+                store.result.with_mut(|m| {
+                    if let Some(res) = m.get_mut(&current_tab.id) {
+                        res.is_loading_more = false;
+                        res.status = format!("Load more error: {err}");
                     }
                 });
             }
@@ -1202,15 +1297,15 @@ pub(crate) fn rows_toolbar_summary(offset: u64, row_count: usize, page_size: u32
     }
 }
 
-pub fn load_tab_page(tabs: Signal<Vec<QueryTabState>>, current_tab: QueryTabState, offset: u64) {
-    let Some(connection) = tab_connection_or_error(tabs, current_tab.id, current_tab.session_id)
+pub fn load_tab_page(store: TabStore, current_tab: QueryTabState, offset: u64) {
+    let Some(connection) = tab_connection_or_error(store, current_tab.id, current_tab.session_id)
     else {
         return;
     };
 
     if let Some(source) = current_tab.preview_source.clone() {
         run_table_preview_for_tab(
-            tabs,
+            store,
             current_tab.id,
             connection,
             source,
@@ -1222,7 +1317,7 @@ pub fn load_tab_page(tabs: Signal<Vec<QueryTabState>>, current_tab: QueryTabStat
 
     if let Some(sql) = current_tab.last_run_sql.clone() {
         run_query_for_tab(
-            tabs,
+            store,
             current_tab.id,
             connection,
             sql,
@@ -1234,23 +1329,23 @@ pub fn load_tab_page(tabs: Signal<Vec<QueryTabState>>, current_tab: QueryTabStat
 }
 
 pub fn refresh_tab_result(
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     current_tab: QueryTabState,
     fallback_source: Option<TablePreviewSource>,
 ) {
     if current_tab.preview_source.is_some() || current_tab.last_run_sql.is_some() {
-        load_tab_page(tabs, current_tab.clone(), current_tab.current_offset);
+        load_tab_page(store, current_tab.clone(), current_tab.current_offset);
         return;
     }
 
-    let Some(connection) = tab_connection_or_error(tabs, current_tab.id, current_tab.session_id)
+    let Some(connection) = tab_connection_or_error(store, current_tab.id, current_tab.session_id)
     else {
         return;
     };
 
     if let Some(source) = fallback_source {
         run_table_preview_for_tab(
-            tabs,
+            store,
             current_tab.id,
             connection,
             source,
@@ -1260,98 +1355,139 @@ pub fn refresh_tab_result(
     }
 }
 
-pub fn mark_table_deleted(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    session_id: u64,
-    source: TablePreviewSource,
-) {
-    tabs.with_mut(|all_tabs| {
-        for tab in all_tabs
-            .iter_mut()
-            .filter(|tab| tab.session_id == session_id)
-        {
-            let matches_preview = tab.preview_source.as_ref() == Some(&source);
-            let matches_sql = tab
-                .last_run_sql
-                .as_deref()
-                .and_then(services::preview_source_for_sql)
-                .as_ref()
-                == Some(&source);
+pub fn mark_table_deleted(mut store: TabStore, session_id: u64, source: TablePreviewSource) {
+    let tab_ids: Vec<u64> = store
+        .meta
+        .read()
+        .iter()
+        .filter(|(_, meta)| meta.session_id == session_id)
+        .map(|(id, _)| *id)
+        .collect();
 
-            if !matches_preview && !matches_sql {
-                continue;
-            }
+    for tab_id in tab_ids {
+        let matches_preview = store
+            .result
+            .read()
+            .get(&tab_id)
+            .and_then(|r| r.preview_source.clone())
+            .as_ref()
+            == Some(&source);
+        let matches_sql = store
+            .result
+            .read()
+            .get(&tab_id)
+            .and_then(|r| r.last_run_sql.clone())
+            .and_then(|sql| services::preview_source_for_sql(&sql))
+            .as_ref()
+            == Some(&source);
 
-            tab.result = None;
-            tab.current_offset = 0;
-            tab.preview_source = None;
-            tab.filter = None;
-            tab.sort = None;
-            tab.is_loading_more = false;
-            tab.pending_table_changes = PendingTableChanges::default();
-            tab.status = if matches_preview {
-                format!("Table {} was deleted", source.table_name)
-            } else {
-                format!(
-                    "Referenced table {} was deleted. Update the SQL and run it again.",
-                    source.table_name
-                )
-            };
-
-            if matches_preview {
-                tab.last_run_sql = None;
-            }
+        if !matches_preview && !matches_sql {
+            continue;
         }
-    });
+
+        store.result.with_mut(|m| {
+            if let Some(res) = m.get_mut(&tab_id) {
+                res.result = None;
+                res.current_offset = 0;
+                res.preview_source = None;
+                res.filter = None;
+                res.sort = None;
+                res.is_loading_more = false;
+                res.status = if matches_preview {
+                    format!("Table {} was deleted", source.table_name)
+                } else {
+                    format!(
+                        "Referenced table {} was deleted. Update the SQL and run it again.",
+                        source.table_name
+                    )
+                };
+
+                if matches_preview {
+                    res.last_run_sql = None;
+                }
+            }
+        });
+        store.pending.with_mut(|m| {
+            if let Some(p) = m.get_mut(&tab_id) {
+                p.pending_table_changes = PendingTableChanges::default();
+            }
+        });
+    }
 }
 
 pub fn mark_table_truncated(
-    mut tabs: Signal<Vec<QueryTabState>>,
+    mut store: TabStore,
     session_id: u64,
     connection: DatabaseConnection,
     source: TablePreviewSource,
 ) {
     let mut preview_tabs = Vec::new();
 
-    tabs.with_mut(|all_tabs| {
-        for tab in all_tabs
-            .iter_mut()
-            .filter(|tab| tab.session_id == session_id)
-        {
-            let matches_preview = tab.preview_source.as_ref() == Some(&source);
-            let matches_sql = tab
-                .last_run_sql
-                .as_deref()
-                .and_then(services::preview_source_for_sql)
-                .as_ref()
-                == Some(&source);
+    let tab_ids: Vec<u64> = store
+        .meta
+        .read()
+        .iter()
+        .filter(|(_, meta)| meta.session_id == session_id)
+        .map(|(id, _)| *id)
+        .collect();
 
-            if !matches_preview && !matches_sql {
-                continue;
-            }
+    for tab_id in tab_ids {
+        let matches_preview = store
+            .result
+            .read()
+            .get(&tab_id)
+            .and_then(|r| r.preview_source.clone())
+            .as_ref()
+            == Some(&source);
+        let matches_sql = store
+            .result
+            .read()
+            .get(&tab_id)
+            .and_then(|r| r.last_run_sql.clone())
+            .and_then(|sql| services::preview_source_for_sql(&sql))
+            .as_ref()
+            == Some(&source);
 
-            tab.result = None;
-            tab.current_offset = 0;
-            tab.is_loading_more = false;
-            tab.pending_table_changes = PendingTableChanges::default();
-
-            if matches_preview {
-                preview_tabs.push((tab.id, tab.page_size));
-                continue;
-            }
-
-            tab.filter = None;
-            tab.sort = None;
-            tab.status = format!(
-                "Referenced table {} was truncated. Run the SQL again to refresh.",
-                source.table_name
-            );
+        if !matches_preview && !matches_sql {
+            continue;
         }
-    });
+
+        store.result.with_mut(|m| {
+            if let Some(res) = m.get_mut(&tab_id) {
+                res.result = None;
+                res.current_offset = 0;
+                res.is_loading_more = false;
+            }
+        });
+        store.pending.with_mut(|m| {
+            if let Some(p) = m.get_mut(&tab_id) {
+                p.pending_table_changes = PendingTableChanges::default();
+            }
+        });
+
+        if matches_preview {
+            let page_size = store.result.read().get(&tab_id).map(|r| r.page_size);
+            if let Some(page_size) = page_size {
+                preview_tabs.push((tab_id, page_size));
+            }
+            continue;
+        }
+
+        store.result.with_mut(|m| {
+            if let Some(res) = m.get_mut(&tab_id) {
+                res.filter = None;
+                res.sort = None;
+                res.status = format!(
+                    "Referenced table {} was truncated. Run the SQL again to refresh.",
+                    source.table_name
+                );
+            }
+        });
+    }
 
     for (tab_id, page_size) in preview_tabs {
         run_table_preview_for_tab(
-            tabs,
+            store,
             tab_id,
             connection.clone(),
             source.clone(),
@@ -1361,21 +1497,17 @@ pub fn mark_table_truncated(
     }
 }
 
-pub fn toggle_active_tab_sort(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: u64,
-    column_name: String,
-) {
+pub fn toggle_active_tab_sort(mut store: TabStore, active_tab_id: u64, column_name: String) {
     let mut tab_to_reload = None;
 
-    tabs.with_mut(|all_tabs| {
-        let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == active_tab_id) else {
+    store.result.with_mut(|m| {
+        let Some(res) = m.get_mut(&active_tab_id) else {
             return;
         };
 
-        tab.sort = next_sort_state(tab.sort.as_ref(), &column_name);
-        tab.current_offset = 0;
-        tab.status = match &tab.sort {
+        res.sort = next_sort_state(res.sort.as_ref(), &column_name);
+        res.current_offset = 0;
+        res.status = match &res.sort {
             Some(sort) => format!(
                 "Sorted by {} {}",
                 sort.column_name,
@@ -1383,13 +1515,28 @@ pub fn toggle_active_tab_sort(
             ),
             None => "Sorting cleared".to_string(),
         };
-        tab_to_reload = Some(tab.clone());
+        tab_to_reload = Some(res.clone());
     });
 
-    if let Some(tab) = tab_to_reload
-        && (tab.last_run_sql.is_some() || tab.preview_source.is_some())
+    if let Some(res) = tab_to_reload
+        && (res.last_run_sql.is_some() || res.preview_source.is_some())
     {
-        load_tab_page(tabs, tab, 0);
+        let session_id = store
+            .meta
+            .read()
+            .get(&active_tab_id)
+            .map(|meta| meta.session_id)
+            .unwrap_or(0);
+        let tab = QueryTabState {
+            id: active_tab_id,
+            session_id,
+            page_size: res.page_size,
+            current_offset: res.current_offset,
+            preview_source: res.preview_source.clone(),
+            last_run_sql: res.last_run_sql.clone(),
+            ..QueryTabState::default()
+        };
+        load_tab_page(store, tab, 0);
     }
 }
 
@@ -1407,15 +1554,11 @@ fn next_sort_state(current: Option<&QuerySort>, column_name: &str) -> Option<Que
     }
 }
 
-pub fn apply_active_tab_filter(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: u64,
-    filter: QueryFilter,
-) {
+pub fn apply_active_tab_filter(mut store: TabStore, active_tab_id: u64, filter: QueryFilter) {
     let mut tab_to_reload = None;
 
-    tabs.with_mut(|all_tabs| {
-        let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == active_tab_id) else {
+    store.result.with_mut(|m| {
+        let Some(res) = m.get_mut(&active_tab_id) else {
             return;
         };
 
@@ -1429,7 +1572,7 @@ pub fn apply_active_tab_filter(
             .cloned()
             .collect::<Vec<_>>();
 
-        tab.filter = if applied_rules.is_empty() {
+        res.filter = if applied_rules.is_empty() {
             None
         } else {
             Some(QueryFilter {
@@ -1437,8 +1580,8 @@ pub fn apply_active_tab_filter(
                 rules: applied_rules,
             })
         };
-        tab.current_offset = 0;
-        tab.status = match &tab.filter {
+        res.current_offset = 0;
+        res.status = match &res.filter {
             Some(filter) => format!(
                 "Applied {} filter rule(s) with {}",
                 filter.rules.len(),
@@ -1449,34 +1592,64 @@ pub fn apply_active_tab_filter(
             ),
             None => "Filter cleared".to_string(),
         };
-        tab_to_reload = Some(tab.clone());
+        tab_to_reload = Some(res.clone());
     });
 
-    if let Some(tab) = tab_to_reload
-        && (tab.last_run_sql.is_some() || tab.preview_source.is_some())
+    if let Some(res) = tab_to_reload
+        && (res.last_run_sql.is_some() || res.preview_source.is_some())
     {
-        load_tab_page(tabs, tab, 0);
+        let session_id = store
+            .meta
+            .read()
+            .get(&active_tab_id)
+            .map(|meta| meta.session_id)
+            .unwrap_or(0);
+        let tab = QueryTabState {
+            id: active_tab_id,
+            session_id,
+            page_size: res.page_size,
+            current_offset: res.current_offset,
+            preview_source: res.preview_source.clone(),
+            last_run_sql: res.last_run_sql.clone(),
+            ..QueryTabState::default()
+        };
+        load_tab_page(store, tab, 0);
     }
 }
 
-pub fn clear_active_tab_filter(mut tabs: Signal<Vec<QueryTabState>>, active_tab_id: u64) {
+pub fn clear_active_tab_filter(mut store: TabStore, active_tab_id: u64) {
     let mut tab_to_reload = None;
 
-    tabs.with_mut(|all_tabs| {
-        let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == active_tab_id) else {
+    store.result.with_mut(|m| {
+        let Some(res) = m.get_mut(&active_tab_id) else {
             return;
         };
 
-        tab.filter = None;
-        tab.current_offset = 0;
-        tab.status = "Filter cleared".to_string();
-        tab_to_reload = Some(tab.clone());
+        res.filter = None;
+        res.current_offset = 0;
+        res.status = "Filter cleared".to_string();
+        tab_to_reload = Some(res.clone());
     });
 
-    if let Some(tab) = tab_to_reload
-        && (tab.last_run_sql.is_some() || tab.preview_source.is_some())
+    if let Some(res) = tab_to_reload
+        && (res.last_run_sql.is_some() || res.preview_source.is_some())
     {
-        load_tab_page(tabs, tab, 0);
+        let session_id = store
+            .meta
+            .read()
+            .get(&active_tab_id)
+            .map(|meta| meta.session_id)
+            .unwrap_or(0);
+        let tab = QueryTabState {
+            id: active_tab_id,
+            session_id,
+            page_size: res.page_size,
+            current_offset: res.current_offset,
+            preview_source: res.preview_source.clone(),
+            last_run_sql: res.last_run_sql.clone(),
+            ..QueryTabState::default()
+        };
+        load_tab_page(store, tab, 0);
     }
 }
 
@@ -1498,38 +1671,50 @@ pub fn clear_active_tab_filter(mut tabs: Signal<Vec<QueryTabState>>, active_tab_
 /// every callsite already has them paired in local bindings; this
 /// keeps the API ergonomic without forcing a new struct type.
 pub fn run_active_tab(
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     active_tab_id: u64,
     history: (Signal<Vec<QueryHistoryItem>>, Signal<u64>),
 ) {
     let (history, next_history_id) = history;
     let current_id = active_tab_id;
-    let current_tab = tabs.read().iter().find(|tab| tab.id == current_id).cloned();
-
-    let Some(current_tab) = current_tab else {
+    let sql = store
+        .editor
+        .read()
+        .get(&current_id)
+        .map(|ed| ed.sql.clone());
+    let Some(sql) = sql else {
         return;
     };
-
-    let sql = current_tab.sql.trim().to_string();
-    let tab_title = current_tab.title.clone();
-    let page_size = current_tab.page_size;
+    let sql = sql.trim().to_string();
+    let tab_title = store.meta.read().get(&current_id).map(|m| m.title.clone());
+    let Some(tab_title) = tab_title else {
+        return;
+    };
+    let page_size = store.result.read().get(&current_id).map(|r| r.page_size);
+    let Some(page_size) = page_size else {
+        return;
+    };
+    let session_id = store.meta.read().get(&current_id).map(|m| m.session_id);
+    let Some(session_id) = session_id else {
+        return;
+    };
     let connection_name = APP_STATE
         .read()
-        .session(current_tab.session_id)
+        .session(session_id)
         .map(|session| session.name.clone())
         .unwrap_or_else(|| "Detached session".to_string());
 
     if sql.is_empty() {
-        set_active_tab_status(tabs, current_id, "Query is empty".to_string());
+        set_active_tab_status(store, current_id, "Query is empty".to_string());
         return;
     }
 
-    let Some(connection) = tab_connection_or_error(tabs, current_id, current_tab.session_id) else {
+    let Some(connection) = tab_connection_or_error(store, current_id, session_id) else {
         return;
     };
 
     run_query_for_tab(
-        tabs,
+        store,
         current_id,
         connection,
         sql,
@@ -1541,60 +1726,81 @@ pub fn run_active_tab(
 
 /// Run EXPLAIN for the active tab's SQL. Mirrors the toolbar's
 /// Explain button.
-pub fn run_active_tab_explain(tabs: Signal<Vec<QueryTabState>>, active_tab_id: u64) {
+pub fn run_active_tab_explain(store: TabStore, active_tab_id: u64) {
     let current_id = active_tab_id;
-    let Some(current_tab) = tabs.read().iter().find(|tab| tab.id == current_id).cloned() else {
+    let sql = store
+        .editor
+        .read()
+        .get(&current_id)
+        .map(|ed| ed.sql.clone());
+    let Some(sql) = sql else {
         return;
     };
-    let sql = current_tab.sql.trim().to_string();
-    if toggle_execution_plan_for_tab(tabs, current_id, &sql) {
+    let sql = sql.trim().to_string();
+    if toggle_execution_plan_for_tab(store, current_id, &sql) {
         return;
     }
     if sql.is_empty() {
-        set_active_tab_status(tabs, current_id, "Enter a query to explain".to_string());
+        set_active_tab_status(store, current_id, "Enter a query to explain".to_string());
         return;
     }
     if !services::is_read_only_sql(&sql) {
         set_active_tab_status(
-            tabs,
+            store,
             current_id,
             "EXPLAIN is only available for read-only SQL".to_string(),
         );
         return;
     }
-    let Some(connection) = tab_connection_or_error(tabs, current_id, current_tab.session_id) else {
+    let session_id = store.meta.read().get(&current_id).map(|m| m.session_id);
+    let Some(session_id) = session_id else {
         return;
     };
-    run_explain_for_tab(tabs, current_id, connection, sql);
+    let Some(connection) = tab_connection_or_error(store, current_id, session_id) else {
+        return;
+    };
+    run_explain_for_tab(store, current_id, connection, sql);
 }
 
 /// Format the active tab's SQL in place. Mirrors the toolbar's
-/// Format button.
+/// Format button. The formatter runs on a blocking thread so a large
+/// query never stalls the render loop.
 pub fn format_active_tab(
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     active_tab_id: u64,
     format_settings: models::SqlFormatSettings,
 ) {
     let current_id = active_tab_id;
-    let Some(current_tab) = tabs.read().iter().find(|tab| tab.id == current_id).cloned() else {
+    let sql = store
+        .editor
+        .read()
+        .get(&current_id)
+        .map(|ed| ed.sql.clone());
+    let Some(sql) = sql else {
         return;
     };
-    let sql = current_tab.sql.trim();
+    let sql = sql.trim();
     if sql.is_empty() {
         set_active_tab_status(
-            tabs,
-            current_tab.id,
+            store,
+            current_id,
             "Nothing to format in the current tab".to_string(),
         );
         return;
     }
 
-    let session_kind = APP_STATE
-        .read()
-        .session(current_tab.session_id)
-        .map(|session| session.kind);
-    let formatted = services::format_sql(session_kind, sql, &format_settings);
-    replace_active_tab_sql(tabs, current_tab.id, formatted, "SQL formatted".to_string());
+    let session_id = store.meta.read().get(&current_id).map(|m| m.session_id);
+    let session_kind = session_id.and_then(|sid| APP_STATE.read().session(sid).map(|s| s.kind));
+    let sql = sql.to_string();
+    let fallback_sql = sql.clone();
+    spawn(async move {
+        let formatted = tokio::task::spawn_blocking(move || {
+            services::format_sql(session_kind, &sql, &format_settings)
+        })
+        .await
+        .unwrap_or(fallback_sql);
+        replace_active_tab_sql(store, current_id, formatted, "SQL formatted".to_string());
+    });
 }
 
 /// Toggle `--` line comments on every selected line in the active
@@ -1604,15 +1810,19 @@ pub fn format_active_tab(
 ///
 /// Returns `true` if the SQL was modified.
 pub fn toggle_line_comments_in_active_tab(
-    mut tabs: Signal<Vec<QueryTabState>>,
+    mut store: TabStore,
     active_tab_id: u64,
     selection: std::ops::Range<usize>,
 ) -> bool {
     let current_id = active_tab_id;
-    let Some(current_tab) = tabs.read().iter().find(|t| t.id == current_id).cloned() else {
+    let sql = store
+        .editor
+        .read()
+        .get(&current_id)
+        .map(|ed| ed.sql.clone());
+    let Some(sql) = sql else {
         return false;
     };
-    let sql = current_tab.sql;
     if sql.is_empty() {
         return false;
     }
@@ -1680,15 +1890,19 @@ pub fn toggle_line_comments_in_active_tab(
     }
 
     let new_cursor = if expanded_end > 0 { expanded_start } else { 0 };
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|t| t.id == current_id) {
-            tab.sql = new_sql;
-            tab.status = if all_commented {
+    store.editor.with_mut(|m| {
+        if let Some(ed) = m.get_mut(&current_id) {
+            ed.sql = new_sql;
+        }
+    });
+    store.result.with_mut(|m| {
+        if let Some(res) = m.get_mut(&current_id) {
+            res.status = if all_commented {
                 "Uncommented selection".to_string()
             } else {
                 "Commented selection".to_string()
             };
-            tab.show_execution_plan = false;
+            res.show_execution_plan = false;
         }
     });
     let _ = new_cursor; // cursor reset handled by the editor's sync effect
@@ -1715,24 +1929,34 @@ fn strip_line_comment(line: &str) -> String {
 /// tab's title as the default name. Returns a user-visible status
 /// string suitable for a toast.
 pub fn save_active_tab_as_saved_query(
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     active_tab_id: u64,
     mut saved_queries_signal: Signal<Vec<models::SavedQuery>>,
     mut next_saved_query_id: Signal<u64>,
 ) -> String {
     let current_id = active_tab_id;
-    let Some(current_tab) = tabs.read().iter().find(|t| t.id == current_id).cloned() else {
+    let sql = store
+        .editor
+        .read()
+        .get(&current_id)
+        .map(|ed| ed.sql.clone());
+    let Some(sql) = sql else {
         return "No active SQL tab available.".to_string();
     };
-    if current_tab.sql.trim().is_empty() {
+    if sql.trim().is_empty() {
         return "Current SQL tab is empty.".to_string();
     }
-    let connection_name = APP_STATE.read().session_name(current_tab.session_id);
+    let title = store.meta.read().get(&current_id).map(|m| m.title.clone());
+    let Some(title) = title else {
+        return "No active SQL tab available.".to_string();
+    };
+    let session_id = store.meta.read().get(&current_id).map(|m| m.session_id);
+    let connection_name = session_id.and_then(|sid| APP_STATE.read().session_name(sid));
     let item = models::SavedQuery {
         id: next_saved_query_id(),
-        title: current_tab.title.clone(),
+        title,
         folder: String::new(),
-        sql: current_tab.sql.clone(),
+        sql,
         kind: models::SavedQueryKind::Query,
         connection_name,
     };
@@ -1754,23 +1978,27 @@ pub fn save_active_tab_as_saved_query(
 }
 
 /// Clear the active tab's SQL (without deleting the tab itself).
-pub fn clear_active_tab_sql(tabs: Signal<Vec<QueryTabState>>, active_tab_id: u64) {
-    replace_active_tab_sql(tabs, active_tab_id, String::new(), "Cleared".to_string());
+pub fn clear_active_tab_sql(store: TabStore, active_tab_id: u64) {
+    replace_active_tab_sql(store, active_tab_id, String::new(), "Cleared".to_string());
 }
 
 /// Indent / outdent every line in the active tab's selection by
 /// two spaces. Mirrors a basic editor experience.
 pub fn indent_lines_in_active_tab(
-    mut tabs: Signal<Vec<QueryTabState>>,
+    mut store: TabStore,
     active_tab_id: u64,
     selection: std::ops::Range<usize>,
     direction: IndentDirection,
 ) {
     let current_id = active_tab_id;
-    let Some(current_tab) = tabs.read().iter().find(|t| t.id == current_id).cloned() else {
+    let sql = store
+        .editor
+        .read()
+        .get(&current_id)
+        .map(|ed| ed.sql.clone());
+    let Some(sql) = sql else {
         return;
     };
-    let sql = current_tab.sql;
     let len = sql.len();
     let start = selection.start.min(len);
     let end = selection.end.min(len);
@@ -1792,14 +2020,18 @@ pub fn indent_lines_in_active_tab(
     if new_sql == sql {
         return;
     }
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|t| t.id == current_id) {
-            tab.sql = new_sql;
-            tab.status = match direction {
+    store.editor.with_mut(|m| {
+        if let Some(ed) = m.get_mut(&current_id) {
+            ed.sql = new_sql;
+        }
+    });
+    store.result.with_mut(|m| {
+        if let Some(res) = m.get_mut(&current_id) {
+            res.status = match direction {
                 IndentDirection::In => "Indented".to_string(),
                 IndentDirection::Out => "Outdented".to_string(),
             };
-            tab.show_execution_plan = false;
+            res.show_execution_plan = false;
         }
     });
 }

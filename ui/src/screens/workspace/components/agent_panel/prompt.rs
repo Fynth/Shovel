@@ -5,14 +5,16 @@ use models::{
     AcpUiMessage,
     QueryOutput,
     QueryPage,
-    QueryTabState,
     TablePreviewSource,
     WorkspaceTabKind,
 };
 
 use crate::{
     app_state::{session_connection, set_show_sql_editor},
-    screens::workspace::actions::update_active_tab_sql,
+    screens::workspace::{
+        actions::update_active_tab_sql,
+        tab_store::{TabEditorState, TabMeta, TabPendingState, TabResultState, TabStore},
+    },
 };
 
 use super::state::push_message;
@@ -210,13 +212,51 @@ If a better read-only rewrite is obvious, include exactly one improved SQL query
     prompt
 }
 
+pub(super) fn build_sql_error_fix_prompt(
+    connection_label: &str,
+    active_sql: &str,
+    error: &str,
+    db_context: Option<String>,
+    active_tab_context: Option<String>,
+    thread_history: Option<String>,
+) -> String {
+    let mut prompt = format!(
+        "You are fixing SQL for the active database connection.\n\
+Database context: {connection_label}\n\
+Failing SQL:\n```sql\n{active_sql}\n```\n\
+Observed database error: {error}\n"
+    );
+    if let Some(thread_history) = thread_history {
+        prompt.push_str("Use this recent chat history for follow-up intent:\n");
+        prompt.push_str(&thread_history);
+        prompt.push('\n');
+    }
+    if let Some(active_tab_context) = active_tab_context {
+        prompt.push_str("Use this active editor context too:\n");
+        prompt.push_str(&active_tab_context);
+        prompt.push('\n');
+    }
+    if let Some(db_context) = db_context {
+        prompt.push_str("Use this live database snapshot:\n");
+        prompt.push_str(&db_context);
+        prompt.push('\n');
+    }
+    prompt.push_str(
+        "Return exactly one corrected SQL query inside a single ```sql``` block with no explanation.\n\
+Preserve the user's intent, but fix syntax, identifiers, quoting, and dialect mismatches.\n\
+Do not add LIMIT, OFFSET, TOP, FETCH, SAMPLE, or TABLESAMPLE unless the original SQL already uses one or the user explicitly asks for it.\n\
+Prefer a read-only fix when possible unless the original SQL is clearly a write statement.\n",
+    );
+    prompt
+}
+
 pub(super) fn insert_sql_into_editor(
     mut panel_state: Signal<AcpPanelState>,
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     mut active_tab_id: Signal<u64>,
     sql: String,
 ) {
-    let Some(target_tab_id) = preferred_sql_target_tab_id(tabs, active_tab_id()) else {
+    let Some(target_tab_id) = preferred_sql_target_tab_id(store, active_tab_id()) else {
         panel_state.with_mut(|state| {
             state.status = "No active SQL tab to insert into.".to_string();
             push_message(
@@ -231,7 +271,7 @@ pub(super) fn insert_sql_into_editor(
     set_show_sql_editor(true);
     active_tab_id.set(target_tab_id);
     update_active_tab_sql(
-        tabs,
+        store,
         target_tab_id,
         sql,
         "SQL inserted from ACP agent".to_string(),
@@ -248,35 +288,32 @@ pub(super) fn insert_sql_into_editor(
     });
 }
 
-pub(crate) fn preferred_sql_target_tab_id(
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: u64,
-) -> Option<u64> {
-    preferred_sql_target_tab_id_from_tabs(&tabs.read(), active_tab_id)
+pub(crate) fn preferred_sql_target_tab_id(store: TabStore, active_tab_id: u64) -> Option<u64> {
+    preferred_sql_target_tab_id_from_meta(&store.meta.read(), active_tab_id)
 }
 
-fn preferred_sql_target_tab_id_from_tabs(
-    tabs: &[QueryTabState],
+fn preferred_sql_target_tab_id_from_meta(
+    meta: &std::collections::HashMap<u64, TabMeta>,
     active_tab_id: u64,
 ) -> Option<u64> {
-    let active_tab = tabs.iter().find(|tab| tab.id == active_tab_id);
+    let active_tab = meta.get(&active_tab_id);
 
     if let Some(tab) = active_tab.filter(|tab| matches!(tab.tab_kind, WorkspaceTabKind::Query)) {
         return Some(tab.id);
     }
 
     if let Some(session_id) = active_tab.map(|tab| tab.session_id)
-        && let Some(query_tab) = tabs.iter().find(|tab| {
+        && let Some(query_tab) = meta.iter().find(|(_, tab)| {
             tab.session_id == session_id && matches!(tab.tab_kind, WorkspaceTabKind::Query)
         })
     {
-        return Some(query_tab.id);
+        return Some(*query_tab.0);
     }
 
-    tabs.iter()
-        .find(|tab| matches!(tab.tab_kind, WorkspaceTabKind::Query))
-        .map(|tab| tab.id)
-        .or_else(|| tabs.first().map(|tab| tab.id))
+    meta.iter()
+        .find(|(_, tab)| matches!(tab.tab_kind, WorkspaceTabKind::Query))
+        .map(|(id, _)| *id)
+        .or_else(|| meta.iter().next().map(|(id, _)| *id))
 }
 
 pub(super) fn build_chat_prompt(
@@ -349,38 +386,63 @@ pub(super) fn build_thread_history_context(messages: &[AcpUiMessage]) -> Option<
     }
 }
 
-pub(super) fn active_editor_prompt_context(
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: u64,
-) -> Option<String> {
-    let tabs = tabs.read();
-    let tab = tabs.iter().find(|tab| tab.id == active_tab_id)?;
-    build_active_tab_context(tab)
+pub(super) fn active_editor_prompt_context(store: TabStore, active_tab_id: u64) -> Option<String> {
+    let _meta = store.meta.read().get(&active_tab_id).cloned()?;
+    let editor = store.editor.read().get(&active_tab_id).cloned()?;
+    let result = store.result.read().get(&active_tab_id).cloned()?;
+    let pending = store.pending.read().get(&active_tab_id).cloned()?;
+    build_active_tab_context(&editor, &result, &pending)
 }
 
-pub(super) fn active_editor_sql(
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: u64,
-) -> Option<String> {
-    tabs.read()
-        .iter()
-        .find(|tab| tab.id == active_tab_id)
-        .map(|tab| tab.sql.trim().to_string())
+pub(super) fn active_editor_sql(store: TabStore, active_tab_id: u64) -> Option<String> {
+    store
+        .editor
+        .read()
+        .get(&active_tab_id)
+        .map(|e| e.sql.trim().to_string())
         .filter(|sql| !sql.is_empty())
 }
 
-fn build_active_tab_context(tab: &QueryTabState) -> Option<String> {
+pub(super) fn active_editor_error(store: TabStore, active_tab_id: u64) -> Option<String> {
+    let status = store
+        .result
+        .read()
+        .get(&active_tab_id)
+        .map(|r| r.status.trim().to_string())?;
+
+    extract_status_error(&status)
+}
+
+fn extract_status_error(status: &str) -> Option<String> {
+    [
+        "Error: ",
+        "Preview error: ",
+        "Structure error: ",
+        "Load more error: ",
+    ]
+    .iter()
+    .find_map(|prefix| status.strip_prefix(prefix))
+    .map(str::trim)
+    .filter(|message| !message.is_empty())
+    .map(ToOwned::to_owned)
+}
+
+fn build_active_tab_context(
+    editor: &TabEditorState,
+    result: &TabResultState,
+    pending: &TabPendingState,
+) -> Option<String> {
     let mut sections = Vec::new();
-    if let Some(source) = tab.preview_source.as_ref() {
+    if let Some(source) = result.preview_source.as_ref() {
         sections.push(format!("Focused relation: {}", source.qualified_name));
     }
 
-    let sql = tab.sql.trim();
+    let sql = editor.sql.trim();
     if !sql.is_empty() {
         sections.push(format!("Active editor SQL:\n```sql\n{sql}\n```"));
     }
 
-    if let Some(last_run_sql) = tab
+    if let Some(last_run_sql) = result
         .last_run_sql
         .as_deref()
         .map(str::trim)
@@ -389,20 +451,20 @@ fn build_active_tab_context(tab: &QueryTabState) -> Option<String> {
         sections.push(format!("Last executed SQL:\n```sql\n{last_run_sql}\n```"));
     }
 
-    let status = tab.status.trim();
+    let status = result.status.trim();
     if !status.is_empty() {
         sections.push(format!("Active tab status: {status}"));
     }
 
-    if !tab.pending_table_changes.is_empty() {
+    if !pending.pending_table_changes.is_empty() {
         sections.push(format!(
             "Pending local table edits: {} inserted row(s), {} edited cell(s).",
-            tab.pending_table_changes.inserted_rows.len(),
-            tab.pending_table_changes.updated_cells.len()
+            pending.pending_table_changes.inserted_rows.len(),
+            pending.pending_table_changes.updated_cells.len()
         ));
     }
 
-    if let Some(result) = &tab.result {
+    if let Some(result) = &result.result {
         sections.push(build_result_context(result));
     }
 
@@ -487,9 +549,18 @@ mod tests {
         build_sql_generation_prompt,
         build_sql_plan_prompt,
         describe_query_output,
-        preferred_sql_target_tab_id_from_tabs,
+        extract_status_error,
+        preferred_sql_target_tab_id_from_meta,
     };
-    use models::{QueryOutput, QueryPage, QueryTabState, WorkspaceTabKind};
+    use crate::screens::workspace::tab_store::{
+        TabEditorState,
+        TabMeta,
+        TabResultState,
+        tab_pending,
+        tab_result,
+    };
+    use models::{QueryOutput, QueryPage, WorkspaceTabKind};
+    use std::collections::HashMap;
 
     #[test]
     fn chat_prompt_requires_english_and_preview_safety() {
@@ -580,12 +651,10 @@ mod tests {
 
     #[test]
     fn active_tab_context_includes_sql_status_and_result_preview() {
-        let tab = QueryTabState {
-            id: 1,
-            session_id: 1,
-            title: "Query 1".to_string(),
+        let editor = TabEditorState {
             sql: "select * from products limit 100;".to_string(),
-            status: "Loaded rows 1-10 from products".to_string(),
+        };
+        let result = TabResultState {
             result: Some(QueryOutput::Table(QueryPage {
                 columns: vec!["id".to_string(), "name".to_string()],
                 rows: (1..=MAX_ACTIVE_RESULT_ROWS as u64)
@@ -597,10 +666,13 @@ mod tests {
                 has_previous: false,
                 has_next: true,
             })),
-            ..QueryTabState::default()
+            status: "Loaded rows 1-10 from products".to_string(),
+            ..tab_result(100)
         };
+        let pending = tab_pending();
 
-        let context = build_active_tab_context(&tab).expect("expected active tab context");
+        let context = build_active_tab_context(&editor, &result, &pending)
+            .expect("expected active tab context");
         assert!(context.contains("Active editor SQL"));
         assert!(context.contains("Loaded rows 1-10 from products"));
         assert!(context.contains("More rows exist beyond this preview."));
@@ -609,45 +681,50 @@ mod tests {
 
     #[test]
     fn prefers_query_tab_in_same_session_for_sql_inserts() {
-        let tabs = vec![
-            QueryTabState {
+        let mut meta = HashMap::new();
+        meta.insert(
+            7,
+            TabMeta {
                 id: 7,
                 session_id: 3,
                 title: "Preview".to_string(),
                 tab_kind: WorkspaceTabKind::TablePreview,
-                ..QueryTabState::default()
+                pinned: false,
             },
-            QueryTabState {
+        );
+        meta.insert(
+            8,
+            TabMeta {
                 id: 8,
                 session_id: 3,
                 title: "Query 8".to_string(),
                 tab_kind: WorkspaceTabKind::Query,
-                ..QueryTabState::default()
+                pinned: false,
             },
-        ];
-
-        assert_eq!(preferred_sql_target_tab_id_from_tabs(&tabs, 7), Some(8));
+        );
+        assert_eq!(preferred_sql_target_tab_id_from_meta(&meta, 7), Some(8));
     }
 }
 
 pub(super) fn active_editor_connection(
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     active_tab_id: u64,
 ) -> Option<models::DatabaseConnection> {
-    let session_id = tabs
+    let session_id = store
+        .meta
         .read()
-        .iter()
-        .find(|tab| tab.id == active_tab_id)
-        .map(|tab| tab.session_id)?;
+        .get(&active_tab_id)
+        .map(|meta| meta.session_id)?;
     session_connection(session_id)
 }
 
 pub(super) fn active_editor_focus_source(
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     active_tab_id: u64,
 ) -> Option<TablePreviewSource> {
-    tabs.read()
-        .iter()
-        .find(|tab| tab.id == active_tab_id)
-        .and_then(|tab| tab.preview_source.clone())
+    store
+        .result
+        .read()
+        .get(&active_tab_id)
+        .and_then(|r| r.preview_source.clone())
 }

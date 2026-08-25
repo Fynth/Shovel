@@ -1,9 +1,10 @@
 use crate::screens::workspace::{
     components::{ActionIcon, IconButton, send_sql_plan_request},
     context::WorkspaceAcpContext,
+    tab_store::TabStore,
 };
 use dioxus::prelude::*;
-use models::{ExecutionPlan, ExecutionPlanNode, QueryTabState};
+use models::{ExecutionPlan, ExecutionPlanNode};
 use std::collections::HashSet;
 
 /// Color category for a plan node operation
@@ -579,11 +580,7 @@ mod tests {
 }
 
 #[component]
-pub fn ExecutionPlanView(
-    plan: ExecutionPlan,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-) -> Element {
+pub fn ExecutionPlanView(plan: ExecutionPlan, store: TabStore) -> Element {
     let mut view_mode = use_signal(|| PlanViewMode::Tree);
     let mut expanded_nodes = use_signal(HashSet::<NodePath>::new);
     let mut expanded_plan_key = use_signal(String::new);
@@ -667,8 +664,8 @@ pub fn ExecutionPlanView(
                                         let allow_read_sql_run = (ctx.allow_agent_read_sql_run)();
                                         send_sql_plan_request(
                                             panel_state,
-                                            tabs,
-                                            active_tab_id(),
+                                            store,
+                                            store.active_tab_id(),
                                             ctx.connection_label.clone(),
                                             chat_revision,
                                             allow_db_read,

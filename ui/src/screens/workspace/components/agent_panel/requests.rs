@@ -1,15 +1,17 @@
 use dioxus::prelude::*;
-use models::{AcpMessageKind, AcpPanelState, QueryTabState};
+use models::{AcpMessageKind, AcpPanelState};
 
 use super::{
     AgentSqlExecutionMode,
     clickhouse::resolve_agent_sql_execution,
     prompt::{
         active_editor_connection,
+        active_editor_error,
         active_editor_focus_source,
         active_editor_prompt_context,
         active_editor_sql,
         build_chat_prompt,
+        build_sql_error_fix_prompt,
         build_sql_explanation_prompt,
         build_sql_generation_prompt,
         build_sql_plan_prompt,
@@ -21,7 +23,10 @@ use super::{
     state::push_message,
 };
 
-use crate::screens::workspace::actions::{run_query_for_tab, tab_connection_or_error};
+use crate::screens::workspace::{
+    actions::{run_query_for_tab, tab_connection_or_error},
+    tab_store::TabStore,
+};
 
 fn build_routing_context(
     connection_label: &str,
@@ -41,7 +46,7 @@ fn build_routing_context(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn send_chat_prompt_request(
     mut panel_state: Signal<AcpPanelState>,
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     active_tab_id: u64,
     connection_label: String,
     mut chat_revision: Signal<u64>,
@@ -56,13 +61,13 @@ pub(super) fn send_chat_prompt_request(
 
     let thread_history = build_thread_history_context(&panel_state().messages);
     let connection = if allow_db_read {
-        active_editor_connection(tabs, active_tab_id)
+        active_editor_connection(store, active_tab_id)
     } else {
         None
     };
-    let focus_source = active_editor_focus_source(tabs, active_tab_id);
+    let focus_source = active_editor_focus_source(store, active_tab_id);
     let active_tab_context = if allow_db_read {
-        active_editor_prompt_context(tabs, active_tab_id)
+        active_editor_prompt_context(store, active_tab_id)
     } else {
         None
     };
@@ -161,8 +166,7 @@ pub(super) fn send_chat_prompt_request(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_describe_object_request(
     mut panel_state: Signal<AcpPanelState>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: u64,
+    store: TabStore,
     connection_label: String,
     mut chat_revision: Signal<u64>,
     allow_db_read: bool,
@@ -178,12 +182,13 @@ pub(crate) fn send_describe_object_request(
     If you can see the schema context, use it. Keep the description concise."
     );
 
+    let active_tab_id = store.active_tab_id();
     let connection = if allow_db_read {
-        active_editor_connection(tabs, active_tab_id)
+        active_editor_connection(store, active_tab_id)
     } else {
         None
     };
-    let focus_source = active_editor_focus_source(tabs, active_tab_id);
+    let focus_source = active_editor_focus_source(store, active_tab_id);
 
     panel_state.with_mut(|state| {
         state.busy = true;
@@ -254,7 +259,7 @@ pub(crate) fn send_describe_object_request(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_sql_generation_request(
     mut panel_state: Signal<AcpPanelState>,
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     active_tab_id: u64,
     connection_label: String,
     mut chat_revision: Signal<u64>,
@@ -269,13 +274,13 @@ pub(crate) fn send_sql_generation_request(
     }
 
     let connection = if allow_db_read {
-        active_editor_connection(tabs, active_tab_id)
+        active_editor_connection(store, active_tab_id)
     } else {
         None
     };
-    let focus_source = active_editor_focus_source(tabs, active_tab_id);
+    let focus_source = active_editor_focus_source(store, active_tab_id);
     let active_tab_context = if allow_db_read {
-        active_editor_prompt_context(tabs, active_tab_id)
+        active_editor_prompt_context(store, active_tab_id)
     } else {
         None
     };
@@ -384,14 +389,14 @@ pub(crate) fn send_sql_generation_request(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_sql_plan_request(
     mut panel_state: Signal<AcpPanelState>,
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     active_tab_id: u64,
     connection_label: String,
     mut chat_revision: Signal<u64>,
     allow_db_read: bool,
     allow_read_sql_run: bool,
 ) {
-    let Some(active_sql) = active_editor_sql(tabs, active_tab_id) else {
+    let Some(active_sql) = active_editor_sql(store, active_tab_id) else {
         panel_state.with_mut(|state| {
             state.status = "There is no active SQL to explain with EXPLAIN.".to_string();
             push_message(
@@ -434,7 +439,7 @@ pub(crate) fn send_sql_plan_request(
         return;
     }
 
-    let Some(connection) = active_editor_connection(tabs, active_tab_id) else {
+    let Some(connection) = active_editor_connection(store, active_tab_id) else {
         panel_state.with_mut(|state| {
             state.status = "The active tab connection is not available.".to_string();
             push_message(
@@ -448,9 +453,9 @@ pub(crate) fn send_sql_plan_request(
     };
 
     let explain_sql = build_explain_sql(&active_sql);
-    let focus_source = active_editor_focus_source(tabs, active_tab_id);
+    let focus_source = active_editor_focus_source(store, active_tab_id);
     let active_tab_context = if allow_db_read {
-        active_editor_prompt_context(tabs, active_tab_id)
+        active_editor_prompt_context(store, active_tab_id)
     } else {
         None
     };
@@ -570,13 +575,13 @@ pub(crate) fn send_sql_plan_request(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_sql_explanation_request(
     mut panel_state: Signal<AcpPanelState>,
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     active_tab_id: u64,
     connection_label: String,
     mut chat_revision: Signal<u64>,
     allow_db_read: bool,
 ) {
-    let Some(active_sql) = active_editor_sql(tabs, active_tab_id) else {
+    let Some(active_sql) = active_editor_sql(store, active_tab_id) else {
         panel_state.with_mut(|state| {
             state.status = "There is no active SQL to explain.".to_string();
             push_message(
@@ -595,13 +600,13 @@ pub(crate) fn send_sql_explanation_request(
 
     let thread_history = build_thread_history_context(&panel_state().messages);
     let connection = if allow_db_read {
-        active_editor_connection(tabs, active_tab_id)
+        active_editor_connection(store, active_tab_id)
     } else {
         None
     };
-    let focus_source = active_editor_focus_source(tabs, active_tab_id);
+    let focus_source = active_editor_focus_source(store, active_tab_id);
     let active_tab_context = if allow_db_read {
-        active_editor_prompt_context(tabs, active_tab_id)
+        active_editor_prompt_context(store, active_tab_id)
     } else {
         None
     };
@@ -687,9 +692,144 @@ pub(crate) fn send_sql_explanation_request(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub(super) fn send_sql_error_fix_request(
+    mut panel_state: Signal<AcpPanelState>,
+    store: TabStore,
+    active_tab_id: u64,
+    connection_label: String,
+    mut chat_revision: Signal<u64>,
+    allow_db_read: bool,
+) {
+    let Some(active_sql) = active_editor_sql(store, active_tab_id) else {
+        panel_state.with_mut(|state| {
+            state.status = "There is no active SQL to repair.".to_string();
+            push_message(
+                state,
+                AcpMessageKind::Error,
+                "There is no active SQL to repair.".to_string(),
+            );
+        });
+        chat_revision += 1;
+        return;
+    };
+    let Some(error) = active_editor_error(store, active_tab_id) else {
+        panel_state.with_mut(|state| {
+            state.status = "The active tab has no SQL error to fix.".to_string();
+            push_message(
+                state,
+                AcpMessageKind::Error,
+                "The active tab has no SQL error to fix.".to_string(),
+            );
+        });
+        chat_revision += 1;
+        return;
+    };
+
+    if panel_state().busy {
+        return;
+    }
+
+    let connection = if allow_db_read {
+        active_editor_connection(store, active_tab_id)
+    } else {
+        None
+    };
+    let focus_source = active_editor_focus_source(store, active_tab_id);
+    let active_tab_context = if allow_db_read {
+        active_editor_prompt_context(store, active_tab_id)
+    } else {
+        None
+    };
+    let thread_history = build_thread_history_context(&panel_state().messages);
+
+    panel_state.with_mut(|state| {
+        state.busy = true;
+        state.pending_sql_insert = true;
+        state.suppress_transcript = false;
+        state.hidden_agent_response.clear();
+        state.status = "Preparing SQL repair prompt for the agent...".to_string();
+    });
+
+    spawn(async move {
+        let (prompt, routing_context) = match connection {
+            Some(connection) => match services::build_acp_database_context(
+                connection,
+                connection_label.clone(),
+                focus_source,
+            )
+            .await
+            {
+                Ok(db_context) => (
+                    build_sql_error_fix_prompt(
+                        &connection_label,
+                        &active_sql,
+                        &error,
+                        Some(db_context.clone()),
+                        active_tab_context.clone(),
+                        thread_history.clone(),
+                    ),
+                    build_routing_context(
+                        &connection_label,
+                        active_tab_context.as_deref(),
+                        Some(&db_context),
+                    ),
+                ),
+                Err(_) => (
+                    build_sql_error_fix_prompt(
+                        &connection_label,
+                        &active_sql,
+                        &error,
+                        None,
+                        active_tab_context.clone(),
+                        thread_history.clone(),
+                    ),
+                    build_routing_context(&connection_label, active_tab_context.as_deref(), None),
+                ),
+            },
+            None => (
+                build_sql_error_fix_prompt(
+                    &connection_label,
+                    &active_sql,
+                    &error,
+                    None,
+                    active_tab_context.clone(),
+                    thread_history.clone(),
+                ),
+                build_routing_context(&connection_label, active_tab_context.as_deref(), None),
+            ),
+        };
+
+        match services::send_acp_prompt_with_routing(prompt, routing_context) {
+            Ok(()) => {
+                panel_state.with_mut(|state| {
+                    push_message(
+                        state,
+                        AcpMessageKind::User,
+                        format!("Fix SQL error: {error}\n```sql\n{active_sql}\n```"),
+                    );
+                    state.busy = true;
+                    state.pending_sql_insert = true;
+                    state.status = "Waiting for repaired SQL...".to_string();
+                });
+                chat_revision += 1;
+            }
+            Err(err) => {
+                panel_state.with_mut(|state| {
+                    state.status = err.clone();
+                    state.busy = false;
+                    state.pending_sql_insert = false;
+                    push_message(state, AcpMessageKind::Error, err);
+                });
+                chat_revision += 1;
+            }
+        }
+    });
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn execute_agent_sql_request(
     mut panel_state: Signal<AcpPanelState>,
-    mut tabs: Signal<Vec<QueryTabState>>,
+    mut store: TabStore,
     active_tab_id: Signal<u64>,
     mut chat_revision: Signal<u64>,
     sql: String,
@@ -711,7 +851,7 @@ pub(crate) fn execute_agent_sql_request(
         return;
     }
 
-    let Some(target_tab_id) = preferred_sql_target_tab_id(tabs, active_tab_id()) else {
+    let Some(target_tab_id) = preferred_sql_target_tab_id(store, active_tab_id()) else {
         panel_state.with_mut(|state| {
             state.status = "No active SQL tab to execute in.".to_string();
             if record_error_in_agent_panel {
@@ -726,11 +866,7 @@ pub(crate) fn execute_agent_sql_request(
         return;
     };
 
-    let current_tab = tabs
-        .read()
-        .iter()
-        .find(|tab| tab.id == target_tab_id)
-        .cloned();
+    let current_tab = store.result.read().get(&target_tab_id).cloned();
     let Some(current_tab) = current_tab else {
         panel_state.with_mut(|state| {
             state.status = "Active SQL tab was not found.".to_string();
@@ -746,8 +882,22 @@ pub(crate) fn execute_agent_sql_request(
         return;
     };
 
-    let Some(connection) = tab_connection_or_error(tabs, current_tab.id, current_tab.session_id)
-    else {
+    let Some(meta) = store.meta.read().get(&target_tab_id).cloned() else {
+        panel_state.with_mut(|state| {
+            state.status = "Active SQL tab was not found.".to_string();
+            if record_error_in_agent_panel {
+                push_message(
+                    state,
+                    AcpMessageKind::Error,
+                    "Active SQL tab was not found.".to_string(),
+                );
+            }
+        });
+        chat_revision += 1;
+        return;
+    };
+
+    let Some(connection) = tab_connection_or_error(store, target_tab_id, meta.session_id) else {
         panel_state.with_mut(|state| {
             state.status = "The active tab connection is not available.".to_string();
             if record_error_in_agent_panel {
@@ -772,8 +922,8 @@ pub(crate) fn execute_agent_sql_request(
         let resolved = match resolve_agent_sql_execution(connection.clone(), &sql).await {
             Ok(resolved) => resolved,
             Err(err) => {
-                tabs.with_mut(|all_tabs| {
-                    if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_tab.id) {
+                store.result.with_mut(|m| {
+                    if let Some(tab) = m.get_mut(&target_tab_id) {
                         tab.status = format!("Error: {err}");
                     }
                 });
@@ -788,7 +938,7 @@ pub(crate) fn execute_agent_sql_request(
             }
         };
 
-        insert_sql_into_editor(panel_state, tabs, active_tab_id, resolved.sql.clone());
+        insert_sql_into_editor(panel_state, store, active_tab_id, resolved.sql.clone());
 
         panel_state.with_mut(|state| {
             state.status = match &resolved.correction_note {
@@ -802,13 +952,13 @@ pub(crate) fn execute_agent_sql_request(
         };
         let _ = services::record_execution(format!(
             "Executed agent SQL in tab '{}' ({execution_mode_label})",
-            current_tab.title,
+            meta.title,
         ));
         chat_revision += 1;
 
         run_query_for_tab(
-            tabs,
-            current_tab.id,
+            store,
+            target_tab_id,
             connection,
             resolved.sql,
             0,

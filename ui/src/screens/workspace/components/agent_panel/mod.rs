@@ -13,24 +13,26 @@ use models::{
     AcpPanelState,
     ChatArtifact,
     ChatThreadSummary,
-    QueryTabState,
     WorkspaceToolPanel,
 };
 
-use crate::app_state::{
-    APP_UI_SETTINGS,
-    is_panel_collapsed,
-    set_deepseek_api_key,
-    set_deepseek_base_url,
-    set_deepseek_enabled,
-    set_deepseek_model,
-    set_deepseek_reasoning_effort,
-    set_deepseek_thinking_enabled,
-    set_ollama_api_key,
-    set_ollama_base_url,
-    set_ollama_enabled,
-    set_ollama_model,
-    toggle_panel_collapsed,
+use crate::{
+    app_state::{
+        APP_UI_SETTINGS,
+        is_panel_collapsed,
+        set_deepseek_api_key,
+        set_deepseek_base_url,
+        set_deepseek_enabled,
+        set_deepseek_model,
+        set_deepseek_reasoning_effort,
+        set_deepseek_thinking_enabled,
+        set_ollama_api_key,
+        set_ollama_base_url,
+        set_ollama_enabled,
+        set_ollama_model,
+        toggle_panel_collapsed,
+    },
+    screens::workspace::tab_store::TabStore,
 };
 
 use super::{ActionIcon, Chevron, IconButton};
@@ -95,8 +97,7 @@ pub(crate) enum AgentSqlExecutionMode {
 #[component]
 pub fn AcpAgentPanel(
     mut panel_state: Signal<AcpPanelState>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
+    store: TabStore,
     mut chat_revision: Signal<u64>,
     allow_agent_db_read: Signal<bool>,
     allow_agent_read_sql_run: Signal<bool>,
@@ -487,8 +488,7 @@ pub fn AcpAgentPanel(
                                                                         if let Some(sql) = sql.clone() {
                                                                             SqlActionButtons {
                                                                                 panel_state,
-                                                                                tabs,
-                                                                                active_tab_id,
+                                                                                store,
                                                                                 chat_revision,
                                                                                 allow_agent_read_sql_run,
                                                                                 allow_agent_write_sql_run,
@@ -519,8 +519,7 @@ pub fn AcpAgentPanel(
                                                                 div { class: "agent-panel__artifact-actions",
                                                                     SqlActionButtons {
                                                                         panel_state,
-                                                                        tabs,
-                                                                        active_tab_id,
+                                                                        store,
                                                                         chat_revision,
                                                                         allow_agent_read_sql_run,
                                                                         allow_agent_write_sql_run,
@@ -538,8 +537,7 @@ pub fn AcpAgentPanel(
                                                                 div { class: "agent-panel__artifact-actions",
                                                                     SqlActionButtons {
                                                                         panel_state,
-                                                                        tabs,
-                                                                        active_tab_id,
+                                                                        store,
                                                                         chat_revision,
                                                                         allow_agent_read_sql_run,
                                                                         allow_agent_write_sql_run,
@@ -560,8 +558,7 @@ pub fn AcpAgentPanel(
                                                             div { class: "agent-panel__message-actions",
                                                                 SqlActionButtons {
                                                                     panel_state,
-                                                                    tabs,
-                                                                    active_tab_id,
+                                                                    store,
                                                                     chat_revision,
                                                                     allow_agent_read_sql_run,
                                                                     allow_agent_write_sql_run,
@@ -662,8 +659,7 @@ pub fn AcpAgentPanel(
                     AgentComposer {
                         key: format!("{:?}-{}", active_thread_id, state.connected),
                         panel_state,
-                        tabs,
-                        active_tab_id,
+                        store,
                         chat_revision,
                         allow_agent_db_read,
                         allow_agent_read_sql_run,
@@ -1067,8 +1063,7 @@ pub fn AcpAgentPanel(
 #[component]
 fn SqlActionButtons(
     panel_state: Signal<AcpPanelState>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
+    store: TabStore,
     chat_revision: Signal<u64>,
     allow_agent_read_sql_run: Signal<bool>,
     allow_agent_write_sql_run: Signal<bool>,
@@ -1093,7 +1088,7 @@ fn SqlActionButtons(
                 let sql = sql.clone();
                 move |event| {
                     event.stop_propagation();
-                    insert_sql_into_editor(panel_state, tabs, active_tab_id, sql.clone());
+                    insert_sql_into_editor(panel_state, store, store.active_tab_id, sql.clone());
                 }
             },
             "Insert SQL"
@@ -1111,8 +1106,8 @@ fn SqlActionButtons(
                     event.stop_propagation();
                     execute_agent_sql_request(
                         panel_state,
-                        tabs,
-                        active_tab_id,
+                        store,
+                        store.active_tab_id,
                         chat_revision,
                         sql.clone(),
                         AgentSqlExecutionMode::Manual,
