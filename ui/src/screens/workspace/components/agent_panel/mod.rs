@@ -206,9 +206,9 @@ pub fn AcpAgentPanel(
         aside { class: "agent-panel",
             div { class: "agent-panel__header",
                 div { class: "agent-panel__header-copy",
-                    h3 { class: "agent-panel__title", "{thread_title}" }
+                    h3 { class: "agent-panel__title", {thread_title.to_string()} }
                     if !thread_meta.is_empty() {
-                        p { class: "agent-panel__meta", "{thread_meta}" }
+                        p { class: "agent-panel__meta", {thread_meta.to_string()} }
                     }
                 }
                 div { class: "agent-panel__header-actions",

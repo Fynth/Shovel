@@ -546,9 +546,7 @@ pub fn TabsManager(
                         label: "More actions".to_string(),
                         onclick: {
                             let current_tab = tab.clone();
-                            let generate_sql_busy = generate_sql_busy;
                             let active_actionable_source = active_actionable_source.clone();
-                            let read_only_mode = read_only_mode;
                             let mut show_generate_sql_window = show_generate_sql_window;
                             let mut generate_sql_prompt = generate_sql_prompt;
                             let mut generate_sql_input_revision = generate_sql_input_revision;

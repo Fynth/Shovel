@@ -383,19 +383,7 @@ pub(super) fn active_editor_sql(
         .filter(|sql| !sql.is_empty())
 }
 
-pub(super) fn active_editor_error(
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: u64,
-) -> Option<String> {
-    let status = tabs
-        .read()
-        .iter()
-        .find(|tab| tab.id == active_tab_id)
-        .map(|tab| tab.status.trim().to_string())?;
-
-    extract_status_error(&status)
-}
-
+#[cfg(test)]
 fn extract_status_error(status: &str) -> Option<String> {
     [
         "Error: ",
