@@ -227,6 +227,10 @@ pub struct QueryTabState {
     pub execution_plan: Option<ExecutionPlan>,
     pub show_execution_plan: bool,
     pub optimizer_result: Option<QueryOptimizerResult>,
+    /// Raw optimizer response text when the AI returned unstructured (non-JSON)
+    /// output. `Some(...)` renders a fallback card in the Analysis panel;
+    /// cleared once a valid result is stored.
+    pub optimizer_raw_response: Option<String>,
     /// Multi-statement batch state. `Some(...)` when a batch run is in
     /// progress or has just completed; `None` for single-statement runs.
     ///
@@ -299,6 +303,7 @@ impl Default for QueryTabState {
             execution_plan: None,
             show_execution_plan: false,
             optimizer_result: None,
+            optimizer_raw_response: None,
             batch_results: None,
             batch_outputs: Vec::new(),
             last_duration_ms: None,

@@ -17,6 +17,7 @@ use super::super::{
         parse_optimizer_result,
         preferred_sql_target_tab_id,
         replace_messages,
+        store_optimizer_raw_response_on_tab,
         store_optimizer_result_on_tab,
     },
     helpers::{derive_chat_thread_title, reset_panel_for_thread, upsert_chat_thread_summary},
@@ -333,19 +334,40 @@ pub fn use_acp_state(inputs: AcpStateInputs) -> AcpState {
 
                     let optimizer_parsed = {
                         let panel_state = acp_panel_state();
-                        if panel_state.optimizer_request_active
-                            && !panel_state.optimizer_response.is_empty()
+                        // The buffer is only populated while `optimizer_request_active`
+                        // was true, and `apply_acp_events` clears that flag on
+                        // `PromptFinished`. So a non-empty buffer with the flag cleared
+                        // means the full response landed in this batch. Gate on buffer
+                        // non-emptiness (not the flag) so the last chunk and
+                        // `PromptFinished` arriving together don't drop the result.
+                        if !panel_state.optimizer_response.is_empty()
+                            && !panel_state.optimizer_request_active
                         {
-                            parse_optimizer_result(&panel_state.optimizer_response).ok()
+                            Some(parse_optimizer_result(&panel_state.optimizer_response))
                         } else {
                             None
                         }
                     };
-                    if let Some(result) = optimizer_parsed {
+                    if let Some(parse_result) = optimizer_parsed {
                         let target_id = active_tab_id();
-                        tabs.with_mut(|all_tabs| {
-                            store_optimizer_result_on_tab(all_tabs, target_id, result);
-                        });
+                        match parse_result {
+                            Ok(result) => {
+                                tabs.with_mut(|all_tabs| {
+                                    store_optimizer_result_on_tab(all_tabs, target_id, result);
+                                });
+                            }
+                            Err(_) => {
+                                // Invalid JSON: keep the raw text so the Analysis
+                                // panel can render an "unstructured response" card.
+                                let raw = {
+                                    let panel_state = acp_panel_state();
+                                    panel_state.optimizer_response.clone()
+                                };
+                                tabs.with_mut(|all_tabs| {
+                                    store_optimizer_raw_response_on_tab(all_tabs, target_id, raw);
+                                });
+                            }
+                        }
                         acp_panel_state.with_mut(|state| {
                             state.optimizer_request_active = false;
                             state.optimizer_response.clear();

@@ -31,6 +31,7 @@ pub fn parse_optimizer_result(raw: &str) -> Result<QueryOptimizerResult, String>
 }
 
 /// Store a parsed optimizer result on the tab with the given id, if present.
+/// Clears any previously stored raw fallback so the two never coexist.
 pub fn store_optimizer_result_on_tab(
     tabs: &mut [QueryTabState],
     tab_id: u64,
@@ -38,6 +39,17 @@ pub fn store_optimizer_result_on_tab(
 ) {
     if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == tab_id) {
         tab.optimizer_result = Some(result);
+        tab.optimizer_raw_response = None;
+    }
+}
+
+/// Store the raw optimizer response on the tab with the given id, if present.
+/// Used to render a fallback card when the AI returned unstructured (non-JSON)
+/// output that could not be parsed into a `QueryOptimizerResult`.
+pub fn store_optimizer_raw_response_on_tab(tabs: &mut [QueryTabState], tab_id: u64, raw: String) {
+    if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == tab_id) {
+        tab.optimizer_raw_response = Some(raw);
+        tab.optimizer_result = None;
     }
 }
 
@@ -92,5 +104,28 @@ mod tests {
         };
         store_optimizer_result_on_tab(&mut tabs, 0, result.clone());
         assert_eq!(tabs[0].optimizer_result, Some(result));
+    }
+
+    #[test]
+    fn stores_raw_response_on_parse_failure() {
+        let mut tabs = vec![QueryTabState::default()];
+        let raw = "this is not json at all".to_string();
+        store_optimizer_raw_response_on_tab(&mut tabs, 0, raw.clone());
+        assert_eq!(tabs[0].optimizer_raw_response, Some(raw));
+        assert!(tabs[0].optimizer_result.is_none());
+    }
+
+    #[test]
+    fn storing_result_clears_raw_fallback() {
+        let mut tabs = vec![QueryTabState::default()];
+        store_optimizer_raw_response_on_tab(&mut tabs, 0, "raw".to_string());
+        let result = QueryOptimizerResult {
+            summary: "s".to_string(),
+            recommendations: vec![],
+            rewritten_sql: None,
+        };
+        store_optimizer_result_on_tab(&mut tabs, 0, result.clone());
+        assert_eq!(tabs[0].optimizer_result, Some(result));
+        assert!(tabs[0].optimizer_raw_response.is_none());
     }
 }

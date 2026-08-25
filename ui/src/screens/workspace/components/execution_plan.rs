@@ -689,6 +689,7 @@ pub fn ExecutionPlanView(
     let mut expanded_nodes = use_signal(HashSet::<NodePath>::new);
     let mut expanded_plan_key = use_signal(String::new);
     let mut show_optimized = use_signal(|| false);
+    let mut show_raw_optimizer = use_signal(|| false);
 
     let flattened = plan.flattened_with_depth();
     let raw_text = plan.raw_text.join("\n");
@@ -740,6 +741,15 @@ pub fn ExecutionPlanView(
             .iter()
             .find(|tab| tab.id == current_id)
             .and_then(|tab| tab.optimizer_result.clone())
+    };
+    // Raw optimizer response when the AI returned unstructured (non-JSON) output.
+    // Rendered as a fallback card so the user can still see what the agent said.
+    let optimizer_raw_response = {
+        let current_id = active_tab_id();
+        tabs.read()
+            .iter()
+            .find(|tab| tab.id == current_id)
+            .and_then(|tab| tab.optimizer_raw_response.clone())
     };
     let ai_recommendations = optimizer_result
         .as_ref()
@@ -1074,6 +1084,30 @@ pub fn ExecutionPlanView(
 
                             if let Some(summary) = &optimizer_summary {
                                 div { class: "execution-plan__optimizer-summary", {summary.to_string()} }
+                            }
+
+                            if let Some(raw) = &optimizer_raw_response {
+                                div { class: "execution-plan__optimizer-fallback",
+                                    div { class: "execution-plan__optimizer-fallback-header",
+                                        span { class: "execution-plan__optimizer-fallback-title",
+                                            "AI returned unstructured response"
+                                        }
+                                        button {
+                                            class: "button button--ghost button--small",
+                                            onclick: move |_| show_raw_optimizer.set(!show_raw_optimizer()),
+                                            if show_raw_optimizer() {
+                                                "Hide raw"
+                                            } else {
+                                                "View raw"
+                                            }
+                                        }
+                                    }
+                                    if show_raw_optimizer() {
+                                        div { class: "execution-plan__optimizer-fallback-raw",
+                                            pre { {raw.to_string()} }
+                                        }
+                                    }
+                                }
                             }
 
                             if rewritten_sql.is_some() {

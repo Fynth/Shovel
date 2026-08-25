@@ -49,10 +49,11 @@ pub use explorer::{ExplorerConnectionSection, SidebarConnectionTree};
 pub use history::QueryHistoryPanel;
 pub use icon_button::{ActionIcon, IconButton, IconGlyph};
 pub(crate) use object_icon::ObjectIcon;
-#[allow(unused_imports)] // consumed by later optimizer tasks
+#[allow(unused_imports)] // `extract_json_block` is part of the optimizer_parse public API
 pub use optimizer_parse::{
     extract_json_block,
     parse_optimizer_result,
+    store_optimizer_raw_response_on_tab,
     store_optimizer_result_on_tab,
 };
 pub use result_table::ResultTable;
