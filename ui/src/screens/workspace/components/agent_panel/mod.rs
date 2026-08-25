@@ -34,9 +34,12 @@ use self::{
         code_chunk_sql,
         compact_header_title,
         copy_text_to_clipboard,
+        has_in_progress_agent_message,
         is_visible_message,
+        last_chunk_is_text,
         parse_message_chunks,
         render_message_markdown_html,
+        rich_busy_label,
         should_render_message_text,
     },
     prompt::insert_sql_into_editor,
@@ -127,7 +130,8 @@ pub fn AcpAgentPanel(
         .skip(hidden_message_count)
         .cloned()
         .collect::<Vec<_>>();
-
+    let busy_label = rich_busy_label(&state);
+    let streaming_active = has_in_progress_agent_message(&state);
     use_effect(move || {
         let _ = active_thread_id;
         message_limit.set(AGENT_MESSAGE_BATCH);
@@ -325,8 +329,18 @@ pub fn AcpAgentPanel(
                                     }
                                 }
                             }
-                            for message in rendered_messages {
+                            for (message_index, message) in rendered_messages.iter().cloned().enumerate() {
                                 {
+                                    let is_last_visible_message =
+                                        message_index + 1 == rendered_messages.len();
+                                    let show_streaming_caret = streaming_active
+                                        && is_last_visible_message
+                                        && matches!(message.kind, AcpMessageKind::Agent);
+                                    let is_in_progress_message = matches!(
+                                        message.kind,
+                                        AcpMessageKind::Agent | AcpMessageKind::Thought
+                                    ) && state.busy
+                                        && is_last_visible_message;
                                     let message_chunks = parse_message_chunks(&message.text);
                                     let has_sql_chunk =
                                         message_chunks.iter().any(|chunk| match chunk {
@@ -335,10 +349,28 @@ pub fn AcpAgentPanel(
                                             }
                                             MessageChunk::Text(_) => false,
                                         });
+                                    let thinking_label = if is_in_progress_message {
+                                        busy_label
+                                    } else {
+                                        ""
+                                    };
+                                    let message_class = if is_in_progress_message {
+                                        format!(
+                                            "agent-panel__message agent-panel__message--{} agent-panel__message--in-progress",
+                                            message_kind_class(&message.kind),
+                                        )
+                                    } else {
+                                        format!(
+                                            "agent-panel__message agent-panel__message--{}",
+                                            message_kind_class(&message.kind),
+                                        )
+                                    };
+                                    let append_streaming_caret =
+                                        show_streaming_caret && last_chunk_is_text(&message_chunks);
 
                                     rsx! {
                                         article {
-                                            class: format!("agent-panel__message agent-panel__message--{}", message_kind_class(&message.kind)),
+                                            class: message_class,
                                             div { class: "agent-panel__message-meta",
                                                 span { class: "agent-panel__message-avatar",
                                                     "{message_kind_avatar(&message.kind)}"
@@ -346,9 +378,16 @@ pub fn AcpAgentPanel(
                                                 p { class: "agent-panel__message-role", "{message_kind_label(&message.kind)}" }
                                                 if matches!(message.kind, AcpMessageKind::Thought) {
                                                     div { class: "agent-panel__thinking",
-                                                        span { class: "agent-panel__thinking-dot" }
-                                                        span { class: "agent-panel__thinking-dot" }
-                                                        span { class: "agent-panel__thinking-dot" }
+                                                        span { class: "agent-panel__thinking-orb" }
+                                                        span { class: "agent-panel__thinking-dots",
+                                                            span { class: "agent-panel__thinking-dot" }
+                                                            span { class: "agent-panel__thinking-dot" }
+                                                            span { class: "agent-panel__thinking-dot" }
+                                                        }
+                                                        span {
+                                                            class: "agent-panel__thinking-label",
+                                                            "{thinking_label}"
+                                                        }
                                                     }
                                                 }
                                             }
@@ -440,9 +479,15 @@ pub fn AcpAgentPanel(
                                                                     }
                                                                     pre { class: "agent-panel__code-body", "{code}" }
                                                                 }
-                                                            }
-                                                        }
-                                                    }
+                                                             }
+                                                         }
+                                                     }
+                                                 }
+                                             }
+                                            if append_streaming_caret {
+                                                span {
+                                                    class: "agent-panel__streaming-caret",
+                                                    aria_hidden: "true",
                                                 }
                                             }
                                             if let Some(artifact) = message.artifact.clone() {

@@ -50,6 +50,25 @@ pub(super) fn AgentComposer(
     let fix_sql_label = connection_label.clone();
     let prompt_textarea_key = format!("{reset_key}-{}", prompt_reset_revision());
 
+    // Focus the composer textarea when the workspace dispatcher bumps
+    // the global focus-request counter (Ctrl+Shift+M). Mirrors the SQL
+    // editor's focus wiring.
+    let focus_target_id = prompt_textarea_key.clone();
+    use_effect(move || {
+        let _ = crate::app_state::APP_FOCUS_AGENT_COMPOSER_REQUEST();
+        let _ = document::eval(&format!(
+            r#"
+            (() => {{
+                const el = document.getElementById({id:?});
+                if (el) {{
+                    el.focus();
+                }}
+            }})()
+            "#,
+            id = focus_target_id
+        ));
+    });
+
     rsx! {
         div { class: "agent-panel__composer",
             div { class: "agent-panel__permissions",
@@ -97,11 +116,13 @@ pub(super) fn AgentComposer(
             textarea {
                 key: "{prompt_textarea_key}",
                 class: "input agent-panel__prompt",
-                rows: 5,
+                rows: 4,
                 initial_value: "{prompt_draft}",
                 placeholder: "For example: show active users created today",
                 oninput: move |event| prompt_draft.set(event.value()),
                 onkeydown: move |event| {
+                    // Send on bare Enter (chat-style) or Ctrl+Enter
+                    // (editor-style). Shift+Enter inserts a newline.
                     if event.key() != Key::Enter
                         || event.modifiers().contains(Modifiers::SHIFT)
                     {
@@ -126,6 +147,7 @@ pub(super) fn AgentComposer(
                     );
                 }
             }
+            div { class: "agent-panel__composer-divider" }
             div { class: "agent-panel__composer-actions",
                 button {
                     class: "button button--ghost button--small",
@@ -141,6 +163,7 @@ pub(super) fn AgentComposer(
                             allow_agent_read_sql_run(),
                         );
                     },
+                    title: "Explain the execution plan of the active read-only SQL",
                     "Explain Plan"
                 }
                 button {
@@ -156,6 +179,7 @@ pub(super) fn AgentComposer(
                             allow_agent_db_read(),
                         );
                     },
+                    title: "Explain the active SQL with the agent",
                     "Explain SQL"
                 }
                 button {
@@ -171,6 +195,7 @@ pub(super) fn AgentComposer(
                             allow_agent_db_read(),
                         );
                     },
+                    title: "Ask the agent to fix the latest SQL error",
                     "Fix SQL Error"
                 }
                 button {
@@ -195,6 +220,7 @@ pub(super) fn AgentComposer(
                             true,
                         );
                     },
+                    title: "Generate SQL only and insert it into the active editor",
                     "Generate SQL"
                 }
                 button {
@@ -218,7 +244,17 @@ pub(super) fn AgentComposer(
                             prompt_draft,
                         );
                     },
-                    "Send"
+                    title: if prompt_is_empty {
+                        "Type a prompt to send to the agent"
+                    } else {
+                        "Send prompt to the agent (Enter)"
+                    },
+                    if busy {
+                        span { class: "agent-panel__streaming-caret", aria_hidden: "true" }
+                        " Sending…"
+                    } else {
+                        "Send"
+                    }
                 }
             }
         }

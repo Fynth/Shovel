@@ -293,7 +293,6 @@ fn ExplorerObjectRow(
         qualified_name: node.qualified_name.clone(),
     };
     let selected = selected_node() == node.qualified_name;
-    let is_table = node.kind == ExplorerNodeKind::Table;
     let read_only_mode = read_only_mode_enabled();
     let kind_label = node.kind.display_label();
 
@@ -358,11 +357,37 @@ fn ExplorerObjectRow(
                     "tree__object"
                 },
                 onclick: {
+                    let source = preview_source.clone();
                     let qualified_name = node.qualified_name.clone();
                     move |_| {
                         selected_node.set(qualified_name.clone());
                         crate::app_state::set_explorer_selected_node(qualified_name.clone());
                         activate_session(session_id);
+                        let current_id =
+                            ensure_tab_for_session(tabs, active_tab_id, next_tab_id, session_id);
+                        let current_tab = tabs
+                            .read()
+                            .iter()
+                            .find(|tab| tab.id == current_id)
+                            .cloned();
+                        let Some(current_tab) = current_tab else {
+                            return;
+                        };
+
+                        let Some(connection) =
+                            tab_connection_or_error(tabs, current_id, current_tab.session_id)
+                        else {
+                            return;
+                        };
+
+                        run_table_preview_for_tab(
+                            tabs,
+                            current_id,
+                            connection,
+                            source.clone(),
+                            0,
+                            current_tab.page_size,
+                        );
                     }
                 },
                 ondoubleclick: {
@@ -425,135 +450,7 @@ fn ExplorerObjectRow(
                     div { class: "tree__object-kind", "{kind_label}" }
                 }
             }
-            if is_table {
-                div { class: "tree__object-actions",
-                    IconButton {
-                        icon: ActionIcon::Duplicate,
-                        label: if read_only_mode {
-                            format!("Duplicate table {} is blocked by read-only mode", node.name)
-                        } else {
-                            format!("Duplicate table {}", node.name)
-                        },
-                        small: true,
-                        disabled: table_mutation_inflight().is_some() || read_only_mode,
-                        onclick: {
-                            let target = DuplicateTableTarget {
-                                session_id,
-                                connection_name: connection_name.clone(),
-                                kind: connection_kind,
-                                source: preview_source.clone(),
-                            };
-                            let mut tree_reload_signal = tree_reload;
-                            let mut selected_node_signal = selected_node;
-                            move |event: MouseEvent| {
-                                event.stop_propagation();
-                                if read_only_mode_enabled() {
-                                    return;
-                                }
-                                let connection = crate::app_state::session_connection(target.session_id);
-                                let (bridge, mut rx) = crate::windows::create_duplicate_table_bridge();
-                                spawn(async move {
-                                    while let Some(result) = rx.recv().await {
-                                        selected_node_signal.set(result.new_qualified_name);
-                                        tree_reload_signal += 1;
-                                    }
-                                });
-                                crate::windows::open_duplicate_table_window(
-                                    bridge,
-                                    target.clone(),
-                                    connection,
-                                    read_only_mode_enabled(),
-                                    crate::app_state::APP_THEME(),
-                                );
-                            }
-                        },
-                    }
-                    if is_table {
-                        IconButton {
-                            icon: ActionIcon::Truncate,
-                            label: if read_only_mode {
-                                format!("Truncate table {} is blocked by read-only mode", node.name)
-                            } else {
-                                table_mutation_button_label(
-                                    TableMutationKind::Truncate,
-                                    &node.name,
-                                    table_mutation_inflight() == Some(TableMutationKind::Truncate),
-                                )
-                            },
-                            small: true,
-                            disabled: table_mutation_inflight().is_some() || read_only_mode,
-                            onclick: {
-                                let source = preview_source.clone();
-                                move |event: MouseEvent| {
-                                    event.stop_propagation();
-                                    if table_mutation_inflight().is_some()
-                                        || read_only_mode_enabled()
-                                    {
-                                        return;
-                                    }
-                                    spawn(confirm_and_truncate_table(
-                                        source.clone(),
-                                        session_id,
-                                        connection_kind,
-                                        tabs,
-                                        table_mutation_inflight,
-                                        selected_node,
-                                        tree_reload,
-                                    ));
-                                }
-                            },
-                        }
-                    }
-                    IconButton {
-                        icon: ActionIcon::Delete,
-                        label: if read_only_mode {
-                            format!("Drop table {} is blocked by read-only mode", node.name)
-                        } else {
-                            table_mutation_button_label(
-                                TableMutationKind::Drop,
-                                &node.name,
-                                table_mutation_inflight() == Some(TableMutationKind::Drop),
-                            )
-                        },
-                        small: true,
-                        disabled: table_mutation_inflight().is_some() || read_only_mode,
-                        onclick: {
-                            let source = preview_source.clone();
-                            let selected_qualified_name = node.qualified_name.clone();
-                            move |event: MouseEvent| {
-                                event.stop_propagation();
-                                if table_mutation_inflight().is_some() || read_only_mode_enabled() {
-                                    return;
-                                }
-                                spawn(confirm_and_drop_table(
-                                    source.clone(),
-                                    selected_qualified_name.clone(),
-                                    session_id,
-                                    connection_kind,
-                                    tabs,
-                                    table_mutation_inflight,
-                                    selected_node,
-                                    tree_reload,
-                                ));
-                            }
-                        },
-                    }
-                }
-            }
         }
-    }
-}
-
-fn table_mutation_button_label(
-    action: TableMutationKind,
-    table_name: &str,
-    inflight: bool,
-) -> String {
-    match (action, inflight) {
-        (TableMutationKind::Truncate, true) => "Truncating table".to_string(),
-        (TableMutationKind::Truncate, false) => format!("Truncate table {table_name}"),
-        (TableMutationKind::Drop, true) => "Dropping table".to_string(),
-        (TableMutationKind::Drop, false) => format!("Drop table {table_name}"),
     }
 }
 

@@ -1342,18 +1342,99 @@ pub fn ResultTable(
                                                                                         }
                                                                                     });
                                                                                 },
-                                                                                onkeydown: move |event| {
-                                                                                    if event.key() == Key::Enter {
-                                                                                        if let Some(editing) = editing_cell() {
-                                                                                            commit_cell_edit(
-                                                                                                editing_cell,
-                                                                                                tabs,
-                                                                                                active_tab_id,
-                                                                                                editing,
-                                                                                            );
+                                                                                onkeydown: {
+                                                                                    let visible_columns_for_nav = visible_columns.clone();
+                                                                                    let display_rows_for_nav = display_rows_cache;
+                                                                                    move |event| {
+                                                                                        let key = event.key();
+                                                                                        if key == Key::Enter {
+                                                                                            if let Some(editing) = editing_cell() {
+                                                                                                commit_cell_edit(
+                                                                                                    editing_cell,
+                                                                                                    tabs,
+                                                                                                    active_tab_id,
+                                                                                                    editing,
+                                                                                                );
+                                                                                            }
+                                                                                            return;
                                                                                         }
-                                                                                    } else if event.key() == Key::Escape {
-                                                                                        editing_cell.set(None);
+                                                                                        if key == Key::Escape {
+                                                                                            editing_cell.set(None);
+                                                                                            return;
+                                                                                        }
+                                                                                        // Arrow / Tab navigation between cells.
+                                                                                        let is_nav = matches!(
+                                                                                            key,
+                                                                                            Key::ArrowUp
+                                                                                                | Key::ArrowDown
+                                                                                                | Key::ArrowLeft
+                                                                                                | Key::ArrowRight
+                                                                                                | Key::Tab
+                                                                                        );
+                                                                                        if !is_nav {
+                                                                                            return;
+                                                                                        }
+                                                                                        event.prevent_default();
+                                                                                        let Some(current) = editing_cell() else {
+                                                                                            return;
+                                                                                        };
+                                                                                        let rows = display_rows_for_nav();
+                                                                                        let row_count = rows.len();
+                                                                                        let col_count = visible_columns_for_nav.len();
+                                                                                        if row_count == 0 || col_count == 0 {
+                                                                                            return;
+                                                                                        }
+                                                                                        let Some(current_row) = rows
+                                                                                            .iter()
+                                                                                            .position(|r| r.row_ref == current.row_ref)
+                                                                                        else {
+                                                                                            return;
+                                                                                        };
+                                                                                        let Some(current_col) = visible_columns_for_nav
+                                                                                            .iter()
+                                                                                            .position(|(i, _)| *i == current.col_index)
+                                                                                        else {
+                                                                                            return;
+                                                                                        };
+                                                                                        let (target_row, target_col) = match key {
+                                                                                            Key::ArrowDown => (current_row + 1, current_col),
+                                                                                            Key::ArrowUp => (current_row.saturating_sub(1), current_col),
+                                                                                            Key::ArrowRight | Key::Tab => {
+                                                                                                if current_col + 1 < col_count {
+                                                                                                    (current_row, current_col + 1)
+                                                                                                } else if current_row + 1 < row_count {
+                                                                                                    (current_row + 1, 0)
+                                                                                                } else {
+                                                                                                    return;
+                                                                                                }
+                                                                                            }
+                                                                                            Key::ArrowLeft => {
+                                                                                                if current_col > 0 {
+                                                                                                    (current_row, current_col - 1)
+                                                                                                } else if current_row > 0 {
+                                                                                                    (current_row - 1, col_count - 1)
+                                                                                                } else {
+                                                                                                    return;
+                                                                                                }
+                                                                                            }
+                                                                                            _ => return,
+                                                                                        };
+                                                                                        if target_row >= row_count || target_col >= col_count {
+                                                                                            return;
+                                                                                        }
+                                                                                        let (target_col_index, _) =
+                                                                                            visible_columns_for_nav[target_col];
+                                                                                        let new_value = rows
+                                                                                            .get(target_row)
+                                                                                            .and_then(|r| r.values.get(target_col_index))
+                                                                                            .cloned()
+                                                                                            .unwrap_or_default();
+                                                                                        let new_row_ref = rows[target_row].row_ref.clone();
+                                                                                        editing_cell.set(Some(EditingCell {
+                                                                                            row_ref: new_row_ref,
+                                                                                            col_index: target_col_index,
+                                                                                            value: new_value,
+                                                                                        }));
                                                                                     }
                                                                                 },
                                                                                 onblur: move |_| {

@@ -334,7 +334,7 @@ textarea {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(180px, var(--workspace-sidebar-width, clamp(200px, 19vw, 260px))) 6px minmax(0, 1fr);
+  grid-template-columns: minmax(260px, var(--workspace-sidebar-width, clamp(240px, 21vw, 340px))) 6px minmax(0, 1fr);
   gap: 8px;
   min-width: 0;
 }
@@ -547,7 +547,7 @@ textarea {
 }
 @media (max-width: 980px) {
   .workspace__top-row {
-    grid-template-columns: minmax(180px, var(--workspace-sidebar-width, clamp(200px, 19vw, 260px))) 6px minmax(0, 1fr);
+    grid-template-columns: minmax(260px, var(--workspace-sidebar-width, clamp(240px, 21vw, 340px))) 6px minmax(0, 1fr);
   }
   .workspace__header {
     justify-content: flex-start;
@@ -2803,6 +2803,40 @@ select.input:focus-visible {
   height: 100%;
 }
 
+.context-menu__item-icon-spacer {
+  display: inline-block;
+  flex-shrink: 0;
+  width: var(--ui-icon-size, 14px);
+  height: var(--ui-icon-size, 14px);
+}
+
+.context-menu__item-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--ui-icon-size, 14px);
+  height: var(--ui-icon-size, 14px);
+  margin-left: auto;
+  color: transparent;
+}
+.context-menu__item-check svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.context-menu__item-check--on {
+  color: var(--color-primary);
+}
+
+.context-menu__item--active {
+  color: var(--color-text);
+}
+.context-menu__item--active .context-menu__item-icon {
+  color: var(--color-primary);
+}
+
 @keyframes context-menu-in {
   from {
     opacity: 0;
@@ -3487,10 +3521,6 @@ select.input:focus-visible {
   min-width: 0;
 }
 
-.tree__object-row--selected .tree__object-actions {
-  opacity: 1;
-}
-
 .tree__object {
   display: flex;
   align-items: center;
@@ -3519,25 +3549,6 @@ select.input:focus-visible {
 .tree__object--selected {
   background: linear-gradient(180deg, color-mix(in srgb, var(--color-primary) 10%, transparent), color-mix(in srgb, var(--color-primary) 5%, transparent));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 54%, transparent), 0 8px 14px rgba(8, 10, 14, 0.08);
-}
-
-.tree__object-actions {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  opacity: 0;
-  transition: opacity 100ms ease;
-}
-.tree__object-actions .button--icon {
-  width: 30px;
-  min-width: 30px;
-  height: 30px;
-  padding: 0;
-}
-
-.tree__object-row:hover .tree__object-actions,
-.tree__object-row:focus-within .tree__object-actions {
-  opacity: 1;
 }
 
 .tree__object-badge {
@@ -3797,7 +3808,8 @@ select.input:focus-visible {
 }
 
 .history__list {
-  min-height: 0;
+  flex: 1 1 0;
+  min-height: 120px;
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -5341,16 +5353,6 @@ select.input:focus-visible {
   gap: 6px;
 }
 
-.agent-panel__composer-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 3px;
-}
-
-.agent-panel__composer-actions .button {
-  width: 100%;
-}
-
 .agent-panel__messages {
   flex: 1 1 auto;
   min-height: 0;
@@ -5359,10 +5361,6 @@ select.input:focus-visible {
   flex-direction: column;
   gap: 3px;
   padding: 2px 1px 0 0;
-}
-
-.agent-panel__composer {
-  margin-top: auto;
 }
 
 .agent-panel__message-meta {
@@ -5377,11 +5375,16 @@ select.input:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 6px;
+  padding: 6px 8px;
   border: 1px solid color-mix(in srgb, var(--color-border) 84%, transparent);
   border-radius: 11px;
   background: color-mix(in srgb, var(--color-surface-main, var(--color-panel-2)) 68%, var(--color-surface-elevated, var(--color-panel)));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018);
+  transition: border-color 100ms ease, box-shadow 100ms ease, transform 100ms ease;
+}
+
+.agent-panel__message:hover {
+  border-color: color-mix(in srgb, var(--color-border-strong) 88%, var(--color-border));
 }
 
 .agent-panel__message--user {
@@ -5390,12 +5393,33 @@ select.input:focus-visible {
 }
 
 .agent-panel__message--agent {
-  border-color: color-mix(in srgb, var(--color-info) 18%, var(--color-border));
+  border-color: color-mix(in srgb, var(--color-info) 22%, var(--color-border));
   background: color-mix(in srgb, var(--color-info) 6%, var(--color-surface-elevated, var(--color-panel)));
+  position: relative;
+}
+
+.agent-panel__message--agent::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  border-radius: 7px 0 0 7px;
+  background: linear-gradient(180deg, var(--color-info), color-mix(in srgb, var(--color-info) 40%, transparent));
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.agent-panel__message--in-progress {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018), 0 0 0 1px color-mix(in srgb, var(--color-info) 18%, transparent);
+}
+
+.agent-panel__message--in-progress::before {
+  opacity: 1;
+  animation: agent-thinking-bar 1.6s ease-in-out infinite;
 }
 
 .agent-panel__message--thought {
-  border-color: color-mix(in srgb, var(--color-warning) 20%, var(--color-border));
+  border-color: color-mix(in srgb, var(--color-warning) 22%, var(--color-border));
   background: color-mix(in srgb, var(--color-warning) 7%, var(--color-surface-elevated, var(--color-panel)));
 }
 
@@ -5410,6 +5434,21 @@ select.input:focus-visible {
   background: color-mix(in srgb, var(--color-danger) 8%, var(--color-surface-main, var(--color-panel)));
 }
 
+@keyframes agent-thinking-bar {
+  0%, 100% {
+    background-position: 0 0;
+    opacity: 0.85;
+  }
+  50% {
+    background-position: 0 12px;
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-panel__message--in-progress::before {
+    animation: none;
+  }
+}
 .agent-panel__message-role {
   display: inline-flex;
   align-items: center;
@@ -5671,42 +5710,209 @@ select.input:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 18px;
+  min-height: 22px;
+  padding: 3px 8px 3px 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface-elevated, var(--color-panel)));
+  border: 1px solid color-mix(in srgb, var(--color-primary) 22%, var(--color-border));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.agent-panel__thinking-orb {
+  position: relative;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 30% 30%, color-mix(in srgb, var(--color-primary-hover, var(--color-primary)) 80%, white 20%), var(--color-primary) 70%);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary) 50%, transparent), 0 0 6px color-mix(in srgb, var(--color-primary) 35%, transparent);
+  animation: agent-thinking-pulse 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.agent-panel__thinking-orb::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 38%, transparent);
+  animation: agent-thinking-ring 1.8s ease-out infinite;
+}
+
+.agent-panel__thinking-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .agent-panel__thinking-dot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 999px;
   background: var(--color-primary);
-  opacity: 0.3;
+  opacity: 0.35;
   animation: agent-thinking 1.1s ease-in-out infinite;
 }
 
 .agent-panel__thinking-dot:nth-child(2) {
-  animation-delay: 0.16s;
+  animation-delay: 0.18s;
 }
 
 .agent-panel__thinking-dot:nth-child(3) {
-  animation-delay: 0.32s;
+  animation-delay: 0.36s;
+}
+
+.agent-panel__thinking-label {
+  color: var(--color-text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  animation: agent-thinking-shimmer 2.4s ease-in-out infinite;
+  background: linear-gradient(90deg, var(--color-text-muted) 0%, var(--color-text) 50%, var(--color-text-muted) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 @keyframes agent-thinking {
   0%, 80%, 100% {
-    transform: translateY(0);
+    transform: translateY(0) scale(0.9);
     opacity: 0.25;
   }
   40% {
-    transform: translateY(-2px);
+    transform: translateY(-2px) scale(1.05);
     opacity: 1;
   }
 }
-.agent-panel__prompt {
-  min-height: 132px;
+@keyframes agent-thinking-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary) 50%, transparent), 0 0 6px color-mix(in srgb, var(--color-primary) 35%, transparent);
+  }
+  50% {
+    transform: scale(0.92);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-primary) 0%, transparent), 0 0 12px color-mix(in srgb, var(--color-primary) 55%, transparent);
+  }
+}
+@keyframes agent-thinking-ring {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+@keyframes agent-thinking-shimmer {
+  0%, 100% {
+    background-position: 200% 0;
+  }
+  50% {
+    background-position: -100% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-panel__thinking,
+.agent-panel__thinking-orb,
+.agent-panel__thinking-orb::after,
+.agent-panel__thinking-dot,
+.agent-panel__thinking-label {
+    animation: none;
+  }
+}
+.agent-panel__streaming-caret {
+  display: inline-block;
+  width: 1px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--color-primary);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--color-primary) 60%, transparent);
+  animation: agent-streaming-caret 0.95s steps(2, jump-none) infinite;
+}
+
+@keyframes agent-streaming-caret {
+  0%, 100% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-panel__streaming-caret {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+.agent-panel__composer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--color-surface-contrast, var(--color-panel-2)) 78%, var(--color-surface-elevated, var(--color-panel)));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018);
+}
+
+.agent-panel__composer:focus-within {
+  border-color: color-mix(in srgb, var(--color-primary) 36%, var(--color-border));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025), 0 0 0 3px color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+
+.agent-panel__composer-divider {
+  height: 1px;
+  margin: 0 -6px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-border) 84%, transparent), transparent);
+}
+
+.agent-panel__prompt {
+  min-height: 96px;
+  padding: 6px 8px;
   resize: vertical;
   font-family: "SF Mono", "JetBrains Mono", "Cascadia Code", monospace;
   line-height: 1.5;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-surface-main, var(--color-panel-2)) 72%, transparent);
+  border-color: color-mix(in srgb, var(--color-border) 70%, transparent);
+  transition: border-color 100ms ease, box-shadow 100ms ease;
+}
+
+.agent-panel__prompt:hover {
+  border-color: color-mix(in srgb, var(--color-border-strong) 86%, var(--color-border));
+}
+
+.agent-panel__prompt:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--color-primary) 56%, var(--color-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 16%, transparent);
+}
+
+.agent-panel__composer-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 3px;
+}
+
+.agent-panel__composer-actions .button {
+  min-height: 28px;
+  padding-inline: 6px;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.agent-panel__composer-actions .button--primary {
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--color-primary) 30%, transparent);
+}
+
+.agent-panel__composer-actions .button:disabled {
+  opacity: 0.45;
 }
 
 @media (max-width: 760px) {

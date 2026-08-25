@@ -42,6 +42,7 @@ use crate::{
             CMD_SAVE_QUERY,
         },
         context_menu,
+        context_menu::{ContextMenuItem, open_context_menu},
         global_search::{
             GLOBAL_SEARCH_OPEN_OBJECT,
             GLOBAL_SEARCH_OPEN_TAB,
@@ -52,6 +53,7 @@ use crate::{
         keyboard::{ShortcutAction, match_key_combination},
         open_connection_screen,
         open_global_search_with_snapshots,
+        request_focus_agent_composer,
         request_focus_editor,
         request_focus_filter_panel,
         set_bottom_panel_height,
@@ -658,90 +660,120 @@ fn WorkspaceBody(
                 div {
                     class: "workspace__toolbar",
                     IconButton {
-                        icon: ActionIcon::SavedQueries,
-                        label: if show_saved_queries {
-                            "Hide saved queries".to_string()
-                        } else {
-                            "Show saved queries".to_string()
+                        icon: ActionIcon::ViewMenu,
+                        label: "View panels".to_string(),
+                        // Stay "active" while any panel addressed by
+                        // the menu is visible, so the button doubles
+                        // as a status indicator.
+                        active: show_saved_queries
+                            || show_connections
+                            || show_explorer
+                            || show_history
+                            || APP_SHOW_SQL_EDITOR()
+                            || (ai_features_enabled && show_agent_panel)
+                            || APP_SHOW_BOTTOM_PANEL()
+                            || !matches!(APP_SPLIT_MODE(), WorkspaceSplitMode::Off),
+                        small: true,
+                        onclick: move |event: MouseEvent| {
+                            // Menu items are snapshotted into the
+                            // global signal as plain data; rebuild
+                            // every open so labels reflect the live
+                            // signals.
+                            let mut items: Vec<ContextMenuItem> = vec![
+                                ContextMenuItem::new(
+                                    if APP_SHOW_SAVED_QUERIES() {
+                                        "Hide saved queries"
+                                    } else {
+                                        "Show saved queries"
+                                    },
+                                    move || set_show_saved_queries(!APP_SHOW_SAVED_QUERIES()),
+                                )
+                                .with_icon(ActionIcon::SavedQueries)
+                                .active(APP_SHOW_SAVED_QUERIES()),
+                                ContextMenuItem::new(
+                                    if APP_SHOW_CONNECTIONS() {
+                                        "Hide connections"
+                                    } else {
+                                        "Show connections"
+                                    },
+                                    move || set_show_connections(!APP_SHOW_CONNECTIONS()),
+                                )
+                                .with_icon(ActionIcon::Connections)
+                                .active(APP_SHOW_CONNECTIONS()),
+                                ContextMenuItem::new(
+                                    if APP_SHOW_EXPLORER() {
+                                        "Hide explorer"
+                                    } else {
+                                        "Show explorer"
+                                    },
+                                    move || set_show_explorer(!APP_SHOW_EXPLORER()),
+                                )
+                                .with_icon(ActionIcon::Explorer)
+                                .active(APP_SHOW_EXPLORER()),
+                                ContextMenuItem::new(
+                                    if APP_SHOW_HISTORY() {
+                                        "Hide history"
+                                    } else {
+                                        "Show history"
+                                    },
+                                    move || set_show_history(!APP_SHOW_HISTORY()),
+                                )
+                                .with_icon(ActionIcon::History)
+                                .active(APP_SHOW_HISTORY()),
+                                ContextMenuItem::new(
+                                    if APP_SHOW_SQL_EDITOR() {
+                                        "Hide SQL editor"
+                                    } else {
+                                        "Show SQL editor"
+                                    },
+                                    move || set_show_sql_editor(!APP_SHOW_SQL_EDITOR()),
+                                )
+                                .with_icon(ActionIcon::SqlEditor)
+                                .active(APP_SHOW_SQL_EDITOR()),
+                            ];
+                            if ai_features_enabled {
+                                items.push(
+                                    ContextMenuItem::new(
+                                        if APP_SHOW_AGENT_PANEL() {
+                                            "Hide agent panel"
+                                        } else {
+                                            "Show agent panel"
+                                        },
+                                        move || {
+                                            set_show_agent_panel(!APP_SHOW_AGENT_PANEL())
+                                        },
+                                    )
+                                    .with_icon(ActionIcon::Agent)
+                                    .active(APP_SHOW_AGENT_PANEL()),
+                                );
+                            }
+                            items.push(
+                                ContextMenuItem::new(
+                                    if APP_SHOW_BOTTOM_PANEL() {
+                                        "Hide bottom dock"
+                                    } else {
+                                        "Show bottom dock"
+                                    },
+                                    move || {
+                                        set_show_bottom_panel(!APP_SHOW_BOTTOM_PANEL())
+                                    },
+                                )
+                                .with_icon(ActionIcon::Output)
+                                .active(APP_SHOW_BOTTOM_PANEL())
+                                .separator(),
+                            );
+                            items.push(
+                                ContextMenuItem::new(
+                                    format!("Editor layout: {}", APP_SPLIT_MODE().label()),
+                                    move || set_split_mode(APP_SPLIT_MODE().next()),
+                                )
+                                .with_icon(ActionIcon::Split)
+                                .active(!matches!(APP_SPLIT_MODE(), WorkspaceSplitMode::Off)),
+                            );
+
+                            let coords = event.client_coordinates();
+                            open_context_menu(coords.x, coords.y, items);
                         },
-                        active: show_saved_queries,
-                        small: true,
-                        onclick: move |_| set_show_saved_queries(!APP_SHOW_SAVED_QUERIES()),
-                    }
-                    IconButton {
-                        icon: ActionIcon::Connections,
-                        label: if show_connections {
-                            "Hide connections".to_string()
-                        } else {
-                            "Show connections".to_string()
-                        },
-                        active: show_connections,
-                        small: true,
-                        onclick: move |_| set_show_connections(!APP_SHOW_CONNECTIONS()),
-                    }
-                    IconButton {
-                        icon: ActionIcon::Explorer,
-                        label: if show_explorer {
-                            "Hide explorer".to_string()
-                        } else {
-                            "Show explorer".to_string()
-                        },
-                        active: show_explorer,
-                        small: true,
-                        onclick: move |_| set_show_explorer(!APP_SHOW_EXPLORER()),
-                    }
-                    IconButton {
-                        icon: ActionIcon::History,
-                        label: if show_history {
-                            "Hide history".to_string()
-                        } else {
-                            "Show history".to_string()
-                        },
-                        active: show_history,
-                        small: true,
-                        onclick: move |_| set_show_history(!APP_SHOW_HISTORY()),
-                    }
-                    IconButton {
-                        icon: ActionIcon::SqlEditor,
-                        label: if APP_SHOW_SQL_EDITOR() {
-                            "Hide SQL editor".to_string()
-                        } else {
-                            "Show SQL editor".to_string()
-                        },
-                        active: APP_SHOW_SQL_EDITOR(),
-                        small: true,
-                        onclick: move |_| set_show_sql_editor(!APP_SHOW_SQL_EDITOR()),
-                    }
-                    IconButton {
-                        icon: ActionIcon::Split,
-                        label: format!("Editor layout: {}", APP_SPLIT_MODE().label()),
-                        active: !matches!(APP_SPLIT_MODE(), WorkspaceSplitMode::Off),
-                        small: true,
-                        onclick: move |_| set_split_mode(APP_SPLIT_MODE().next()),
-                    }
-                    if ai_features_enabled {
-                        IconButton {
-                            icon: ActionIcon::Agent,
-                            label: if show_agent_panel {
-                                "Hide agent panel".to_string()
-                            } else {
-                                "Show agent panel".to_string()
-                            },
-                            active: show_agent_panel,
-                            small: true,
-                            onclick: move |_| set_show_agent_panel(!APP_SHOW_AGENT_PANEL()),
-                        }
-                    }
-                    IconButton {
-                        icon: ActionIcon::Output,
-                        label: if APP_SHOW_BOTTOM_PANEL() {
-                            "Hide bottom dock".to_string()
-                        } else {
-                            "Show bottom dock".to_string()
-                        },
-                        active: APP_SHOW_BOTTOM_PANEL(),
-                        small: true,
-                        onclick: move |_| set_show_bottom_panel(!APP_SHOW_BOTTOM_PANEL()),
                     }
                     IconButton {
                         icon: ActionIcon::Refresh,
@@ -1222,6 +1254,9 @@ pub fn Workspace() -> Element {
                     }
                     ShortcutAction::FocusEditor => {
                         request_focus_editor();
+                    }
+                    ShortcutAction::FocusAgentComposer => {
+                        request_focus_agent_composer();
                     }
                     // Ctrl+K — global search overlay. We snapshot
                     // tabs + tree into the overlay's globals so the

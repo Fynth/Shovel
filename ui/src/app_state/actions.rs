@@ -160,7 +160,7 @@ pub fn action_catalog() -> &'static [Action] {
             Action {
                 id: ACTION_NEW_CONNECTION,
                 label: "New Connection",
-                shortcut: None,
+                shortcut: Some("Ctrl+Shift+N"),
                 keywords: &["connect", "add", "database"],
                 category: "File",
                 icon: Some(ActionIcon::NewConnection),
@@ -169,7 +169,7 @@ pub fn action_catalog() -> &'static [Action] {
             Action {
                 id: ACTION_OPEN_SETTINGS,
                 label: "Open Settings",
-                shortcut: None,
+                shortcut: Some("Ctrl+,"),
                 keywords: &["preferences", "options", "config"],
                 category: "File",
                 icon: Some(ActionIcon::Details),

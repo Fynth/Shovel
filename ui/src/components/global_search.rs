@@ -405,11 +405,7 @@ mod tests {
     use super::*;
     use crate::app_state::{
         actions as acts,
-        global_search::{
-            GlobalSearchObjectItem,
-            GlobalSearchTabItem,
-            SearchGroupKind,
-        },
+        global_search::{GlobalSearchObjectItem, GlobalSearchTabItem, SearchGroupKind},
     };
     use models::ExplorerNodeKind;
 

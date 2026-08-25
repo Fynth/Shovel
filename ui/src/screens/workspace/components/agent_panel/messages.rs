@@ -306,6 +306,101 @@ pub(super) fn should_render_message_text(message: &AcpUiMessage) -> bool {
     }
 }
 
+/// Derive a richer, more expressive status label from the current panel state.
+///
+/// The default ACP plumbing only emits the static "Agent is working..." string
+/// from `AcpEvent::PromptStarted`, so this helper inspects the visible
+/// transcript to surface meaningful phase labels (Analyzing, Generating SQL,
+/// Executing, etc.) without changing the wire protocol.
+pub(super) fn rich_busy_label(state: &AcpPanelState) -> &'static str {
+    if state.pending_permission.is_some() {
+        return "Awaiting permission";
+    }
+
+    if !state.busy {
+        return "Idle";
+    }
+
+    let mut last_tool: Option<&AcpUiMessage> = None;
+    let mut last_agent: Option<&AcpUiMessage> = None;
+    let mut last_user: Option<&AcpUiMessage> = None;
+
+    for message in state.messages.iter().rev() {
+        if !is_visible_message(message) {
+            continue;
+        }
+
+        match message.kind {
+            AcpMessageKind::Tool if last_tool.is_none() => last_tool = Some(message),
+            AcpMessageKind::Agent if last_agent.is_none() => last_agent = Some(message),
+            AcpMessageKind::User if last_user.is_none() => last_user = Some(message),
+            _ => {}
+        }
+
+        if last_tool.is_some() && last_agent.is_some() && last_user.is_some() {
+            break;
+        }
+    }
+
+    if let Some(tool_message) = last_tool
+        && tool_message.text.to_ascii_lowercase().contains("sql")
+    {
+        return "Executing SQL";
+    }
+
+    if let Some(agent_message) = last_agent {
+        let lowered = agent_message.text.to_ascii_lowercase();
+        if lowered.contains("select ") || lowered.contains("from ") || lowered.contains("```sql") {
+            return "Generating SQL";
+        }
+        if lowered.contains("explain") || lowered.contains("plan") {
+            return "Analyzing";
+        }
+        if lowered.contains("schema") || lowered.contains("describe") || lowered.contains("column")
+        {
+            return "Inspecting schema";
+        }
+    }
+
+    if last_agent.is_some() {
+        return "Thinking";
+    }
+
+    if let Some(user_message) = last_user {
+        let lowered = user_message.text.to_ascii_lowercase();
+        if lowered.starts_with("explain plan") || lowered.starts_with("plan ") {
+            return "Planning query";
+        }
+        if lowered.starts_with("fix ") || lowered.contains("error") {
+            return "Diagnosing error";
+        }
+        if lowered.contains("explain") {
+            return "Analyzing";
+        }
+    }
+
+    "Analyzing"
+}
+
+/// Returns true when the most recently streamed assistant message is still
+/// being appended to — used to render the blinking caret at its tail.
+pub(super) fn has_in_progress_agent_message(state: &AcpPanelState) -> bool {
+    if !state.busy || state.pending_permission.is_some() {
+        return false;
+    }
+
+    state
+        .messages
+        .iter()
+        .rev()
+        .find(|message| is_visible_message(message))
+        .is_some_and(|message| matches!(message.kind, AcpMessageKind::Agent))
+}
+
+pub(super) fn last_chunk_is_text(chunks: &[MessageChunk]) -> bool {
+    matches!(chunks.last(), Some(MessageChunk::Text(_)))
+}
+
 pub(super) fn artifact_title(artifact: &ChatArtifact) -> &'static str {
     match artifact {
         ChatArtifact::SqlDraft { .. } => "SQL Draft",

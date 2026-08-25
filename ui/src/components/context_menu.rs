@@ -242,12 +242,16 @@ pub fn ContextMenu() -> Element {
                         let label = item.label.clone();
                         let callback = item.callback;
                         let disabled = item.disabled;
+                        let active = item.active;
                         let mut class_name = String::from("context-menu__item");
                         if item.danger {
                             class_name.push_str(" context-menu__item--danger");
                         }
                         if disabled {
                             class_name.push_str(" context-menu__item--disabled");
+                        }
+                        if active {
+                            class_name.push_str(" context-menu__item--active");
                         }
                         rsx! {
                             button {
@@ -274,6 +278,9 @@ pub fn ContextMenu() -> Element {
                                             IconGlyph { icon }
                                         }
                                     }
+                                } else {
+                                    // Reserve the icon-column width so labels stay aligned with sibling items that do have an icon.
+                                    span { class: "context-menu__item-icon-spacer" }
                                 }
                                 {
                                     // Split the label on the last `\t\t`
@@ -298,6 +305,25 @@ pub fn ContextMenu() -> Element {
                                         if let Some(hint) = shortcut {
                                             span { class: "context-menu__item-shortcut", "{hint}" }
                                         }
+                                    }
+                                }
+                                span {
+                                    class: if active {
+                                        "context-menu__item-check context-menu__item-check--on"
+                                    } else {
+                                        "context-menu__item-check"
+                                    },
+                                    "aria-hidden": "true",
+                                    svg {
+                                        view_box: "0 0 24 24",
+                                        fill: "none",
+                                        stroke: "currentColor",
+                                        stroke_width: "2.4",
+                                        stroke_linecap: "round",
+                                        stroke_linejoin: "round",
+                                        width: "12",
+                                        height: "12",
+                                        path { d: "m5 13 4 4L19 7" }
                                     }
                                 }
                             }

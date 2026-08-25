@@ -159,6 +159,46 @@
   }
 }
 
+// Reserve the icon-column width when an item has no leading icon so
+// labels stay aligned across the menu. This matters once items start
+// carrying an active checkmark on the right side — without the spacer
+// the label would jump left when its sibling items have icons.
+.context-menu__item-icon-spacer {
+  display: inline-block;
+  flex-shrink: 0;
+  width: var(--ui-icon-size, 14px);
+  height: var(--ui-icon-size, 14px);
+}
+
+.context-menu__item-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--ui-icon-size, 14px);
+  height: var(--ui-icon-size, 14px);
+  margin-left: auto;
+  color: transparent;
+
+  svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+}
+
+.context-menu__item-check--on {
+  color: var(--color-primary);
+}
+
+.context-menu__item--active {
+  color: var(--color-text);
+
+  .context-menu__item-icon {
+    color: var(--color-primary);
+  }
+}
+
 @keyframes context-menu-in {
   from {
     opacity: 0;

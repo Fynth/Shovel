@@ -62,6 +62,8 @@ pub struct ContextMenuItem {
     pub danger: bool,
     pub disabled: bool,
     pub separator_before: bool,
+    /// When `true`, the overlay draws a checkmark indicator next to the label.
+    pub active: bool,
     pub callback: CallbackId,
 }
 
@@ -77,6 +79,7 @@ impl ContextMenuItem {
             danger: false,
             disabled: false,
             separator_before: false,
+            active: false,
             callback: id,
         }
     }
@@ -98,6 +101,12 @@ impl ContextMenuItem {
 
     pub fn separator(mut self) -> Self {
         self.separator_before = true;
+        self
+    }
+
+    /// Mark the item as currently "on" so the overlay renders a checkmark indicator.
+    pub fn active(mut self, on: bool) -> Self {
+        self.active = on;
         self
     }
 }

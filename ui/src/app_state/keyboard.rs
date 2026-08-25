@@ -30,6 +30,12 @@ pub enum ShortcutAction {
     RenameSelected,
     /// Delete — drop the currently selected explorer object.
     DeleteSelected,
+    /// Ctrl+Shift+M — focus the agent composer textarea.
+    FocusAgentComposer,
+    /// Ctrl+Shift+N — open the New Connection screen.
+    NewConnection,
+    /// Ctrl+, — open Settings.
+    OpenSettings,
 }
 
 impl ShortcutAction {
@@ -58,7 +64,10 @@ impl ShortcutAction {
             | ShortcutAction::CloseOverlay
             | ShortcutAction::GlobalSearch
             | ShortcutAction::RenameSelected
-            | ShortcutAction::DeleteSelected => return None,
+            | ShortcutAction::DeleteSelected
+            | ShortcutAction::FocusAgentComposer => return None,
+            ShortcutAction::NewConnection => acts::ACTION_NEW_CONNECTION,
+            ShortcutAction::OpenSettings => acts::ACTION_OPEN_SETTINGS,
         })
     }
 }
@@ -133,8 +142,14 @@ pub fn match_key_combination(key: &Key, modifiers: Modifiers) -> Option<Shortcut
     if eq_ci('P') && shift {
         return Some(ShortcutAction::CommandPalette);
     }
+    if eq_ci('M') && shift {
+        return Some(ShortcutAction::FocusAgentComposer);
+    }
     if eq_ci('K') && !shift {
         return Some(ShortcutAction::GlobalSearch);
+    }
+    if eq_ci('N') && shift {
+        return Some(ShortcutAction::NewConnection);
     }
     if eq_ci('T') || eq_ci('N') {
         return Some(ShortcutAction::NewTab);
@@ -144,6 +159,9 @@ pub fn match_key_combination(key: &Key, modifiers: Modifiers) -> Option<Shortcut
     }
     if eq_ci('F') {
         return Some(ShortcutAction::FocusFilterPanel);
+    }
+    if character == "," {
+        return Some(ShortcutAction::OpenSettings);
     }
 
     None
@@ -218,19 +236,50 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_t_and_ctrl_n_and_their_shift_variants_open_a_new_tab() {
+    fn ctrl_t_and_ctrl_n_open_a_new_tab() {
         for key in ["t", "T", "n", "N"] {
             assert_eq!(
                 match_key_combination(&Key::Character(key.into()), ctrl()),
                 Some(ShortcutAction::NewTab),
                 "Ctrl+{key} should open a new tab"
             );
-            assert_eq!(
-                match_key_combination(&Key::Character(key.into()), ctrl_shift()),
-                Some(ShortcutAction::NewTab),
-                "Ctrl+Shift+{key} should also open a new tab"
-            );
         }
+        // Ctrl+Shift+T still opens a new tab.
+        assert_eq!(
+            match_key_combination(&Key::Character("t".into()), ctrl_shift()),
+            Some(ShortcutAction::NewTab)
+        );
+        // Ctrl+Shift+N is New Connection, not a new tab.
+        assert_eq!(
+            match_key_combination(&Key::Character("n".into()), ctrl_shift()),
+            Some(ShortcutAction::NewConnection)
+        );
+    }
+
+    #[test]
+    fn ctrl_shift_n_opens_new_connection() {
+        assert_eq!(
+            match_key_combination(&Key::Character("n".into()), ctrl_shift()),
+            Some(ShortcutAction::NewConnection)
+        );
+        assert_eq!(
+            match_key_combination(&Key::Character("N".into()), ctrl_shift()),
+            Some(ShortcutAction::NewConnection)
+        );
+    }
+
+    #[test]
+    fn ctrl_comma_opens_settings() {
+        assert_eq!(
+            match_key_combination(&Key::Character(",".into()), ctrl()),
+            Some(ShortcutAction::OpenSettings)
+        );
+        // Ctrl+Shift+, also opens Settings (the comma matcher does not
+        // distinguish the shift variant).
+        assert_eq!(
+            match_key_combination(&Key::Character(",".into()), ctrl_shift()),
+            Some(ShortcutAction::OpenSettings)
+        );
     }
 
     #[test]
@@ -374,6 +423,33 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_shift_m_focuses_the_agent_composer() {
+        assert_eq!(
+            match_key_combination(&Key::Character("m".into()), ctrl_shift()),
+            Some(ShortcutAction::FocusAgentComposer)
+        );
+        assert_eq!(
+            match_key_combination(&Key::Character("M".into()), ctrl_shift()),
+            Some(ShortcutAction::FocusAgentComposer)
+        );
+        // Plain Ctrl+M (no shift) is left unassigned so it never
+        // double-fires with the composer's own handling.
+        assert_eq!(
+            match_key_combination(&Key::Character("m".into()), ctrl()),
+            None
+        );
+    }
+
+    #[test]
+    fn ctrl_enter_is_left_to_the_composer_local_handler() {
+        // Ctrl+Enter is owned by the agent composer textarea (send),
+        // mirroring the SQL editor's Ctrl+Enter run. The root-level
+        // matcher must leave it alone so the two handlers do not
+        // double-fire.
+        assert_eq!(match_key_combination(&Key::Enter, ctrl()), None);
+    }
+
+    #[test]
     fn shortcut_actions_resolve_through_the_action_registry() {
         use crate::app_state::actions as acts;
         assert_eq!(
@@ -393,5 +469,15 @@ mod tests {
         assert_eq!(ShortcutAction::GlobalSearch.to_action_id(), None);
         assert_eq!(ShortcutAction::RenameSelected.to_action_id(), None);
         assert_eq!(ShortcutAction::DeleteSelected.to_action_id(), None);
+        assert_eq!(ShortcutAction::FocusAgentComposer.to_action_id(), None);
+        // New Connection / Settings resolve through the catalog.
+        assert_eq!(
+            ShortcutAction::NewConnection.to_action_id(),
+            Some(acts::ACTION_NEW_CONNECTION)
+        );
+        assert_eq!(
+            ShortcutAction::OpenSettings.to_action_id(),
+            Some(acts::ACTION_OPEN_SETTINGS)
+        );
     }
 }

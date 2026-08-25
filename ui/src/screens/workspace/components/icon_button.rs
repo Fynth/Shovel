@@ -45,6 +45,9 @@ pub enum ActionIcon {
     QueryLog,
     Transactions,
     Problems,
+    /// Toolbar overflow entry point — opens the consolidated "View"
+    /// menu that lists the panel-visibility toggles.
+    ViewMenu,
 }
 
 #[component]
@@ -366,6 +369,15 @@ pub fn IconGlyph(icon: ActionIcon) -> Element {
                     path { d: "M12 4 2 20h20z" }
                     path { d: "M12 10v4" }
                     path { d: "M12 17h.01" }
+                },
+                ActionIcon::ViewMenu => rsx! {
+                    // Three stacked panes representing the consolidated
+                    // "View" overflow menu — visually echoes the
+                    // sidebar / inspector / editor arrangement so the
+                    // affordance reads as a layout control.
+                    rect { x: "4", y: "5", width: "16", height: "4", rx: "1" }
+                    rect { x: "4", y: "11", width: "10", height: "8", rx: "1" }
+                    rect { x: "16", y: "11", width: "4", height: "8", rx: "1" }
                 },
             }
         }

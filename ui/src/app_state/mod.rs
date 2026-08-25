@@ -194,6 +194,8 @@ pub const RECENTLY_CLOSED_TABS_LIMIT: usize = 8;
 pub static APP_LAST_QUERY: GlobalSignal<Option<LastQuerySummary>> = Signal::global(|| None);
 pub static APP_FOCUS_EDITOR_REQUEST: GlobalSignal<u64> = Signal::global(|| 0);
 pub static APP_FOCUS_FILTER_PANEL_REQUEST: GlobalSignal<u64> = Signal::global(|| 0);
+/// Bumped to request focus on the agent composer textarea (Ctrl+Shift+M).
+pub static APP_FOCUS_AGENT_COMPOSER_REQUEST: GlobalSignal<u64> = Signal::global(|| 0);
 /// Qualified name of the explorer node the user most recently
 /// selected. Mirrors the local `selected_node` signal inside
 /// `SidebarConnectionTree` so the workspace-level keyboard
@@ -265,6 +267,11 @@ pub fn request_focus_editor() {
 
 pub fn request_focus_filter_panel() {
     let mut counter = APP_FOCUS_FILTER_PANEL_REQUEST.write();
+    *counter = counter.wrapping_add(1);
+}
+
+pub fn request_focus_agent_composer() {
+    let mut counter = APP_FOCUS_AGENT_COMPOSER_REQUEST.write();
     *counter = counter.wrapping_add(1);
 }
 

@@ -307,10 +307,6 @@
   min-width: 0;
 }
 
-.tree__object-row--selected .tree__object-actions {
-  opacity: 1;
-}
-
 .tree__object {
   display: flex;
   align-items: center;
@@ -336,26 +332,6 @@
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 54%, transparent),
     0 8px 14px rgba(8, 10, 14, 0.08);
-}
-
-.tree__object-actions {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  opacity: 0;
-  transition: opacity $motion-fast ease;
-
-  .button--icon {
-    width: 30px;
-    min-width: 30px;
-    height: 30px;
-    padding: 0;
-  }
-}
-
-.tree__object-row:hover .tree__object-actions,
-.tree__object-row:focus-within .tree__object-actions {
-  opacity: 1;
 }
 
 .tree__object-badge {
