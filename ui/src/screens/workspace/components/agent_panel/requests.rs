@@ -833,6 +833,21 @@ pub(crate) fn execute_agent_sql_request(
     execution_mode: AgentSqlExecutionMode,
     record_error_in_agent_panel: bool,
 ) {
+    // The auto-read-only path is the agent's "run read-only SQL" tool. It
+    // MUST NOT execute a write statement regardless of what the caller
+    // believes it passed, so gate here at the execution boundary (not just
+    // in the button/auto-dispatch that asks for it).
+    if let Some(message) = read_only_agent_sql_blocked(&sql, execution_mode) {
+        panel_state.with_mut(|state| {
+            state.status = message.clone();
+            if record_error_in_agent_panel {
+                push_message(state, AcpMessageKind::Error, message);
+            }
+        });
+        chat_revision += 1;
+        return;
+    }
+
     let Some(target_tab_id) = preferred_sql_target_tab_id(tabs, active_tab_id()) else {
         panel_state.with_mut(|state| {
             state.status = "No active SQL tab to execute in.".to_string();
@@ -965,9 +980,26 @@ pub(super) fn can_execute_agent_sql(
     }
 }
 
+/// Returns an error message when the auto-read-only agent SQL path should
+/// be blocked, or `None` when the request may proceed. The read-only agent
+/// tool must reject any write statement before it reaches the query
+/// executor, regardless of the caller's intent.
+pub(super) fn read_only_agent_sql_blocked(
+    sql: &str,
+    execution_mode: AgentSqlExecutionMode,
+) -> Option<String> {
+    if execution_mode == AgentSqlExecutionMode::AutoReadOnly && !services::is_read_only_sql(sql) {
+        Some(format!(
+            "Refusing to run write SQL through the read-only agent tool: {sql}"
+        ))
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::build_explain_sql;
+    use super::{AgentSqlExecutionMode, build_explain_sql, read_only_agent_sql_blocked};
 
     #[test]
     fn prefixes_explain_for_regular_sql() {
@@ -982,6 +1014,48 @@ mod tests {
         assert_eq!(
             build_explain_sql("EXPLAIN select * from products"),
             "EXPLAIN select * from products"
+        );
+    }
+
+    #[test]
+    fn read_only_tool_allows_read_statements() {
+        assert_eq!(
+            read_only_agent_sql_blocked(
+                "select * from products",
+                AgentSqlExecutionMode::AutoReadOnly
+            ),
+            None
+        );
+        assert_eq!(
+            read_only_agent_sql_blocked(
+                "WITH recent AS (SELECT 1) SELECT * FROM recent",
+                AgentSqlExecutionMode::AutoReadOnly
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn read_only_tool_rejects_write_statements() {
+        for sql in [
+            "INSERT INTO products (id) VALUES (1)",
+            "UPDATE products SET price = 0",
+            "DELETE FROM products",
+            "DROP TABLE products",
+            "CREATE TABLE products (id INTEGER)",
+        ] {
+            assert!(
+                read_only_agent_sql_blocked(sql, AgentSqlExecutionMode::AutoReadOnly).is_some(),
+                "expected write SQL to be rejected by the read-only agent tool: {sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn manual_mode_is_not_gated_by_read_only_agent_tool() {
+        assert_eq!(
+            read_only_agent_sql_blocked("DELETE FROM products", AgentSqlExecutionMode::Manual),
+            None
         );
     }
 }
