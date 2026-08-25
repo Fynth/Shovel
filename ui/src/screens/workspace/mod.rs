@@ -11,7 +11,6 @@ use crate::{
         APP_BOTTOM_PANEL_HEIGHT,
         APP_COMMAND_REQUEST,
         APP_COMMAND_REQUEST_KIND,
-        APP_EXPLORER_SELECTED_NODE,
         APP_GLOBAL_SEARCH_OBJECTS,
         APP_GLOBAL_SEARCH_REQUEST,
         APP_GLOBAL_SEARCH_REQUEST_KIND,
@@ -1291,29 +1290,22 @@ pub fn Workspace() -> Element {
                     }
                     // F2 rename / Delete drop act on the selected explorer
                     // object. The global [`APP_EXPLORER_SELECTED_NODE`]
-                    // signal mirrors the tree's local selection, so we
-                    // can name the target in the toast. Rename and drop
-                    // both go through context-menu runners that already
-                    // exist; the keyboard shortcut is a discoverable
-                    // alias that announces its target until the per-node
-                    // modal lands.
+                    // signal mirrors the tree's local selection and names
+                    // the target; the loaded `tree_sections` supplies the
+                    // metadata needed to build the rename/drop target.
                     ShortcutAction::RenameSelected => {
-                        let target = APP_EXPLORER_SELECTED_NODE();
-                        let message = if target.is_empty() {
-                            "Rename — focus a table or column in the explorer".to_string()
-                        } else {
-                            format!("Rename '{target}' — open the explorer context menu to rename")
-                        };
-                        crate::app_state::show_toast(message, ToastKind::Info);
+                        crate::screens::workspace::components::explorer::open_selected_rename(
+                            tree_sections.read().to_vec(),
+                            tree_reload,
+                        );
                     }
                     ShortcutAction::DeleteSelected => {
-                        let target = APP_EXPLORER_SELECTED_NODE();
-                        let message = if target.is_empty() {
-                            "Delete — focus a table in the explorer to drop it".to_string()
-                        } else {
-                            format!("Delete '{target}' — open the explorer context menu to drop")
-                        };
-                        crate::app_state::show_toast(message, ToastKind::Info);
+                        let sections = tree_sections.read().to_vec();
+                        crate::screens::workspace::components::explorer::confirm_drop_selected_table(
+                            &sections,
+                            tabs,
+                            tree_reload,
+                        );
                     }
                     ShortcutAction::CloseOverlay => {
                         close_topmost_overlay();

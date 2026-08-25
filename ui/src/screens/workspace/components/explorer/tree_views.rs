@@ -281,7 +281,6 @@ fn ExplorerObjectRow(
     query: String,
     view: ExplorerViewSettings,
 ) -> Element {
-    let table_mutation_inflight = use_signal(|| None::<TableMutationKind>);
     let acp_ctx = use_context::<WorkspaceAcpContext>();
     let (connection_name, connection_kind) = APP_STATE
         .read()
@@ -308,7 +307,6 @@ fn ExplorerObjectRow(
         selected_node,
         session_id,
         connection_kind,
-        table_mutation_inflight,
         tree_reload,
     );
 
@@ -522,7 +520,6 @@ fn build_explorer_context_menu(
     selected_node: Signal<String>,
     session_id: u64,
     connection_kind: DatabaseKind,
-    table_mutation_inflight: Signal<Option<TableMutationKind>>,
     tree_reload: Signal<u64>,
 ) -> Vec<ContextMenuItem> {
     use crate::app_state::actions::{self as actions, ActionId};
@@ -564,7 +561,6 @@ fn build_explorer_context_menu(
                 selected_node,
                 session_id,
                 connection_kind,
-                table_mutation_inflight,
                 tree_reload,
             )
         })
@@ -648,7 +644,6 @@ fn menu_item_for_action(
     selected_node: Signal<String>,
     session_id: u64,
     connection_kind: DatabaseKind,
-    table_mutation_inflight: Signal<Option<TableMutationKind>>,
     mut tree_reload: Signal<u64>,
 ) -> Option<ContextMenuItem> {
     use crate::app_state::context_menu::copy_to_clipboard;
@@ -850,9 +845,6 @@ fn menu_item_for_action(
                     session_id,
                     connection_kind,
                     tabs,
-                    table_mutation_inflight,
-                    selected_node,
-                    tree_reload,
                 ));
             })
             .with_icon(ActionIcon::Truncate)
@@ -872,8 +864,7 @@ fn menu_item_for_action(
                     session_id,
                     connection_kind,
                     tabs,
-                    table_mutation_inflight,
-                    selected_node,
+                    Some(selected_node),
                     tree_reload,
                 ));
             })
@@ -985,17 +976,15 @@ fn menu_item_for_action(
     }
 }
 
-// Shared by the inline IconButton onclick handlers and the context menu so the
-// rfd confirmation + signal orchestration stays in one place.
+// Shared by the inline IconButton onclick handlers, the context menu, and the
+// workspace F2/Delete keyboard handlers so the rfd confirmation + signal
+// orchestration stays in one place.
 #[allow(clippy::too_many_arguments)]
-async fn confirm_and_truncate_table(
+pub(super) async fn confirm_and_truncate_table(
     source: TablePreviewSource,
     session_id: u64,
     connection_kind: DatabaseKind,
     tabs: Signal<Vec<QueryTabState>>,
-    mut table_mutation_inflight: Signal<Option<TableMutationKind>>,
-    _selected_node: Signal<String>,
-    _tree_reload: Signal<u64>,
 ) {
     let confirmation = AsyncMessageDialog::new()
         .set_title(table_mutation_dialog_title(TableMutationKind::Truncate))
@@ -1027,9 +1016,7 @@ async fn confirm_and_truncate_table(
     };
 
     let refresh_connection = connection.clone();
-    table_mutation_inflight.set(Some(TableMutationKind::Truncate));
     let result = services::truncate_table(connection, source.clone()).await;
-    table_mutation_inflight.set(None);
 
     match result {
         Ok(()) => {
@@ -1051,14 +1038,13 @@ async fn confirm_and_truncate_table(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn confirm_and_drop_table(
+pub(super) async fn confirm_and_drop_table(
     source: TablePreviewSource,
     selected_qualified_name: String,
     session_id: u64,
     connection_kind: DatabaseKind,
     tabs: Signal<Vec<QueryTabState>>,
-    mut table_mutation_inflight: Signal<Option<TableMutationKind>>,
-    mut selected_node: Signal<String>,
+    local_selected_node: Option<Signal<String>>,
     mut tree_reload: Signal<u64>,
 ) {
     let confirmation = AsyncMessageDialog::new()
@@ -1090,15 +1076,14 @@ async fn confirm_and_drop_table(
         return;
     };
 
-    table_mutation_inflight.set(Some(TableMutationKind::Drop));
     let result = services::drop_table(connection, source.clone()).await;
-    table_mutation_inflight.set(None);
-
     match result {
         Ok(()) => {
-            if selected_node() == selected_qualified_name {
-                selected_node.set(String::new());
-                crate::app_state::set_explorer_selected_node(String::new());
+            if let Some(mut local_selected_node) = local_selected_node {
+                if local_selected_node() == selected_qualified_name {
+                    local_selected_node.set(String::new());
+                    crate::app_state::set_explorer_selected_node(String::new());
+                }
             }
             mark_table_deleted(tabs, session_id, source.clone());
             tree_reload += 1;

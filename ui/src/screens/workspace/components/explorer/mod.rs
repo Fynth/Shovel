@@ -20,9 +20,10 @@ use crate::{
     screens::workspace::components::{ActionIcon, IconButton},
 };
 use dioxus::prelude::*;
-use models::{DatabaseKind, ExplorerNode, ExplorerNodeKind, QueryTabState};
+use models::{DatabaseKind, ExplorerNode, ExplorerNodeKind, QueryTabState, TablePreviewSource};
 
 use create_table_modal::CreateTableTarget;
+use rename_table_modal::RenameTableTarget;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExplorerConnectionSection {
@@ -393,6 +394,167 @@ pub(super) fn quoted_table_name_preview(
             )
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard entry points (F2 rename / Delete drop)
+// ---------------------------------------------------------------------------
+// The workspace-level keyboard dispatcher acts on the selected explorer
+// object via the global [`crate::app_state::APP_EXPLORER_SELECTED_NODE`].
+// The loaded tree (`sections`) holds the per-node metadata needed to build
+// a `TablePreviewSource` + `RenameTableTarget` without a round-trip to the
+// DB, so these helpers resolve the node by qualified name and then reuse
+// the exact same runners the context menu uses.
+
+/// Find a `TablePreviewSource` for the selected table node in the tree.
+/// Only table nodes are renameable/droppable from the keyboard.
+fn selected_table_source(
+    sections: &[ExplorerConnectionSection],
+    selected_qualified_name: &str,
+) -> Option<TablePreviewSource> {
+    for section in sections {
+        for node in &section.nodes {
+            let found = find_table_source(node, selected_qualified_name);
+            if found.is_some() {
+                return found;
+            }
+        }
+    }
+    None
+}
+
+fn find_table_source(node: &ExplorerNode, qualified_name: &str) -> Option<TablePreviewSource> {
+    if node.kind == ExplorerNodeKind::Table && node.qualified_name == qualified_name {
+        return Some(TablePreviewSource {
+            schema: node.schema.clone(),
+            table_name: node.name.clone(),
+            qualified_name: node.qualified_name.clone(),
+        });
+    }
+    for child in &node.children {
+        if let Some(found) = find_table_source(child, qualified_name) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// Resolve the active session id for a selected node. The selection lives
+/// in a section scoped to a session, so we find which section owns the
+/// node.
+fn selected_table_session(
+    sections: &[ExplorerConnectionSection],
+    selected_qualified_name: &str,
+) -> Option<u64> {
+    sections
+        .iter()
+        .find(|section| contains_table(section, selected_qualified_name))
+        .map(|section| section.session_id)
+}
+
+fn contains_table(section: &ExplorerConnectionSection, qualified_name: &str) -> bool {
+    section
+        .nodes
+        .iter()
+        .any(|node| node_contains_table(node, qualified_name))
+}
+
+fn node_contains_table(node: &ExplorerNode, qualified_name: &str) -> bool {
+    if node.kind == ExplorerNodeKind::Table && node.qualified_name == qualified_name {
+        return true;
+    }
+    node.children
+        .iter()
+        .any(|child| node_contains_table(child, qualified_name))
+}
+
+/// Open the rename dialog for the selected table. Callers provide the
+/// live `tree_reload` signal so the window can refresh the tree and
+/// selection on success.
+pub fn open_selected_rename(
+    sections: Vec<ExplorerConnectionSection>,
+    mut tree_reload: Signal<u64>,
+) {
+    let selected = crate::app_state::APP_EXPLORER_SELECTED_NODE();
+    let Some(source) = selected_table_source(&sections, &selected) else {
+        crate::app_state::show_toast(
+            "Rename — focus a table in the explorer".to_string(),
+            crate::app_state::ToastKind::Info,
+        );
+        return;
+    };
+    let Some(session_id) = selected_table_session(&sections, &selected) else {
+        return;
+    };
+    let session = crate::app_state::session_connection(session_id);
+    let connection_name = crate::app_state::APP_STATE
+        .read()
+        .session(session_id)
+        .map(|s| s.name.clone())
+        .unwrap_or_else(|| "Connection".to_string());
+    let kind = crate::app_state::APP_STATE
+        .read()
+        .session(session_id)
+        .map(|s| s.kind)
+        .unwrap_or(models::DatabaseKind::Sqlite);
+
+    let target = RenameTableTarget {
+        session_id,
+        connection_name,
+        kind,
+        source,
+    };
+    let (bridge, mut rx) = crate::windows::create_rename_table_bridge();
+    spawn(async move {
+        while let Some(result) = rx.recv().await {
+            crate::app_state::set_explorer_selected_node(result.new_qualified_name);
+            tree_reload += 1;
+        }
+    });
+    crate::windows::open_rename_table_window(
+        bridge,
+        target,
+        session,
+        crate::app_state::APP_READ_ONLY_MODE(),
+        crate::app_state::APP_THEME(),
+    );
+}
+
+/// Drop the selected table after a native confirmation. Mirrors the
+/// explorer context-menu "Drop table" runner but for the keyboard path.
+pub fn confirm_drop_selected_table(
+    sections: &[ExplorerConnectionSection],
+    tabs: Signal<Vec<QueryTabState>>,
+    tree_reload: Signal<u64>,
+) {
+    let selected = crate::app_state::APP_EXPLORER_SELECTED_NODE();
+    let Some(source) = selected_table_source(sections, &selected) else {
+        crate::app_state::show_toast(
+            "Delete — focus a table in the explorer to drop it",
+            crate::app_state::ToastKind::Info,
+        );
+        return;
+    };
+    let Some(session_id) = selected_table_session(sections, &selected) else {
+        return;
+    };
+    let connection_kind = crate::app_state::APP_STATE
+        .read()
+        .session(session_id)
+        .map(|s| s.kind)
+        .unwrap_or(models::DatabaseKind::Sqlite);
+    spawn(async move {
+        tree_views::confirm_and_drop_table(
+            source.clone(),
+            selected,
+            session_id,
+            connection_kind,
+            tabs,
+            None,
+            tree_reload,
+        )
+        .await;
+    });
 }
 
 // ---------------------------------------------------------------------------
