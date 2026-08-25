@@ -298,6 +298,7 @@ pub fn set_active_tab_status(mut store: TabStore, active_tab_id: u64, status: St
     });
 }
 
+#[cfg(test)]
 fn toggle_cached_execution_plan(tab: &mut QueryTabState, sql: &str) -> bool {
     if tab.show_execution_plan && tab.execution_plan.is_some() {
         tab.show_execution_plan = false;
@@ -316,15 +317,23 @@ fn toggle_cached_execution_plan(tab: &mut QueryTabState, sql: &str) -> bool {
     false
 }
 
-pub fn toggle_execution_plan_for_tab(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: u64,
-    sql: &str,
-) -> bool {
+pub fn toggle_execution_plan_for_tab(mut store: TabStore, active_tab_id: u64, sql: &str) -> bool {
     let mut handled = false;
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == active_tab_id) {
-            handled = toggle_cached_execution_plan(tab, sql);
+    store.result.with_mut(|m| {
+        if let Some(res) = m.get_mut(&active_tab_id) {
+            if res.show_execution_plan && res.execution_plan.is_some() {
+                res.show_execution_plan = false;
+                handled = true;
+                return;
+            }
+            let normalized_sql = sql.trim();
+            let can_reopen_cached_plan = res.execution_plan.as_ref().is_some_and(|plan| {
+                !normalized_sql.is_empty() && plan.explained_sql.trim() == normalized_sql
+            });
+            if can_reopen_cached_plan {
+                res.show_execution_plan = true;
+                handled = true;
+            }
         }
     });
     handled
@@ -1654,38 +1663,50 @@ pub fn clear_active_tab_filter(mut store: TabStore, active_tab_id: u64) {
 /// every callsite already has them paired in local bindings; this
 /// keeps the API ergonomic without forcing a new struct type.
 pub fn run_active_tab(
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     active_tab_id: u64,
     history: (Signal<Vec<QueryHistoryItem>>, Signal<u64>),
 ) {
     let (history, next_history_id) = history;
     let current_id = active_tab_id;
-    let current_tab = tabs.read().iter().find(|tab| tab.id == current_id).cloned();
-
-    let Some(current_tab) = current_tab else {
+    let sql = store
+        .editor
+        .read()
+        .get(&current_id)
+        .map(|ed| ed.sql.clone());
+    let Some(sql) = sql else {
         return;
     };
-
-    let sql = current_tab.sql.trim().to_string();
-    let tab_title = current_tab.title.clone();
-    let page_size = current_tab.page_size;
+    let sql = sql.trim().to_string();
+    let tab_title = store.meta.read().get(&current_id).map(|m| m.title.clone());
+    let Some(tab_title) = tab_title else {
+        return;
+    };
+    let page_size = store.result.read().get(&current_id).map(|r| r.page_size);
+    let Some(page_size) = page_size else {
+        return;
+    };
+    let session_id = store.meta.read().get(&current_id).map(|m| m.session_id);
+    let Some(session_id) = session_id else {
+        return;
+    };
     let connection_name = APP_STATE
         .read()
-        .session(current_tab.session_id)
+        .session(session_id)
         .map(|session| session.name.clone())
         .unwrap_or_else(|| "Detached session".to_string());
 
     if sql.is_empty() {
-        set_active_tab_status(tabs, current_id, "Query is empty".to_string());
+        set_active_tab_status(store, current_id, "Query is empty".to_string());
         return;
     }
 
-    let Some(connection) = tab_connection_or_error(tabs, current_id, current_tab.session_id) else {
+    let Some(connection) = tab_connection_or_error(store, current_id, session_id) else {
         return;
     };
 
     run_query_for_tab(
-        tabs,
+        store,
         current_id,
         connection,
         sql,
@@ -1697,60 +1718,72 @@ pub fn run_active_tab(
 
 /// Run EXPLAIN for the active tab's SQL. Mirrors the toolbar's
 /// Explain button.
-pub fn run_active_tab_explain(tabs: Signal<Vec<QueryTabState>>, active_tab_id: u64) {
+pub fn run_active_tab_explain(store: TabStore, active_tab_id: u64) {
     let current_id = active_tab_id;
-    let Some(current_tab) = tabs.read().iter().find(|tab| tab.id == current_id).cloned() else {
+    let sql = store
+        .editor
+        .read()
+        .get(&current_id)
+        .map(|ed| ed.sql.clone());
+    let Some(sql) = sql else {
         return;
     };
-    let sql = current_tab.sql.trim().to_string();
-    if toggle_execution_plan_for_tab(tabs, current_id, &sql) {
+    let sql = sql.trim().to_string();
+    if toggle_execution_plan_for_tab(store, current_id, &sql) {
         return;
     }
     if sql.is_empty() {
-        set_active_tab_status(tabs, current_id, "Enter a query to explain".to_string());
+        set_active_tab_status(store, current_id, "Enter a query to explain".to_string());
         return;
     }
     if !services::is_read_only_sql(&sql) {
         set_active_tab_status(
-            tabs,
+            store,
             current_id,
             "EXPLAIN is only available for read-only SQL".to_string(),
         );
         return;
     }
-    let Some(connection) = tab_connection_or_error(tabs, current_id, current_tab.session_id) else {
+    let session_id = store.meta.read().get(&current_id).map(|m| m.session_id);
+    let Some(session_id) = session_id else {
         return;
     };
-    run_explain_for_tab(tabs, current_id, connection, sql);
+    let Some(connection) = tab_connection_or_error(store, current_id, session_id) else {
+        return;
+    };
+    run_explain_for_tab(store, current_id, connection, sql);
 }
 
 /// Format the active tab's SQL in place. Mirrors the toolbar's
 /// Format button.
 pub fn format_active_tab(
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     active_tab_id: u64,
     format_settings: models::SqlFormatSettings,
 ) {
     let current_id = active_tab_id;
-    let Some(current_tab) = tabs.read().iter().find(|tab| tab.id == current_id).cloned() else {
+    let sql = store
+        .editor
+        .read()
+        .get(&current_id)
+        .map(|ed| ed.sql.clone());
+    let Some(sql) = sql else {
         return;
     };
-    let sql = current_tab.sql.trim();
+    let sql = sql.trim();
     if sql.is_empty() {
         set_active_tab_status(
-            tabs,
-            current_tab.id,
+            store,
+            current_id,
             "Nothing to format in the current tab".to_string(),
         );
         return;
     }
 
-    let session_kind = APP_STATE
-        .read()
-        .session(current_tab.session_id)
-        .map(|session| session.kind);
+    let session_id = store.meta.read().get(&current_id).map(|m| m.session_id);
+    let session_kind = session_id.and_then(|sid| APP_STATE.read().session(sid).map(|s| s.kind));
     let formatted = services::format_sql(session_kind, sql, &format_settings);
-    replace_active_tab_sql(tabs, current_tab.id, formatted, "SQL formatted".to_string());
+    replace_active_tab_sql(store, current_id, formatted, "SQL formatted".to_string());
 }
 
 /// Toggle `--` line comments on every selected line in the active
@@ -1760,15 +1793,19 @@ pub fn format_active_tab(
 ///
 /// Returns `true` if the SQL was modified.
 pub fn toggle_line_comments_in_active_tab(
-    mut tabs: Signal<Vec<QueryTabState>>,
+    mut store: TabStore,
     active_tab_id: u64,
     selection: std::ops::Range<usize>,
 ) -> bool {
     let current_id = active_tab_id;
-    let Some(current_tab) = tabs.read().iter().find(|t| t.id == current_id).cloned() else {
+    let sql = store
+        .editor
+        .read()
+        .get(&current_id)
+        .map(|ed| ed.sql.clone());
+    let Some(sql) = sql else {
         return false;
     };
-    let sql = current_tab.sql;
     if sql.is_empty() {
         return false;
     }
@@ -1836,15 +1873,19 @@ pub fn toggle_line_comments_in_active_tab(
     }
 
     let new_cursor = if expanded_end > 0 { expanded_start } else { 0 };
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|t| t.id == current_id) {
-            tab.sql = new_sql;
-            tab.status = if all_commented {
+    store.editor.with_mut(|m| {
+        if let Some(ed) = m.get_mut(&current_id) {
+            ed.sql = new_sql;
+        }
+    });
+    store.result.with_mut(|m| {
+        if let Some(res) = m.get_mut(&current_id) {
+            res.status = if all_commented {
                 "Uncommented selection".to_string()
             } else {
                 "Commented selection".to_string()
             };
-            tab.show_execution_plan = false;
+            res.show_execution_plan = false;
         }
     });
     let _ = new_cursor; // cursor reset handled by the editor's sync effect
@@ -1871,24 +1912,34 @@ fn strip_line_comment(line: &str) -> String {
 /// tab's title as the default name. Returns a user-visible status
 /// string suitable for a toast.
 pub fn save_active_tab_as_saved_query(
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     active_tab_id: u64,
     mut saved_queries_signal: Signal<Vec<models::SavedQuery>>,
     mut next_saved_query_id: Signal<u64>,
 ) -> String {
     let current_id = active_tab_id;
-    let Some(current_tab) = tabs.read().iter().find(|t| t.id == current_id).cloned() else {
+    let sql = store
+        .editor
+        .read()
+        .get(&current_id)
+        .map(|ed| ed.sql.clone());
+    let Some(sql) = sql else {
         return "No active SQL tab available.".to_string();
     };
-    if current_tab.sql.trim().is_empty() {
+    if sql.trim().is_empty() {
         return "Current SQL tab is empty.".to_string();
     }
-    let connection_name = APP_STATE.read().session_name(current_tab.session_id);
+    let title = store.meta.read().get(&current_id).map(|m| m.title.clone());
+    let Some(title) = title else {
+        return "No active SQL tab available.".to_string();
+    };
+    let session_id = store.meta.read().get(&current_id).map(|m| m.session_id);
+    let connection_name = session_id.and_then(|sid| APP_STATE.read().session_name(sid));
     let item = models::SavedQuery {
         id: next_saved_query_id(),
-        title: current_tab.title.clone(),
+        title,
         folder: String::new(),
-        sql: current_tab.sql.clone(),
+        sql,
         kind: models::SavedQueryKind::Query,
         connection_name,
     };
@@ -1917,16 +1968,20 @@ pub fn clear_active_tab_sql(store: TabStore, active_tab_id: u64) {
 /// Indent / outdent every line in the active tab's selection by
 /// two spaces. Mirrors a basic editor experience.
 pub fn indent_lines_in_active_tab(
-    mut tabs: Signal<Vec<QueryTabState>>,
+    mut store: TabStore,
     active_tab_id: u64,
     selection: std::ops::Range<usize>,
     direction: IndentDirection,
 ) {
     let current_id = active_tab_id;
-    let Some(current_tab) = tabs.read().iter().find(|t| t.id == current_id).cloned() else {
+    let sql = store
+        .editor
+        .read()
+        .get(&current_id)
+        .map(|ed| ed.sql.clone());
+    let Some(sql) = sql else {
         return;
     };
-    let sql = current_tab.sql;
     let len = sql.len();
     let start = selection.start.min(len);
     let end = selection.end.min(len);
@@ -1948,14 +2003,18 @@ pub fn indent_lines_in_active_tab(
     if new_sql == sql {
         return;
     }
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|t| t.id == current_id) {
-            tab.sql = new_sql;
-            tab.status = match direction {
+    store.editor.with_mut(|m| {
+        if let Some(ed) = m.get_mut(&current_id) {
+            ed.sql = new_sql;
+        }
+    });
+    store.result.with_mut(|m| {
+        if let Some(res) = m.get_mut(&current_id) {
+            res.status = match direction {
                 IndentDirection::In => "Indented".to_string(),
                 IndentDirection::Out => "Outdented".to_string(),
             };
-            tab.show_execution_plan = false;
+            res.show_execution_plan = false;
         }
     });
 }
