@@ -16,4 +16,4 @@ serde_json.workspace = true
 tar = "0.4.46"
 tokio.workspace = true
 walkdir = "2.5.0"
-zip = { version = "2.2.2", default-features = false, features = ["deflate"] }
+zip = { version = "7.2.0", default-features = false, features = ["deflate"] }
