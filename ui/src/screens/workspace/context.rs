@@ -1,10 +1,12 @@
 use dioxus::prelude::*;
-use models::{AcpPanelState, ChatThreadSummary, QueryHistoryItem, QueryTabState, SavedQuery};
+use models::{AcpPanelState, ChatThreadSummary, QueryHistoryItem, SavedQuery};
+
+use super::tab_store::TabStore;
 
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
 pub struct WorkspaceTabContext {
-    pub tabs: Signal<Vec<QueryTabState>>,
+    pub store: TabStore,
     pub active_tab_id: Signal<u64>,
     pub next_tab_id: Signal<u64>,
 }
@@ -33,12 +35,12 @@ pub struct WorkspaceAcpContext {
 }
 
 pub fn provide_workspace_tab_context(
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     active_tab_id: Signal<u64>,
     next_tab_id: Signal<u64>,
 ) {
     provide_context(WorkspaceTabContext {
-        tabs,
+        store,
         active_tab_id,
         next_tab_id,
     });
