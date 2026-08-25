@@ -202,10 +202,24 @@ Explain plan snapshot:\n```\n{explain_plan}\n```\n"
         prompt.push('\n');
     }
     prompt.push_str(
-        &(response_language_directive() + "Explain what the plan is doing, point out the expensive scans or joins, and call out any obvious performance risks.\n\
-Do not invent exact costs, row counts, or index usage beyond what the plan output explicitly shows.\n\
-Do not add LIMIT, OFFSET, TOP, FETCH, SAMPLE, or TABLESAMPLE unless the user explicitly asks for it or the original SQL already uses one.\n\
-If a better read-only rewrite is obvious, include exactly one improved SQL query inside a single ```sql``` block.\n"),
+        &(response_language_directive()
+            + "Analyze the query plan and return your findings as a single fenced ```json block with EXACTLY this shape (no other text outside the block):\n\
+```json\n\
+{\n\
+  \"summary\": \"one-paragraph plain-language explanation\",\n\
+  \"recommendations\": [\n\
+    {\n\
+      \"severity\": \"critical|warning|info\",\n\
+      \"category\": \"scan|join|sort|index|other\",\n\
+      \"title\": \"short title\",\n\
+      \"detail\": \"explanation\",\n\
+      \"suggested_index\": \"CREATE INDEX ... or null\"\n\
+    }\n\
+  ],\n\
+  \"rewritten_sql\": \"improved read-only SQL or null\"\n\
+}\n\
+```\n\
+Rules: severity and category must be lowercase. Do not invent exact costs or row counts beyond what the plan shows. Do not add LIMIT/OFFSET/TOP/FETCH/SAMPLE/TABLESAMPLE unless the original SQL already uses one. If a better read-only rewrite is obvious, put it in rewritten_sql; otherwise null.\n"),
     );
     prompt
 }
@@ -585,7 +599,23 @@ mod tests {
         );
         assert!(prompt.contains("Explain SQL:"));
         assert!(prompt.contains("Explain plan snapshot:"));
-        assert!(prompt.contains("point out the expensive scans or joins"));
+        assert!(prompt.contains("Analyze the query plan and return your findings"));
+    }
+
+    #[test]
+    fn plan_prompt_requests_structured_json() {
+        let prompt = build_sql_plan_prompt(
+            "test-db",
+            "SELECT * FROM orders",
+            "EXPLAIN SELECT * FROM orders",
+            "Seq Scan on orders",
+            None,
+            None,
+            None,
+        );
+        assert!(prompt.contains("```json"));
+        assert!(prompt.contains("rewritten_sql"));
+        assert!(prompt.contains("suggested_index"));
     }
 
     #[test]
