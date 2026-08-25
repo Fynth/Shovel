@@ -21,7 +21,7 @@ driver-clickhouse.workspace = true
 explorer.workspace = true
 futures-util.workspace = true
 models.workspace = true
-ndarray = { version = "0.16", optional = true }
+ndarray = { version = "0.17", optional = true }
 query.workspace = true
 reqwest.workspace = true
 serde.workspace = true
