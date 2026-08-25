@@ -255,7 +255,7 @@ pub fn ContextMenu() -> Element {
                         }
                         rsx! {
                             button {
-                                class: "{class_name}",
+                                class: {class_name.to_string()},
                                 disabled,
                                 r#type: "button",
                                 onclick: move |_| {
@@ -301,9 +301,9 @@ pub fn ContextMenu() -> Element {
                                             None => (label.clone(), None),
                                         };
                                     rsx! {
-                                        span { class: "context-menu__item-label", "{visible}" }
+                                        span { class: "context-menu__item-label", {visible.to_string()} }
                                         if let Some(hint) = shortcut {
-                                            span { class: "context-menu__item-shortcut", "{hint}" }
+                                            span { class: "context-menu__item-shortcut", {hint.to_string()} }
                                         }
                                     }
                                 }

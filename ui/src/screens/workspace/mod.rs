@@ -65,6 +65,8 @@ use crate::{
         set_show_sql_editor,
         set_split_mode,
         show_toast,
+        is_panel_collapsed,
+        toggle_panel_collapsed,
         update_ui_settings,
     },
     windows,
@@ -180,13 +182,36 @@ fn ExplorerToolPanel(
     active_tab_id: Signal<u64>,
     next_tab_id: Signal<u64>,
 ) -> Element {
+    let collapsed = is_panel_collapsed(WorkspaceToolPanel::Explorer);
+    let mut class_name = "workspace__panel".to_string();
+    if collapsed {
+        class_name.push_str(" workspace__panel--collapsed");
+    }
     rsx! {
         div {
-            class: "workspace__panel",
+            class: class_name,
             div {
                 class: "workspace__panel-header",
                 div {
                     class: "workspace__panel-header-row",
+                    button {
+                        class: "workspace__panel-collapse",
+                        "aria-label": if collapsed {
+                            "Expand explorer panel"
+                        } else {
+                            "Collapse explorer panel"
+                        },
+                        "aria-expanded": "{!collapsed}",
+                        onclick: move |_| toggle_panel_collapsed(WorkspaceToolPanel::Explorer),
+                        span {
+                            class: if collapsed {
+                                "workspace__panel-chevron"
+                            } else {
+                                "workspace__panel-chevron workspace__panel-chevron--open"
+                            },
+                            ">"
+                        }
+                    }
                     h2 { class: "workspace__section-title", "Explorer" }
                     IconButton {
                         icon: ActionIcon::Refresh,
@@ -199,12 +224,14 @@ fn ExplorerToolPanel(
                     p { class: "workspace__hint", "{tree_status()}" }
                 }
             }
-            SidebarConnectionTree {
-                sections: tree_sections(),
-                tree_reload,
-                tabs,
-                active_tab_id,
-                next_tab_id,
+            if !collapsed {
+                SidebarConnectionTree {
+                    sections: tree_sections(),
+                    tree_reload,
+                    tabs,
+                    active_tab_id,
+                    next_tab_id,
+                }
             }
         }
     }

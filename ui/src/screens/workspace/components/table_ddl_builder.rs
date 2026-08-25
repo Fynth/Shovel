@@ -73,7 +73,7 @@ pub fn TableEditor(
                         input {
                             class: "input",
                             r#type: "text",
-                            value: "{table_name}",
+                            value: table_name.to_string(),
                             oninput: move |event| {
                                 state.with_mut(|s| s.table_name = event.value());
                             },
@@ -279,7 +279,7 @@ pub fn TableEditor(
                     }
                     pre {
                         class: "table-editor__sql",
-                        "{sql_preview}"
+                        {sql_preview.to_string()}
                     }
                 }
             }

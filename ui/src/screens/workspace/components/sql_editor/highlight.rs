@@ -74,7 +74,7 @@ pub(super) fn SqlHighlightContent(
                 if !suffix.is_empty() {
                     span {
                         class: "sql-editor__token sql-editor__token--inline",
-                        "{suffix}"
+                        {suffix.to_string()}
                     }
                 }
             }

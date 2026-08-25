@@ -2,11 +2,13 @@ use crate::{
     app_state::{
         APP_STATE,
         context_menu::{ContextMenuItem, open_context_menu},
+        is_panel_collapsed,
+        toggle_panel_collapsed,
     },
     screens::workspace::actions::{append_to_tab_sql, ensure_tab_for_session, set_active_tab_sql},
 };
 use dioxus::prelude::*;
-use models::{QueryTabState, SavedQuery, SavedQueryKind};
+use models::{QueryTabState, SavedQuery, SavedQueryKind, WorkspaceToolPanel};
 
 #[component]
 pub fn SavedQueriesPanel(
@@ -44,12 +46,35 @@ pub fn SavedQueriesPanel(
             .cmp(&right.title)
             .then_with(|| left.id.cmp(&right.id))
     });
+    let collapsed = is_panel_collapsed(WorkspaceToolPanel::SavedQueries);
+    let mut class_name = "workspace__panel saved-queries".to_string();
+    if collapsed {
+        class_name.push_str(" workspace__panel--collapsed");
+    }
 
     rsx! {
         section {
-            class: "workspace__panel saved-queries",
+            class: class_name,
             div {
                 class: "saved-queries__header",
+                button {
+                    class: "workspace__panel-collapse",
+                    "aria-label": if collapsed {
+                        "Expand saved queries panel"
+                    } else {
+                        "Collapse saved queries panel"
+                    },
+                    "aria-expanded": "{!collapsed}",
+                    onclick: move |_| toggle_panel_collapsed(WorkspaceToolPanel::SavedQueries),
+                    span {
+                        class: if collapsed {
+                            "workspace__panel-chevron"
+                        } else {
+                            "workspace__panel-chevron workspace__panel-chevron--open"
+                        },
+                        ">"
+                    }
+                }
                 h2 { class: "workspace__section-title", "Saved Queries" }
                 p {
                     class: "workspace__hint",
@@ -60,6 +85,7 @@ pub fn SavedQueriesPanel(
                     }
                 }
 
+                if !collapsed {
                 div { class: "saved-queries__form",
                     input {
                         class: "input",
@@ -153,8 +179,8 @@ pub fn SavedQueriesPanel(
                                     if let Some(connection_name) = item.connection_name.clone() {
                                         p {
                                             class: "saved-queries__connection",
-                                            title: "{connection_name}",
-                                            "{connection_name}"
+                                            title: {connection_name.to_string()},
+                                            {connection_name.to_string()}
                                         }
                                     }
                                     pre {
@@ -181,7 +207,7 @@ pub fn SavedQueriesPanel(
                                                     ));
                                                 }
                                             },
-                                            "{load_label}"
+                                            {load_label.to_string()}
                                         }
                                         button {
                                             class: "button button--ghost button--small",
@@ -205,6 +231,7 @@ pub fn SavedQueriesPanel(
                             }
                         }
                     }
+                }
                 }
             }
         }

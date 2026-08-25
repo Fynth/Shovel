@@ -138,13 +138,13 @@ pub fn StructurePanel(
                     div { class: "table-editor__structure-grid",
                         div { class: "table-editor__structure-header",
                             for col in page.columns.iter() {
-                                div { class: "table-editor__structure-cell table-editor__structure-cell--head", "{col}" }
+                                div { class: "table-editor__structure-cell table-editor__structure-cell--head", {col.as_str()} }
                             }
                         }
                         for row in page.rows.iter() {
                             div { class: "table-editor__structure-row",
                                 for cell in row.iter() {
-                                    div { class: "table-editor__structure-cell", "{cell}" }
+                                    div { class: "table-editor__structure-cell", {cell.as_str()} }
                                 }
                             }
                         }

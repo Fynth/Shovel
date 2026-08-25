@@ -48,6 +48,9 @@ pub enum ActionIcon {
     /// Toolbar overflow entry point — opens the consolidated "View"
     /// menu that lists the panel-visibility toggles.
     ViewMenu,
+    /// Toolbar overflow entry point — opens a dropdown of secondary
+    /// actions for the current toolbar (result grid / SQL editor).
+    More,
 }
 
 #[component]
@@ -97,7 +100,7 @@ pub fn IconButton(
             onblur: move |_| hide_tooltip(),
             onclick: move |event| onclick.call(event),
             IconGlyph { icon }
-            span { class: "button__sr-label", "{label}" }
+            span { class: "button__sr-label", {label.to_string()} }
         }
     }
 }
@@ -378,6 +381,13 @@ pub fn IconGlyph(icon: ActionIcon) -> Element {
                     rect { x: "4", y: "5", width: "16", height: "4", rx: "1" }
                     rect { x: "4", y: "11", width: "10", height: "8", rx: "1" }
                     rect { x: "16", y: "11", width: "4", height: "8", rx: "1" }
+                },
+                ActionIcon::More => rsx! {
+                    // Horizontal ellipsis — the standard "more actions"
+                    // affordance for a toolbar overflow menu.
+                    circle { cx: "5", cy: "12", r: "1.6", fill: "currentColor", stroke: "none" }
+                    circle { cx: "12", cy: "12", r: "1.6", fill: "currentColor", stroke: "none" }
+                    circle { cx: "19", cy: "12", r: "1.6", fill: "currentColor", stroke: "none" }
                 },
             }
         }

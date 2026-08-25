@@ -202,7 +202,7 @@ pub fn MySqlForm(mut saved_connections_revision: Signal<u64>) -> Element {
                     "Test"
                 }
                 if !status_value.is_empty() {
-                    p { class: "{status_class}", "{status_value}" }
+                    p { class: status_class.to_string(), {status_value.to_string()} }
                 }
             }
         }

@@ -1175,13 +1175,13 @@ pub fn SqlEditor(
 
     rsx! {
         div {
-            class: "{editor_class}",
+            class: editor_class.to_string(),
 
             div {
                 class: "sql-editor__viewport",
                 pre {
                     class: "sql-editor__highlight",
-                    style: "{editor_offset}",
+                    style: editor_offset.to_string(),
                     aria_hidden: "true",
                     if !typing_now || completion_active {
                         SqlHighlightContent {
@@ -1196,7 +1196,7 @@ pub fn SqlEditor(
             textarea {
                 id: SQL_EDITOR_TEXTAREA_ID,
                 class: "sql-editor__input",
-                initial_value: "{current_sql}",
+                initial_value: current_sql.to_string(),
                 rows: "16",
                 cols: "80",
                 spellcheck: "false",

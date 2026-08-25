@@ -84,7 +84,7 @@ pub fn CacheIndicator(props: CacheIndicatorProps) -> Element {
                 if let Some(score) = score_text {
                     span {
                         class: "cache-indicator__score",
-                        "{score}"
+                        {score.to_string()}
                     }
                 }
             }
@@ -330,7 +330,7 @@ pub fn CacheTooltip(props: CacheTooltipProps) -> Element {
             }
             pre {
                 class: "cache-tooltip__query",
-                "{cached_query}"
+                {cached_query.to_string()}
             }
         }
     }

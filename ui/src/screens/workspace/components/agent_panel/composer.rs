@@ -1,16 +1,7 @@
 use dioxus::prelude::*;
 use models::{AcpPanelState, QueryTabState};
 
-use super::{
-    prompt::{active_editor_error, active_editor_sql},
-    requests::{
-        send_chat_prompt_request,
-        send_sql_error_fix_request,
-        send_sql_explanation_request,
-        send_sql_generation_request,
-        send_sql_plan_request,
-    },
-};
+use super::requests::send_chat_prompt_request;
 
 #[component]
 pub(super) fn AgentComposer(
@@ -36,18 +27,8 @@ pub(super) fn AgentComposer(
     });
 
     let prompt_is_empty = prompt_draft().trim().is_empty();
-    let active_sql = active_editor_sql(tabs, active_tab_id());
-    let has_active_sql = active_sql.is_some();
-    let has_explainable_sql = active_sql
-        .as_deref()
-        .is_some_and(services::is_read_only_sql);
-    let has_active_error = active_editor_error(tabs, active_tab_id()).is_some();
     let enter_chat_label = connection_label.clone();
-    let generate_sql_label = connection_label.clone();
     let chat_label = connection_label.clone();
-    let explain_plan_label = connection_label.clone();
-    let explain_sql_label = connection_label.clone();
-    let fix_sql_label = connection_label.clone();
     let prompt_textarea_key = format!("{reset_key}-{}", prompt_reset_revision());
 
     // Focus the composer textarea when the workspace dispatcher bumps
@@ -71,54 +52,12 @@ pub(super) fn AgentComposer(
 
     rsx! {
         div { class: "agent-panel__composer",
-            div { class: "agent-panel__permissions",
-                label { class: "agent-panel__permission-toggle",
-                    input {
-                        r#type: "checkbox",
-                        checked: allow_agent_db_read(),
-                        onchange: move |event| {
-                            allow_agent_db_read.set(event.checked());
-                        }
-                    }
-                    span { "Allow ACP to read database context" }
-                }
-                label { class: "agent-panel__permission-toggle",
-                    input {
-                        r#type: "checkbox",
-                        checked: allow_agent_read_sql_run(),
-                        onchange: move |event| {
-                            allow_agent_read_sql_run.set(event.checked());
-                        }
-                    }
-                    span { "Allow ACP to execute read-only SQL in the active tab" }
-                }
-                label { class: "agent-panel__permission-toggle",
-                    input {
-                        r#type: "checkbox",
-                        checked: allow_agent_write_sql_run(),
-                        onchange: move |event| {
-                            allow_agent_write_sql_run.set(event.checked());
-                        }
-                    }
-                    span { "Allow ACP to execute write SQL in the active tab" }
-                }
-                label { class: "agent-panel__permission-toggle",
-                    input {
-                        r#type: "checkbox",
-                        checked: allow_agent_tool_run(),
-                        onchange: move |event| {
-                            allow_agent_tool_run.set(event.checked());
-                        }
-                    }
-                    span { "Allow ACP tools and code execution" }
-                }
-            }
             textarea {
                 key: "{prompt_textarea_key}",
                 class: "input agent-panel__prompt",
-                rows: 4,
+                rows: 1,
                 initial_value: "{prompt_draft}",
-                placeholder: "For example: show active users created today",
+                placeholder: "Ask the agent…",
                 oninput: move |event| prompt_draft.set(event.value()),
                 onkeydown: move |event| {
                     // Send on bare Enter (chat-style) or Ctrl+Enter
@@ -147,84 +86,9 @@ pub(super) fn AgentComposer(
                     );
                 }
             }
-            div { class: "agent-panel__composer-divider" }
             div { class: "agent-panel__composer-actions",
                 button {
-                    class: "button button--ghost button--small",
-                    disabled: busy || !allow_agent_read_sql_run() || !has_explainable_sql,
-                    onclick: move |_| {
-                        send_sql_plan_request(
-                            panel_state,
-                            tabs,
-                            active_tab_id(),
-                            explain_plan_label.clone(),
-                            chat_revision,
-                            allow_agent_db_read(),
-                            allow_agent_read_sql_run(),
-                        );
-                    },
-                    title: "Explain the execution plan of the active read-only SQL",
-                    "Explain Plan"
-                }
-                button {
-                    class: "button button--ghost button--small",
-                    disabled: busy || !has_active_sql,
-                    onclick: move |_| {
-                        send_sql_explanation_request(
-                            panel_state,
-                            tabs,
-                            active_tab_id(),
-                            explain_sql_label.clone(),
-                            chat_revision,
-                            allow_agent_db_read(),
-                        );
-                    },
-                    title: "Explain the active SQL with the agent",
-                    "Explain SQL"
-                }
-                button {
-                    class: "button button--ghost button--small",
-                    disabled: busy || !has_active_error,
-                    onclick: move |_| {
-                        send_sql_error_fix_request(
-                            panel_state,
-                            tabs,
-                            active_tab_id(),
-                            fix_sql_label.clone(),
-                            chat_revision,
-                            allow_agent_db_read(),
-                        );
-                    },
-                    title: "Ask the agent to fix the latest SQL error",
-                    "Fix SQL Error"
-                }
-                button {
-                    class: "button button--ghost button--small",
-                    disabled: busy || prompt_is_empty,
-                    onclick: move |_| {
-                        let prompt = prompt_draft();
-                        if prompt.trim().is_empty() || panel_state().busy {
-                            return;
-                        }
-                        prompt_draft.set(String::new());
-                        prompt_reset_revision += 1;
-                        send_sql_generation_request(
-                            panel_state,
-                            tabs,
-                            active_tab_id(),
-                            generate_sql_label.clone(),
-                            chat_revision,
-                            allow_agent_db_read(),
-                            prompt,
-                            Some(prompt_draft),
-                            true,
-                        );
-                    },
-                    title: "Generate SQL only and insert it into the active editor",
-                    "Generate SQL"
-                }
-                button {
-                    class: "button button--primary button--small",
+                    class: "button button--primary button--small agent-panel__send",
                     disabled: busy || prompt_is_empty,
                     onclick: move |_| {
                         let prompt = prompt_draft();

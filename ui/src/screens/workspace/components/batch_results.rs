@@ -93,13 +93,13 @@ pub fn BatchResultsView(tabs: Signal<Vec<QueryTabState>>, active_tab_id: Signal<
                         rsx! {
                             button {
                                 class,
-                                title: "{label}",
+                                title: {label.to_string()},
                                 onclick: move |_| select_batch_index(tabs, active_tab_id, pos),
-                                span { class: "batch-results__tab-label", "{label}" }
+                                span { class: "batch-results__tab-label", {label.to_string()} }
                                 span { class: "batch-results__tab-meta",
-                                    span { class: "batch-results__chip {chip_class}", "{chip_label}" }
+                                    span { class: "batch-results__chip {chip_class}", {chip_label.to_string()} }
                                     if !meta.is_empty() {
-                                        span { class: "batch-results__tab-duration", "{meta}" }
+                                        span { class: "batch-results__tab-duration", {meta.to_string()} }
                                     }
                                 }
                             }
@@ -183,7 +183,7 @@ fn render_status_summary(batch: &BatchRunState) -> Element {
                     span { class: "batch-results__chip batch-results__chip--skipped", "Skipped: {skipped_count}" }
                 }
                 span { class: "batch-results__summary-rows", "Rows: {total_rows}" }
-                span { class: "batch-results__summary-tx", "{tx_label}" }
+                span { class: "batch-results__summary-tx", {tx_label.to_string()} }
             }
             div { class: "batch-results__summary-list",
                 for (pos, result) in batch.results.iter().enumerate() {
@@ -200,12 +200,12 @@ fn render_status_summary(batch: &BatchRunState) -> Element {
                             div { class: "batch-results__summary-row",
                                 span { class: "batch-results__summary-index", "#{pos + 1}" }
                                 span { class: "batch-results__summary-preview", "{result.preview}" }
-                                span { class: "batch-results__chip {chip_class}", "{chip_label}" }
+                                span { class: "batch-results__chip {chip_class}", {chip_label.to_string()} }
                                 if !meta.is_empty() {
-                                    span { class: "batch-results__summary-meta", "{meta}" }
+                                    span { class: "batch-results__summary-meta", {meta.to_string()} }
                                 }
                                 if let Some(msg) = result.error_message.as_ref() {
-                                    span { class: "batch-results__summary-error", "{msg}" }
+                                    span { class: "batch-results__summary-error", {msg.to_string()} }
                                 }
                             }
                         }
@@ -231,12 +231,12 @@ fn render_statement_summary(batch: &BatchRunState, index: usize) -> Element {
         div { class: "batch-results__summary batch-results__summary--single",
             div { class: "batch-results__summary-header",
                 h3 { class: "batch-results__summary-title", "Statement #{index + 1}" }
-                span { class: "batch-results__chip {chip_class}", "{chip_label}" }
+                span { class: "batch-results__chip {chip_class}", {chip_label.to_string()} }
             }
             p { class: "batch-results__summary-preview", "{result.preview}" }
-            p { class: "batch-results__summary-rows", "{rows_label}" }
+            p { class: "batch-results__summary-rows", {rows_label.to_string()} }
             if let Some(msg) = result.error_message.as_ref() {
-                p { class: "batch-results__summary-error", "{msg}" }
+                p { class: "batch-results__summary-error", {msg.to_string()} }
             }
         }
     }

@@ -184,15 +184,15 @@ fn ResultsStateBlock(
     }
 
     rsx! {
-        div { class: "{outer_class}",
-            div { class: "{class_name}",
+        div { class: outer_class.to_string(),
+            div { class: class_name.to_string(),
                 div { class: "results__state-inner",
                     div { class: "results__state-icon",
                         IconGlyph { icon }
                     }
-                    p { class: "results__state-title", "{title}" }
+                    p { class: "results__state-title", {title.to_string()} }
                     if let Some(body_text) = body.as_ref() {
-                        p { class: "results__state-body", "{body_text}" }
+                        p { class: "results__state-body", {body_text.to_string()} }
                     }
                     if show_retry_button {
                         button {
@@ -209,7 +209,7 @@ fn ResultsStateBlock(
                                 };
                                 refresh_tab_result(tabs, current_tab, None);
                             },
-                            "{retry_label}"
+                            {retry_label.to_string()}
                         }
                     }
                 }
@@ -281,8 +281,8 @@ pub fn ResultTable(
     let mut resize_start_width = use_signal(|| 0.0_f64);
     let mut scroll_offset = use_signal(|| 0.0_f64);
     let mut viewport_height = use_signal(|| 600.0_f64);
-    let mut show_chart = use_signal(|| false);
-    let mut pinned_result = use_signal(|| None::<models::QueryPage>);
+    let show_chart = use_signal(|| false);
+    let pinned_result = use_signal(|| None::<models::QueryPage>);
     let mut value_editor = use_signal(|| None::<ValueEditorState>);
     let mut value_editor_target = use_signal(|| None::<(EditableRowRef, usize)>);
     let mut column_widths = use_signal(HashMap::<String, f64>::new);
@@ -358,7 +358,7 @@ pub fn ResultTable(
                 rsx! {
                     div {
                         class: "results",
-                        p { class: "results__summary", "{summary}" }
+                        p { class: "results__summary", {summary.to_string()} }
                     }
                 }
             }
@@ -548,7 +548,7 @@ pub fn ResultTable(
                                                             },
                                                             "aria-label": label,
                                                             "aria-pressed": "{active}",
-                                                            title: "{label}",
+                                                            title: {label.to_string()},
                                                             onclick: move |_| {
                                                                 view_mode.set(mode);
                                                                 if mode == ResultViewMode::Details {
@@ -667,59 +667,84 @@ pub fn ResultTable(
                                             }
                                         }
                                         IconButton {
-                                            icon: ActionIcon::Details,
-                                            label: if details_visible {
-                                                "Hide row details".to_string()
-                                            } else {
-                                                "Show row details".to_string()
-                                            },
-                                            active: details_visible,
+                                            icon: ActionIcon::More,
+                                            label: "More actions".to_string(),
                                             small: true,
-                                            disabled: !has_selected_row,
-                                            onclick: move |_| show_row_details.toggle(),
-                                        }
-                                        button {
-                                            class: if show_chart() {
-                                                "button button--ghost button--small button--active"
-                                            } else {
-                                                "button button--ghost button--small"
-                                            },
-                                            onclick: move |_| show_chart.toggle(),
-                                            "Chart"
-                                        }
-                                        button {
-                                            class: if pinned_result().is_some() {
-                                                "button button--ghost button--small button--active"
-                                            } else {
-                                                "button button--ghost button--small"
-                                            },
                                             onclick: {
-                                                let pin_snapshot = page.clone();
-                                                move |_| {
-                                                    pinned_result.set(Some(pin_snapshot.clone()));
-                                                }
-                                            },
-                                            "Pin for compare"
-                                        }
-                                        button {
-                                            class: "button button--ghost button--small",
-                                            disabled: pinned_result().is_none(),
-                                            onclick: {
-                                                let compare_snapshot = page;
-                                                move |_| {
-                                                    let Some(pinned) = pinned_result() else {
-                                                        return;
-                                                    };
-                                                    windows::open_data_diff_window(
-                                                        Some(pinned),
-                                                        Some(compare_snapshot.clone()),
-                                                        "Pinned".to_string(),
-                                                        "Current".to_string(),
-                                                        APP_THEME(),
+                                                let details_visible = details_visible;
+                                                let has_selected_row = has_selected_row;
+                                                let mut show_chart = show_chart;
+                                                let mut pinned_result = pinned_result;
+                                                let page = page.clone();
+                                                move |event: MouseEvent| {
+                                                    let coords = event.client_coordinates();
+                                                    let mut details_item = ContextMenuItem::new(
+                                                        if details_visible {
+                                                            "Hide row details"
+                                                        } else {
+                                                            "Show row details"
+                                                        },
+                                                        move || show_row_details.toggle(),
+                                                    )
+                                                    .with_icon(ActionIcon::Details)
+                                                    .active(details_visible);
+                                                    if !has_selected_row {
+                                                        details_item = details_item.disabled();
+                                                    }
+                                                    let mut items: Vec<ContextMenuItem> =
+                                                        vec![details_item];
+                                                    items.push(
+                                                        ContextMenuItem::new(
+                                                            if show_chart() {
+                                                                "Hide chart"
+                                                            } else {
+                                                                "Show chart"
+                                                            },
+                                                            move || show_chart.toggle(),
+                                                        )
+                                                        .with_icon(ActionIcon::Output)
+                                                        .active(show_chart()),
                                                     );
+                                                    let pin_snapshot = page.clone();
+                                                    items.push(
+                                                        ContextMenuItem::new(
+                                                            if pinned_result().is_some() {
+                                                                "Replace pinned result"
+                                                            } else {
+                                                                "Pin for compare"
+                                                            },
+                                                            move || {
+                                                                pinned_result.set(Some(pin_snapshot.clone()));
+                                                            },
+                                                        )
+                                                        .with_icon(ActionIcon::Details)
+                                                        .active(pinned_result().is_some())
+                                                        .separator(),
+                                                    );
+                                                    let compare_snapshot = page.clone();
+                                                    let mut compare_item = ContextMenuItem::new(
+                                                        "Compare with pinned",
+                                                        move || {
+                                                            let Some(pinned) = pinned_result() else {
+                                                                return;
+                                                            };
+                                                            windows::open_data_diff_window(
+                                                                Some(pinned),
+                                                                Some(compare_snapshot.clone()),
+                                                                "Pinned".to_string(),
+                                                                "Current".to_string(),
+                                                                APP_THEME(),
+                                                            );
+                                                        },
+                                                    )
+                                                    .with_icon(ActionIcon::Details);
+                                                    if pinned_result().is_none() {
+                                                        compare_item = compare_item.disabled();
+                                                    }
+                                                    items.push(compare_item);
+                                                    open_context_menu(coords.x, coords.y, items);
                                                 }
                                             },
-                                            "Compare with pinned"
                                         }
                                     }
                                     }
@@ -740,7 +765,7 @@ pub fn ResultTable(
                                                         value: "{quick_filter_column()}",
                                                         oninput: move |event| quick_filter_column.set(event.value()),
                                                         for column in page.columns.iter().cloned() {
-                                                            option { value: column.clone(), "{column}" }
+                                                            option { value: column.clone(), {column.to_string()} }
                                                         }
                                                     }
                                                     select {
@@ -872,7 +897,7 @@ pub fn ResultTable(
                                                                 );
                                                             },
                                                             for column in page.columns.iter().cloned() {
-                                                                option { value: column.clone(), "{column}" }
+                                                                option { value: column.clone(), {column.to_string()} }
                                                             }
                                                         }
                                                         select {
@@ -954,7 +979,7 @@ pub fn ResultTable(
                                                                     "button button--ghost results__records-row"
                                                                 },
                                                                 key: "{display_row_key(&display_row)}",
-                                                                "aria-label": "{row_label}",
+                                                                "aria-label": {row_label.to_string()},
                                                                 onclick: {
                                                                     let row_ref = display_row.row_ref.clone();
                                                                     let values: Vec<(usize, String)> = display_row.values.iter().cloned().enumerate().collect();
@@ -970,7 +995,7 @@ pub fn ResultTable(
                                                                 div {
                                                                     class: "results__records-row-label",
                                                                     span { class: "results__records-row-index", "{row_index + 1}" }
-                                                                    span { class: "results__records-row-name", "{row_label}" }
+                                                                    span { class: "results__records-row-name", {row_label.to_string()} }
                                                                     if is_draft {
                                                                         span { class: "results__records-row-draft", "draft" }
                                                                     }
@@ -983,8 +1008,8 @@ pub fn ResultTable(
                                                                             rsx! {
                                                                                 span {
                                                                                     class: "results__records-row-cell",
-                                                                                    span { class: "results__records-row-cell-label", "{column_name}" }
-                                                                                    span { class: "results__records-row-cell-value", "{cell_value}" }
+                                                                                    span { class: "results__records-row-cell-label", {column_name.to_string()} }
+                                                                                    span { class: "results__records-row-cell-value", {cell_value.to_string()} }
                                                                                 }
                                                                             }
                                                                         }
@@ -1069,7 +1094,7 @@ pub fn ResultTable(
                                                                         h3 {
                                                                             class: "results__single-title",
                                                                             if let Some(label) = single_label.as_ref() {
-                                                                                "{label}"
+                                                                                {label.to_string()}
                                                                             } else {
                                                                                 "Row"
                                                                             }
@@ -1086,8 +1111,8 @@ pub fn ResultTable(
                                                                                 rsx! {
                                                                                     div {
                                                                                         class: "results__single-field",
-                                                                                        p { class: "results__single-field-label", "{column_name}" }
-                                                                                        p { class: "results__single-field-value", "{cell_value}" }
+                                                                                        p { class: "results__single-field-label", {column_name.to_string()} }
+                                                                                        p { class: "results__single-field-value", {cell_value.to_string()} }
                                                                                     }
                                                                                 }
                                                                             }
@@ -1096,7 +1121,7 @@ pub fn ResultTable(
                                                                     div {
                                                                         class: "results__single-json",
                                                                         h4 { "JSON" }
-                                                                        pre { "{single_json}" }
+                                                                        pre { {single_json.to_string()} }
                                                                     }
                                                                 }
                                                             }
@@ -1181,14 +1206,14 @@ pub fn ResultTable(
                                                                             column_name.clone(),
                                                                         )
                                                                     },
-                                                                    span { class: "results__head-label", "{column}" }
+                                                                    span { class: "results__head-label", {column.to_string()} }
                                                                     span {
                                                                         class: "results__sort-indicator",
                                                                         "{sort_indicator(active_sort.as_ref(), &column)}"
                                                                     }
                                                                 }
                                                             } else {
-                                                                span { class: "results__head-label", "{column}" }
+                                                                span { class: "results__head-label", {column.to_string()} }
                                                             }
                                                             div {
                                                                 class: "results__head-resize",
@@ -1554,7 +1579,7 @@ pub fn ResultTable(
                                                 h3 {
                                                     class: "results__details-title",
                                                     if let Some(row_label) = selected_row_label.as_ref() {
-                                                        "{row_label}"
+                                                        {row_label.as_str()}
                                                     } else {
                                                         "Row Details"
                                                     }
@@ -1625,7 +1650,7 @@ pub fn ResultTable(
                                                             p { class: "results__details-label", "{page.columns.get(col_index).unwrap_or(&\"?\".to_string())}" }
                                                             input {
                                                                 class: "input results__details-input",
-                                                                value: "{value}",
+                                                                value: {value},
                                                                 oninput: move |event| {
                                                                     editing_row_values.with_mut(|values| {
                                                                         if let Some(v) = values.iter_mut().find(|(i, _)| *i == col_index) {
@@ -1640,7 +1665,7 @@ pub fn ResultTable(
                                             } else {
                                                 pre {
                                                     class: "results__details-json",
-                                                    "{details_json}"
+                                                    {details_json}
                                                 }
                                             }
                                         }

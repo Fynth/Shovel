@@ -279,7 +279,7 @@ pub fn GlobalSearch() -> Element {
                         class: "global-search__input",
                         r#type: "text",
                         placeholder: "Search tabs, tables, actions…",
-                        value: "{current_query}",
+                        value: current_query.to_string(),
                         autofocus: true,
                         autocomplete: "off",
                         spellcheck: "false",

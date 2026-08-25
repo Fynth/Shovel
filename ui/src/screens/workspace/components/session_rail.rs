@@ -1,9 +1,16 @@
 use crate::{
-    app_state::{APP_STATE, activate_session, open_connection_screen, remove_session},
+    app_state::{
+        APP_STATE,
+        activate_session,
+        is_panel_collapsed,
+        open_connection_screen,
+        remove_session,
+        toggle_panel_collapsed,
+    },
     screens::workspace::components::{ActionIcon, IconButton},
 };
 use dioxus::prelude::*;
-use models::{ConnectionRequest, QueryTabState};
+use models::{ConnectionRequest, QueryTabState, WorkspaceToolPanel};
 
 fn open_context_menu(mut context_menu: Signal<Option<u64>>, session_id: u64, event: MouseEvent) {
     event.prevent_default();
@@ -34,12 +41,35 @@ pub fn SessionRail(
             (session, kind_label, target_label)
         })
         .collect::<Vec<_>>();
+    let collapsed = is_panel_collapsed(WorkspaceToolPanel::Connections);
+    let mut class_name = "session-list".to_string();
+    if collapsed {
+        class_name.push_str(" session-list--collapsed");
+    }
 
     rsx! {
         section {
-            class: "session-list",
+            class: class_name,
             div {
                 class: "session-list__header",
+                button {
+                    class: "workspace__panel-collapse",
+                    "aria-label": if collapsed {
+                        "Expand connections panel"
+                    } else {
+                        "Collapse connections panel"
+                    },
+                    "aria-expanded": "{!collapsed}",
+                    onclick: move |_| toggle_panel_collapsed(WorkspaceToolPanel::Connections),
+                    span {
+                        class: if collapsed {
+                            "workspace__panel-chevron"
+                        } else {
+                            "workspace__panel-chevron workspace__panel-chevron--open"
+                        },
+                        ">"
+                    }
+                }
                 h2 { class: "workspace__section-title", "Connections" }
                 button {
                     class: "button button--ghost button--small",
@@ -48,8 +78,9 @@ pub fn SessionRail(
                 }
             }
 
-            div {
-                class: "session-list__body",
+            if !collapsed {
+                div {
+                    class: "session-list__body",
                 if session_cards.is_empty() {
                     p { class: "empty-state", "No active connections." }
                 } else {
@@ -93,11 +124,11 @@ pub fn SessionRail(
                                         _ => {}
                                     }
                                 },
-                                span { class: "session-list__kind", "{kind_label}" }
+                                span { class: "session-list__kind", {kind_label.to_string()} }
                                 strong {
                                     class: "session-list__name",
-                                    title: "{target_label}",
-                                    "{target_label}"
+                                    title: target_label.to_string(),
+                                    {target_label.to_string()}
                                 }
                             }
                             IconButton {
@@ -131,6 +162,7 @@ pub fn SessionRail(
                         }
                     }
                 }
+            }
             }
 
             if context_menu().is_some() {

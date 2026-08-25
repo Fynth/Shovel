@@ -33,10 +33,10 @@ fn ToastItem(toast: AppToast) -> Element {
     };
     rsx! {
         div {
-            class: "{class}",
+            class: class.to_string(),
             div {
                 class: "toast__icon",
-                "{icon}"
+                {icon.to_string()}
             }
             div {
                 class: "toast__message",

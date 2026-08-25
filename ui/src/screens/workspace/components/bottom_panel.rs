@@ -101,7 +101,7 @@ pub fn BottomPanelDock(
                                         }
                                     },
                                     IconGlyph { icon: tab_icon }
-                                    span { class: "bottom-panel__tab-label", "{label}" }
+                                    span { class: "bottom-panel__tab-label", {label.to_string()} }
                                 }
                             }
                         }
@@ -199,7 +199,7 @@ fn MessagesView() -> Element {
                 div {
                     key: "{toast.id}",
                     class: "bottom-panel__msg {kind_class}",
-                    span { class: "bottom-panel__msg-text", "{message}" }
+                    span { class: "bottom-panel__msg-text", {message.to_string()} }
                 }
             }
         })

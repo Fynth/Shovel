@@ -170,7 +170,7 @@ pub fn ValueEditor(
                             },
                         }
                     } else if json_valid {
-                        pre { class: "value-editor__json", "{json_pretty}" }
+                        pre { class: "value-editor__json", {json_pretty} }
                     } else {
                         div { class: "value-editor__json-empty",
                             "This value is not valid JSON. Switch to the Text tab to edit."

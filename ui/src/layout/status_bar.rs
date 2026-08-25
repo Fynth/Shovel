@@ -72,10 +72,10 @@ pub fn StatusBar() -> Element {
     rsx! {
         footer {
             class: "statusbar",
-            span { class: "statusbar__item", "{connection_label}" }
+            span { class: "statusbar__item", {connection_label.to_string()} }
             span { class: "statusbar__item", "Sessions {session_count}" }
             if let Some(text) = last_query_text {
-                span { class: "{last_query_class}", "{text}" }
+                span { class: last_query_class.to_string(), {text.to_string()} }
             }
         }
     }

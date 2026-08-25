@@ -103,6 +103,18 @@ impl ExportFormat {
     }
 }
 
+/// Icon shown next to each export format in the editor overflow menu.
+fn export_icon(format: ExportFormat) -> ActionIcon {
+    match format {
+        ExportFormat::Csv => ActionIcon::ExportCsv,
+        ExportFormat::Json => ActionIcon::ExportJson,
+        ExportFormat::Xlsx => ActionIcon::ExportXlsx,
+        ExportFormat::Xml => ActionIcon::ExportXml,
+        ExportFormat::Html => ActionIcon::ExportHtml,
+        ExportFormat::SqlDump => ActionIcon::ExportSql,
+    }
+}
+
 #[component]
 pub fn TabsManager(
     mut tabs: Signal<Vec<QueryTabState>>,
@@ -121,7 +133,7 @@ pub fn TabsManager(
     let mut editor_width_resize = use_signal(|| None::<EditorWidthResizeState>);
     let mut show_generate_sql_window = use_signal(|| false);
     let mut generate_sql_prompt = use_signal(String::new);
-    let mut generate_sql_input_revision = use_signal(|| 0_u64);
+    let generate_sql_input_revision = use_signal(|| 0_u64);
     let mut renaming_tab_id = use_signal(|| None::<u64>);
     let mut rename_value = use_signal(String::new);
     let active_tab = use_memo(move || {
@@ -329,7 +341,7 @@ pub fn TabsManager(
                                 }
                             }
                             if let Some(session_name) = session_labels.get(&tab.session_id) {
-                                span { class: "tabbar__context", "{session_name}" }
+                                span { class: "tabbar__context", {session_name.to_string()} }
                             }
                         }
                         if tab.pinned {
@@ -487,44 +499,6 @@ pub fn TabsManager(
                         },
                     }
                     IconButton {
-                        icon: ActionIcon::Generate,
-                        label: "Generate SQL".to_string(),
-                        disabled: generate_sql_busy,
-                        onclick: move |_| {
-                            if !APP_AI_FEATURES_ENABLED() {
-                                set_active_tab_status(
-                                    tabs,
-                                    active_tab_id(),
-                                    "Enable AI features in Settings to use Generate SQL."
-                                        .to_string(),
-                                );
-                                return;
-                            }
-
-                            if show_generate_sql_window() {
-                                show_generate_sql_window.set(false);
-                            } else {
-                                generate_sql_prompt.set(String::new());
-                                generate_sql_input_revision += 1;
-                                show_generate_sql_window.set(true);
-                            }
-                        },
-                    }
-                    IconButton {
-                        icon: ActionIcon::Structure,
-                        label: "Open structure".to_string(),
-                        disabled: active_actionable_source.is_none(),
-                        onclick: {
-                            let current_tab = tab.clone();
-                            move |_| open_structure_for_active_preview(
-                                tabs,
-                                active_tab_id,
-                                next_tab_id,
-                                current_tab.clone(),
-                            )
-                        },
-                    }
-                    IconButton {
                         icon: ActionIcon::Explain,
                         label: "Explain Plan".to_string(),
                         onclick: {
@@ -568,70 +542,114 @@ pub fn TabsManager(
                         },
                     }
                     IconButton {
-                        icon: ActionIcon::ExportCsv,
-                        label: "Export CSV".to_string(),
-                        disabled: !has_tabular_result(tab),
+                        icon: ActionIcon::More,
+                        label: "More actions".to_string(),
                         onclick: {
                             let current_tab = tab.clone();
-                            move |_| export_active_page(tabs, current_tab.clone(), ExportFormat::Csv)
-                        },
-                    }
-                    IconButton {
-                        icon: ActionIcon::ExportJson,
-                        label: "Export JSON".to_string(),
-                        disabled: !has_tabular_result(tab),
-                        onclick: {
-                            let current_tab = tab.clone();
-                            move |_| export_active_page(tabs, current_tab.clone(), ExportFormat::Json)
-                        },
-                    }
-                    IconButton {
-                        icon: ActionIcon::ExportXlsx,
-                        label: "Export XLSX".to_string(),
-                        disabled: !has_tabular_result(tab),
-                        onclick: {
-                            let current_tab = tab.clone();
-                            move |_| export_active_page(tabs, current_tab.clone(), ExportFormat::Xlsx)
-                        },
-                    }
-                    IconButton {
-                        icon: ActionIcon::ExportXml,
-                        label: "Export XML".to_string(),
-                        disabled: !has_tabular_result(tab),
-                        onclick: {
-                            let current_tab = tab.clone();
-                            move |_| export_active_page(tabs, current_tab.clone(), ExportFormat::Xml)
-                        },
-                    }
-                    IconButton {
-                        icon: ActionIcon::ExportHtml,
-                        label: "Export HTML".to_string(),
-                        disabled: !has_tabular_result(tab),
-                        onclick: {
-                            let current_tab = tab.clone();
-                            move |_| export_active_page(tabs, current_tab.clone(), ExportFormat::Html)
-                        },
-                    }
-                    IconButton {
-                        icon: ActionIcon::ExportSql,
-                        label: "SQL Dump".to_string(),
-                        disabled: !has_tabular_result(tab),
-                        onclick: {
-                            let current_tab = tab.clone();
-                            move |_| export_active_page(tabs, current_tab.clone(), ExportFormat::SqlDump)
-                        },
-                    }
-                    IconButton {
-                        icon: ActionIcon::ImportCsv,
-                        label: if read_only_mode {
-                            "Import CSV is blocked by read-only mode".to_string()
-                        } else {
-                            "Import CSV".to_string()
-                        },
-                        disabled: active_actionable_source.is_none() || read_only_mode,
-                        onclick: {
-                            let current_tab = tab.clone();
-                            move |_| import_csv_into_active_table(tabs, current_tab.clone())
+                            let generate_sql_busy = generate_sql_busy;
+                            let active_actionable_source = active_actionable_source.clone();
+                            let read_only_mode = read_only_mode;
+                            let mut show_generate_sql_window = show_generate_sql_window;
+                            let mut generate_sql_prompt = generate_sql_prompt;
+                            let mut generate_sql_input_revision = generate_sql_input_revision;
+                            move |event: MouseEvent| {
+                                let coords = event.client_coordinates();
+                                let has_tabular = has_tabular_result(&current_tab);
+                                let mut generate_item = ContextMenuItem::new(
+                                    if show_generate_sql_window() {
+                                        "Close Generate SQL"
+                                    } else {
+                                        "Generate SQL"
+                                    },
+                                    move || {
+                                        if !APP_AI_FEATURES_ENABLED() {
+                                            set_active_tab_status(
+                                                tabs,
+                                                active_tab_id(),
+                                                "Enable AI features in Settings to use Generate SQL."
+                                                    .to_string(),
+                                            );
+                                            return;
+                                        }
+                                        if show_generate_sql_window() {
+                                            show_generate_sql_window.set(false);
+                                        } else {
+                                            generate_sql_prompt.set(String::new());
+                                            generate_sql_input_revision += 1;
+                                            show_generate_sql_window.set(true);
+                                        }
+                                    },
+                                )
+                                .with_icon(ActionIcon::Generate);
+                                if generate_sql_busy {
+                                    generate_item = generate_item.disabled();
+                                }
+                                let mut items: Vec<ContextMenuItem> = vec![generate_item];
+                                let structure_tab = current_tab.clone();
+                                let mut structure_item = ContextMenuItem::new(
+                                    "Open structure",
+                                    move || {
+                                        open_structure_for_active_preview(
+                                            tabs,
+                                            active_tab_id,
+                                            next_tab_id,
+                                            structure_tab.clone(),
+                                        )
+                                    },
+                                )
+                                .with_icon(ActionIcon::Structure);
+                                if active_actionable_source.is_none() {
+                                    structure_item = structure_item.disabled();
+                                }
+                                items.push(structure_item);
+                                for format in [
+                                    ExportFormat::Csv,
+                                    ExportFormat::Json,
+                                    ExportFormat::Xlsx,
+                                    ExportFormat::Xml,
+                                    ExportFormat::Html,
+                                    ExportFormat::SqlDump,
+                                ] {
+                                    let export_tab = current_tab.clone();
+                                    let mut item = ContextMenuItem::new(
+                                        format!("Export {}", format.label()),
+                                        move || {
+                                            export_active_page(
+                                                tabs,
+                                                export_tab.clone(),
+                                                format,
+                                            )
+                                        },
+                                    )
+                                    .with_icon(export_icon(format))
+                                    .separator();
+                                    if !has_tabular {
+                                        item = item.disabled();
+                                    }
+                                    items.push(item);
+                                }
+                                let import_tab = current_tab.clone();
+                                let mut import_item = ContextMenuItem::new(
+                                    if read_only_mode {
+                                        "Import CSV (blocked by read-only mode)"
+                                    } else {
+                                        "Import CSV"
+                                    },
+                                    move || {
+                                        import_csv_into_active_table(
+                                            tabs,
+                                            import_tab.clone(),
+                                        )
+                                    },
+                                )
+                                .with_icon(ActionIcon::ImportCsv)
+                                .separator();
+                                if active_actionable_source.is_none() || read_only_mode {
+                                    import_item = import_item.disabled();
+                                }
+                                items.push(import_item);
+                                open_context_menu(coords.x, coords.y, items);
+                            }
                         },
                     }
                 }

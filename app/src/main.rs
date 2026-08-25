@@ -150,7 +150,7 @@ fn load_app_icon() -> TaoIcon {
 fn Root() -> Element {
     rsx! {
         document::Style {
-            "{APP_CSS}"
+            {APP_CSS.to_string()}
         }
         UiApp {}
     }

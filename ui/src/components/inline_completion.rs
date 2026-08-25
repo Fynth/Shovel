@@ -146,7 +146,7 @@ pub fn InlineCompletion(
                 color: #888;
                 font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
             ",
-            "{suggestion_text}"
+            {suggestion_text.to_string()}
         }
     }
 }

@@ -2,9 +2,11 @@ use crate::app_state::{
     APP_STATE,
     activate_session,
     context_menu::{ContextMenuItem, open_context_menu},
+    is_panel_collapsed,
+    toggle_panel_collapsed,
 };
 use dioxus::prelude::*;
-use models::{QueryHistoryItem, QueryTabState};
+use models::{QueryHistoryItem, QueryTabState, WorkspaceToolPanel};
 
 use crate::screens::workspace::{actions::set_active_tab_sql, helpers::format_duration};
 
@@ -280,14 +282,37 @@ pub fn QueryHistoryPanel(
         .collect::<std::collections::HashMap<_, _>>();
 
     let export_items = page_items.clone();
+    let collapsed = is_panel_collapsed(WorkspaceToolPanel::History);
+    let mut class_name = "history".to_string();
+    if collapsed {
+        class_name.push_str(" history--collapsed");
+    }
 
     rsx! {
         section {
-            class: "history",
+            class: class_name,
             div {
                 class: "history__header",
                 div {
                     class: "history__header-row",
+                    button {
+                        class: "workspace__panel-collapse",
+                        "aria-label": if collapsed {
+                            "Expand history panel"
+                        } else {
+                            "Collapse history panel"
+                        },
+                        "aria-expanded": "{!collapsed}",
+                        onclick: move |_| toggle_panel_collapsed(WorkspaceToolPanel::History),
+                        span {
+                            class: if collapsed {
+                                "workspace__panel-chevron"
+                            } else {
+                                "workspace__panel-chevron workspace__panel-chevron--open"
+                            },
+                            ">"
+                        }
+                    }
                     h2 { class: "workspace__section-title", "History" }
                     button {
                         class: "button button--ghost button--small history__export",
@@ -311,6 +336,7 @@ pub fn QueryHistoryPanel(
                 }
             }
 
+            if !collapsed {
             div {
                 class: "history__search",
                 input {
@@ -372,9 +398,9 @@ pub fn QueryHistoryPanel(
                     }
                     for name in &connection_names {
                         option {
-                            value: "{name}",
+                            value: name.to_string(),
                             selected: connection_filter() == *name,
-                            "{name}"
+                            {name.to_string()}
                         }
                     }
                 }
@@ -465,38 +491,38 @@ pub fn QueryHistoryPanel(
                                                 span {
                                                     class: dur_class,
                                                     title: "Duration",
-                                                    "{dur_text}"
+                                                    {dur_text.to_string()}
                                                 }
                                                 if !rows_text.is_empty() {
                                                     span {
                                                         class: "history__rows",
                                                         title: "Rows returned",
-                                                        "{rows_text}"
+                                                        {rows_text.to_string()}
                                                     }
                                                 }
                                                 if !time_text.is_empty() {
                                                     span {
                                                         class: "history__time",
-                                                        "{time_text}"
+                                                        {time_text.to_string()}
                                                     }
                                                 }
                                             }
                                             p {
                                                 class: outcome_class,
                                                 title: "{item.outcome}",
-                                                "{outcome_label}"
+                                                {outcome_label.to_string()}
                                             }
                                         }
                                         if !connection_target.is_empty() {
                                             div {
                                                 class: "history__connection",
                                                 if !connection_kind.is_empty() {
-                                                    span { class: "history__connection-kind", "{connection_kind}" }
+                                                    span { class: "history__connection-kind", {connection_kind.to_string()} }
                                                 }
                                                 span {
                                                     class: "history__connection-target",
                                                     title: "{item.connection_name}",
-                                                    "{connection_target}"
+                                                    {connection_target.to_string()}
                                                 }
                                             }
                                         }
@@ -504,16 +530,16 @@ pub fn QueryHistoryPanel(
                                             if let Some(err) = &item.error_message {
                                                 p {
                                                     class: "history__error-message",
-                                                    title: "{err}",
-                                                    "{err}"
+                                                    title: {err.to_string()},
+                                                    {err.to_string()}
                                                 }
                                             }
                                         }
                                     }
                                     pre {
                                         class: "history__sql",
-                                        title: "{display_sql}",
-                                        "{display_sql}"
+                                        title: {display_sql.to_string()},
+                                        {display_sql.to_string()}
                                     }
                                     div {
                                         class: "history__actions",
@@ -582,6 +608,7 @@ pub fn QueryHistoryPanel(
                         "Next"
                     }
                 }
+            }
             }
         }
     }

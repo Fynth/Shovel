@@ -210,44 +210,6 @@ If a better read-only rewrite is obvious, include exactly one improved SQL query
     prompt
 }
 
-pub(super) fn build_sql_error_fix_prompt(
-    connection_label: &str,
-    active_sql: &str,
-    error: &str,
-    db_context: Option<String>,
-    active_tab_context: Option<String>,
-    thread_history: Option<String>,
-) -> String {
-    let mut prompt = format!(
-        "You are fixing SQL for the active database connection.\n\
-Database context: {connection_label}\n\
-Failing SQL:\n```sql\n{active_sql}\n```\n\
-Observed database error: {error}\n"
-    );
-    if let Some(thread_history) = thread_history {
-        prompt.push_str("Use this recent chat history for follow-up intent:\n");
-        prompt.push_str(&thread_history);
-        prompt.push('\n');
-    }
-    if let Some(active_tab_context) = active_tab_context {
-        prompt.push_str("Use this active editor context too:\n");
-        prompt.push_str(&active_tab_context);
-        prompt.push('\n');
-    }
-    if let Some(db_context) = db_context {
-        prompt.push_str("Use this live database snapshot:\n");
-        prompt.push_str(&db_context);
-        prompt.push('\n');
-    }
-    prompt.push_str(
-        "Return exactly one corrected SQL query inside a single ```sql``` block with no explanation.\n\
-Preserve the user's intent, but fix syntax, identifiers, quoting, and dialect mismatches.\n\
-Do not add LIMIT, OFFSET, TOP, FETCH, SAMPLE, or TABLESAMPLE unless the original SQL already uses one or the user explicitly asks for it.\n\
-Prefer a read-only fix when possible unless the original SQL is clearly a write statement.\n",
-    );
-    prompt
-}
-
 pub(super) fn insert_sql_into_editor(
     mut panel_state: Signal<AcpPanelState>,
     tabs: Signal<Vec<QueryTabState>>,

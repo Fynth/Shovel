@@ -66,7 +66,7 @@ pub fn Toolbar() -> Element {
                 div {
                     class: "toolbar__connection",
                     span { class: "toolbar__connection-dot" }
-                    "{connection_label}"
+                    {connection_label.to_string()}
                 }
                 div { class: "toolbar__spacer" }
             }

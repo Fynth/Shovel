@@ -253,7 +253,7 @@ fn CategoryEmptyState(props: CategoryEmptyStateProps) -> Element {
                 class: "settings-modal__section-header",
                 h3 { class: "settings-modal__section-title", "{category.label()}" }
             }
-            p { class: "settings-modal__section-hint", "{hint}" }
+            p { class: "settings-modal__section-hint", {hint.to_string()} }
             p { class: "settings-modal__section-hint", "More options will land here as the editor grows." }
         }
     }

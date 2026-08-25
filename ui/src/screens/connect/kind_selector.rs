@@ -20,7 +20,7 @@ pub fn KindSelector(mut selected_kind: Signal<DatabaseKind>) -> Element {
             select {
                 class: "input",
                 id: "db-kind",
-                value: "{current_value}",
+                value: current_value.to_string(),
                 onchange: move |event| {
                     let next_kind = match event.value().as_str() {
                         "sqlite" => DatabaseKind::Sqlite,

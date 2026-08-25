@@ -212,7 +212,7 @@ pub fn SettingsWindowRoot(props: SettingsWindowRootProps) -> Element {
     };
 
     rsx! {
-        document::Style { "{APP_CSS}" }
+        document::Style { {APP_CSS.to_string()} }
         div { class: "settings-window-shell {theme_class}",
             SettingsModal {
                 settings: ui(),
@@ -292,7 +292,7 @@ pub fn EditConnectionWindowRoot(props: EditConnectionWindowRootProps) -> Element
     let theme_class = props.theme_class;
 
     rsx! {
-        document::Style { "{APP_CSS}" }
+        document::Style { {APP_CSS.to_string()} }
         div { class: "connect-window-shell {theme_class}",
             EditConnectionModal {
                 saved_connection,
@@ -398,7 +398,7 @@ pub fn CreateTableWindowRoot(props: CreateTableWindowRootProps) -> Element {
     let theme_class = props.theme_class;
 
     rsx! {
-        document::Style { "{APP_CSS}" }
+        document::Style { {APP_CSS.to_string()} }
         div { class: "table-window-shell {theme_class}",
             CreateTableModal {
                 target,
@@ -505,7 +505,7 @@ pub fn DuplicateTableWindowRoot(props: DuplicateTableWindowRootProps) -> Element
     let theme_class = props.theme_class;
 
     rsx! {
-        document::Style { "{APP_CSS}" }
+        document::Style { {APP_CSS.to_string()} }
         div { class: "table-window-shell {theme_class}",
             DuplicateTableModal {
                 target,
@@ -608,7 +608,7 @@ pub fn RenameTableWindowRoot(props: RenameTableWindowRootProps) -> Element {
     let theme_class = props.theme_class;
 
     rsx! {
-        document::Style { "{APP_CSS}" }
+        document::Style { {APP_CSS.to_string()} }
         div { class: "table-window-shell {theme_class}",
             RenameTableModal {
                 target,
@@ -670,7 +670,7 @@ pub fn ErDiagramWindowRoot(props: ErDiagramWindowRootProps) -> Element {
     let theme_class = props.theme_class;
 
     rsx! {
-        document::Style { "{APP_CSS}" }
+        document::Style { {APP_CSS.to_string()} }
         div { class: "er-diagram-window-shell {theme_class}",
             ErDiagramViewer {
                 diagram,
@@ -722,7 +722,7 @@ pub fn BlobWindowRoot(props: BlobWindowRootProps) -> Element {
     let theme_class = props.theme_class;
 
     rsx! {
-        document::Style { "{APP_CSS}" }
+        document::Style { {APP_CSS.to_string()} }
         div { class: "blob-viewer-window-shell {theme_class}",
             BlobViewer {
                 blob,
@@ -793,7 +793,7 @@ pub fn DataDiffWindowRoot(props: DataDiffWindowRootProps) -> Element {
     let theme_class = props.theme_class;
 
     rsx! {
-        document::Style { "{APP_CSS}" }
+        document::Style { {APP_CSS.to_string()} }
         div { class: "data-diff-window-shell {theme_class}",
             DataDiffViewer {
                 left_data: left,

@@ -6,12 +6,10 @@ use super::{
     clickhouse::resolve_agent_sql_execution,
     prompt::{
         active_editor_connection,
-        active_editor_error,
         active_editor_focus_source,
         active_editor_prompt_context,
         active_editor_sql,
         build_chat_prompt,
-        build_sql_error_fix_prompt,
         build_sql_explanation_prompt,
         build_sql_generation_prompt,
         build_sql_plan_prompt,
@@ -680,141 +678,6 @@ pub(crate) fn send_sql_explanation_request(
                 panel_state.with_mut(|state| {
                     state.status = err.clone();
                     state.busy = false;
-                    push_message(state, AcpMessageKind::Error, err);
-                });
-                chat_revision += 1;
-            }
-        }
-    });
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(super) fn send_sql_error_fix_request(
-    mut panel_state: Signal<AcpPanelState>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: u64,
-    connection_label: String,
-    mut chat_revision: Signal<u64>,
-    allow_db_read: bool,
-) {
-    let Some(active_sql) = active_editor_sql(tabs, active_tab_id) else {
-        panel_state.with_mut(|state| {
-            state.status = "There is no active SQL to repair.".to_string();
-            push_message(
-                state,
-                AcpMessageKind::Error,
-                "There is no active SQL to repair.".to_string(),
-            );
-        });
-        chat_revision += 1;
-        return;
-    };
-    let Some(error) = active_editor_error(tabs, active_tab_id) else {
-        panel_state.with_mut(|state| {
-            state.status = "The active tab has no SQL error to fix.".to_string();
-            push_message(
-                state,
-                AcpMessageKind::Error,
-                "The active tab has no SQL error to fix.".to_string(),
-            );
-        });
-        chat_revision += 1;
-        return;
-    };
-
-    if panel_state().busy {
-        return;
-    }
-
-    let connection = if allow_db_read {
-        active_editor_connection(tabs, active_tab_id)
-    } else {
-        None
-    };
-    let focus_source = active_editor_focus_source(tabs, active_tab_id);
-    let active_tab_context = if allow_db_read {
-        active_editor_prompt_context(tabs, active_tab_id)
-    } else {
-        None
-    };
-    let thread_history = build_thread_history_context(&panel_state().messages);
-
-    panel_state.with_mut(|state| {
-        state.busy = true;
-        state.pending_sql_insert = true;
-        state.suppress_transcript = false;
-        state.hidden_agent_response.clear();
-        state.status = "Preparing SQL repair prompt for the agent...".to_string();
-    });
-
-    spawn(async move {
-        let (prompt, routing_context) = match connection {
-            Some(connection) => match services::build_acp_database_context(
-                connection,
-                connection_label.clone(),
-                focus_source,
-            )
-            .await
-            {
-                Ok(db_context) => (
-                    build_sql_error_fix_prompt(
-                        &connection_label,
-                        &active_sql,
-                        &error,
-                        Some(db_context.clone()),
-                        active_tab_context.clone(),
-                        thread_history.clone(),
-                    ),
-                    build_routing_context(
-                        &connection_label,
-                        active_tab_context.as_deref(),
-                        Some(&db_context),
-                    ),
-                ),
-                Err(_) => (
-                    build_sql_error_fix_prompt(
-                        &connection_label,
-                        &active_sql,
-                        &error,
-                        None,
-                        active_tab_context.clone(),
-                        thread_history.clone(),
-                    ),
-                    build_routing_context(&connection_label, active_tab_context.as_deref(), None),
-                ),
-            },
-            None => (
-                build_sql_error_fix_prompt(
-                    &connection_label,
-                    &active_sql,
-                    &error,
-                    None,
-                    active_tab_context.clone(),
-                    thread_history.clone(),
-                ),
-                build_routing_context(&connection_label, active_tab_context.as_deref(), None),
-            ),
-        };
-
-        match services::send_acp_prompt_with_routing(prompt, routing_context) {
-            Ok(()) => {
-                panel_state.with_mut(|state| {
-                    push_message(
-                        state,
-                        AcpMessageKind::User,
-                        format!("Fix SQL error: {error}\n```sql\n{active_sql}\n```"),
-                    );
-                    state.busy = true;
-                    state.pending_sql_insert = true;
-                    state.status = "Waiting for repaired SQL...".to_string();
-                });
-                chat_revision += 1;
-            }
-            Err(err) => {
-                panel_state.with_mut(|state| {
-                    state.status = err.clone();
-                    state.busy = false;
-                    state.pending_sql_insert = false;
                     push_message(state, AcpMessageKind::Error, err);
                 });
                 chat_revision += 1;

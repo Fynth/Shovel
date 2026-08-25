@@ -249,7 +249,7 @@ fn ExplorerGroupView(
 ) -> Element {
     rsx! {
         div { class: "tree__group",
-            div { class: "tree__group-header", "{title}" }
+            div { class: "tree__group-header", {title.to_string()} }
             div { class: "tree__group-items",
                 for node in nodes {
                     ExplorerObjectRow {
@@ -446,7 +446,7 @@ fn ExplorerObjectRow(
                             "({row_count})"
                         }
                     }
-                    div { class: "tree__object-kind", "{kind_label}" }
+                    div { class: "tree__object-kind", {kind_label.to_string()} }
                 }
             }
         }
@@ -1079,11 +1079,11 @@ pub(super) async fn confirm_and_drop_table(
     let result = services::drop_table(connection, source.clone()).await;
     match result {
         Ok(()) => {
-            if let Some(mut local_selected_node) = local_selected_node {
-                if local_selected_node() == selected_qualified_name {
-                    local_selected_node.set(String::new());
-                    crate::app_state::set_explorer_selected_node(String::new());
-                }
+            if let Some(mut local_selected_node) = local_selected_node
+                && local_selected_node() == selected_qualified_name
+            {
+                local_selected_node.set(String::new());
+                crate::app_state::set_explorer_selected_node(String::new());
             }
             mark_table_deleted(tabs, session_id, source.clone());
             tree_reload += 1;

@@ -111,11 +111,11 @@ pub fn TableEditor(tabs: Signal<Vec<QueryTabState>>, active_tab_id: Signal<u64>)
                         rsx! {
                             button {
                                 key: "{label}",
-                                class: "{class_name}",
+                                class: {class_name.to_string()},
                                 role: "tab",
                                 "aria-selected": if selected { "true" } else { "false" },
                                 onclick: move |_| active_subtab.set(sub),
-                                "{label}"
+                                {label.to_string()}
                             }
                         }
                     }
@@ -163,9 +163,9 @@ pub fn TableEditor(tabs: Signal<Vec<QueryTabState>>, active_tab_id: Signal<u64>)
                 }
             }
             div { class: "table-editor__meta",
-                span { class: "table-editor__meta-name", "{table_name}" }
+                span { class: "table-editor__meta-name", {table_name.to_string()} }
                 if let Some(schema_name) = schema.as_deref() {
-                    span { class: "table-editor__meta-schema", "{schema_name}" }
+                    span { class: "table-editor__meta-schema", {schema_name.to_string()} }
                 }
             }
         }

@@ -105,7 +105,7 @@ pub fn RenameTableModal(
                         span { class: "field__label", "Preview" }
                         pre {
                             class: "table-modal__preview-sql",
-                            "{preview_sql}"
+                            {preview_sql.to_string()}
                         }
                     }
 

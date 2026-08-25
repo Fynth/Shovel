@@ -38,6 +38,7 @@ use models::{
     SqlFormatSettings,
     UiDensity,
     WorkspaceSplitMode,
+    WorkspaceToolPanel,
 };
 use std::{
     collections::HashMap,
@@ -181,6 +182,10 @@ pub static APP_SPLIT_MODE: GlobalSignal<WorkspaceSplitMode> =
 pub static APP_TOOLTIP: GlobalSignal<Option<AppTooltip>> = Signal::global(|| None);
 pub static APP_TOAST: GlobalSignal<Vec<AppToast>> = Signal::global(Vec::new);
 pub static APP_TAB_DRAFTS: GlobalSignal<Vec<models::TabDraft>> = Signal::global(Vec::new);
+/// Sidebar / inspector tool panels the user has collapsed to just their
+/// header row. In-memory only (not persisted); a panel that is not in
+/// this set renders expanded.
+pub static APP_COLLAPSED_PANELS: GlobalSignal<Vec<WorkspaceToolPanel>> = Signal::global(Vec::new);
 /// Most-recently-closed query tabs (newest first). Capped to
 /// `RECENTLY_CLOSED_TABS_LIMIT`. Restored by the tab context menu's
 /// "Reopen Closed Tab" item so the user can get back the last few
@@ -363,6 +368,23 @@ pub fn set_split_mode(mode: WorkspaceSplitMode) {
     update_ui_settings(|current| {
         current.split_mode = mode;
     });
+}
+
+/// Toggle whether a sidebar / inspector tool panel is collapsed to just
+/// its header row. In-memory only; not persisted.
+pub fn toggle_panel_collapsed(panel: WorkspaceToolPanel) {
+    APP_COLLAPSED_PANELS.with_mut(|collapsed| {
+        if collapsed.contains(&panel) {
+            collapsed.retain(|existing| *existing != panel);
+        } else {
+            collapsed.push(panel);
+        }
+    });
+}
+
+/// True when the given tool panel is currently collapsed.
+pub fn is_panel_collapsed(panel: WorkspaceToolPanel) -> bool {
+    APP_COLLAPSED_PANELS().contains(&panel)
 }
 
 pub fn set_deepseek_enabled(enabled: bool) {

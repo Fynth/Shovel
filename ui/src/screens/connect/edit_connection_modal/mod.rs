@@ -194,7 +194,7 @@ pub fn EditConnectionModal(
                             }
                         }
                         if !save_status_value.is_empty() {
-                            p { class: "{save_status_class}", "{save_status_value}" }
+                            p { class: save_status_class.to_string(), {save_status_value.to_string()} }
                         }
                     }
                 }

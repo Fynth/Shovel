@@ -826,7 +826,7 @@ pub fn ExecutionPlanView(
                                                 div { class: "execution-plan__node-content",
                                                     div { class: "execution-plan__node-header",
                                                         span { class: "execution-plan__node-badge {badge_class}",
-                                                            "{node_op}"
+                                                            {node_op.to_string()}
                                                         }
 
                                                         if let Some(target) = &node_target {
@@ -871,7 +871,7 @@ pub fn ExecutionPlanView(
                                                         if node_details.is_empty() && node_target.is_none() {
                                                             div { class: "execution-plan__node-details",
                                                                 span { class: "execution-plan__node-raw",
-                                                                    "{raw_text}"
+                                                                    {raw_text.to_string()}
                                                                 }
                                                             }
                                                         }
@@ -891,7 +891,7 @@ pub fn ExecutionPlanView(
                                 code { "{plan.explained_sql}" }
                             }
                             pre { class: "execution-plan__raw-text",
-                                "{raw_text}"
+                                {raw_text.to_string()}
                             }
                         }
                     },

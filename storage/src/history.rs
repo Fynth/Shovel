@@ -138,7 +138,7 @@ pub async fn load_saved_connections() -> Result<Vec<SavedConnection>, String> {
 ///
 /// Returns an error string if writing the JSON file or the keyring entry fails.
 pub async fn save_connection_request(request: ConnectionRequest) -> Result<(), String> {
-    let mut saved_connections = load_saved_connections().await.unwrap_or_default();
+    let mut saved_connections = load_saved_connections().await?;
     let previous_connections = saved_connections.clone();
     upsert_saved_connection(&mut saved_connections, request, None);
 
@@ -163,7 +163,7 @@ pub async fn replace_connection_request(
     previous_identity_key: String,
     request: ConnectionRequest,
 ) -> Result<(), String> {
-    let mut saved_connections = load_saved_connections().await.unwrap_or_default();
+    let mut saved_connections = load_saved_connections().await?;
     let previous_connections = saved_connections.clone();
     upsert_saved_connection(
         &mut saved_connections,

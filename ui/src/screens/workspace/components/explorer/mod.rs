@@ -113,7 +113,7 @@ pub fn SidebarConnectionTree(
                     class: "tree__filter",
                     input {
                         class: "input tree__filter-input",
-                        value: "{query}",
+                        value: query.to_string(),
                         placeholder: "Filter entities",
                         oninput: move |event| filter_query.set(event.value()),
                     }
@@ -706,9 +706,9 @@ pub(super) fn highlight_match_segments(name: &str, query: &str) -> Element {
     rsx! {
         for (i, (text, is_match)) in segments.into_iter().enumerate() {
             if is_match {
-                span { key: "m{i}", class: "tree__match", "{text}" }
+                span { key: "m{i}", class: "tree__match", {text.to_string()} }
             } else if !text.is_empty() {
-                span { key: "t{i}", "{text}" }
+                span { key: "t{i}", {text.to_string()} }
             }
         }
     }

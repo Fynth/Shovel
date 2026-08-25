@@ -126,7 +126,7 @@ pub fn CreateTableModal(
                                     for schema in target.schemas.iter().cloned() {
                                         option {
                                             value: schema.clone(),
-                                            "{schema}"
+                                            {schema.to_string()}
                                         }
                                     }
                                 }
@@ -251,7 +251,7 @@ pub fn CreateTableModal(
                                                     for data_type in create_table_type_options(target.kind) {
                                                         option {
                                                             value: *data_type,
-                                                            "{data_type}"
+                                                            {data_type.to_string()}
                                                         }
                                                     }
                                                     option {
@@ -416,7 +416,7 @@ pub fn CreateTableModal(
                             if preview_sql.trim().is_empty() {
                                 "-- SQL preview will appear here"
                             } else {
-                                "{preview_sql}"
+                                {preview_sql.to_string()}
                             }
                         }
                     }

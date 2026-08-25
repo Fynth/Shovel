@@ -53,11 +53,11 @@ pub fn DataDiffViewer(
                     class: "data-diff__labels",
                     span {
                         class: "data-diff__label data-diff__label--left",
-                        "{left_label}"
+                        {left_label.to_string()}
                     }
                     span {
                         class: "data-diff__label data-diff__label--right",
-                        "{right_label}"
+                        {right_label.to_string()}
                     }
                 }
             }
@@ -102,7 +102,7 @@ pub fn DataDiffViewer(
                                 for col in result.columns.iter() {
                                     th {
                                         class: "data-diff__th",
-                                        "{col}"
+                                        {col.to_string()}
                                     }
                                 }
                             }
@@ -130,7 +130,7 @@ pub fn DataDiffViewer(
                                     for value in diff_row.values.iter() {
                                         td {
                                             class: "data-diff__td",
-                                            "{value}"
+                                            {value.to_string()}
                                         }
                                     }
                                 }

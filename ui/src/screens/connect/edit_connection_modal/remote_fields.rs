@@ -41,12 +41,12 @@ pub(crate) fn RemoteEditorFields(
             class: "connect-form__grid",
             div {
                 class: "field",
-                label { class: "field__label", r#for: "edit-host", "{host_label}" }
+                label { class: "field__label", r#for: "edit-host", {host_label.to_string()} }
                 input {
                     class: "input",
                     id: "edit-host",
                     value: "{current.host}",
-                    placeholder: "{host_placeholder}",
+                    placeholder: host_placeholder.to_string(),
                     disabled,
                     oninput: move |event| {
                         let value = event.value();
@@ -62,7 +62,7 @@ pub(crate) fn RemoteEditorFields(
                     class: "input",
                     id: "edit-port",
                     value: "{current.port}",
-                    placeholder: "{port_default}",
+                    placeholder: port_default.to_string(),
                     disabled,
                     oninput: move |event| {
                         let value = event.value();
@@ -79,7 +79,7 @@ pub(crate) fn RemoteEditorFields(
                 class: "input",
                 id: "edit-username",
                 value: "{current.username}",
-                placeholder: "{username_placeholder}",
+                placeholder: username_placeholder.to_string(),
                 disabled,
                 oninput: move |event| {
                     let value = event.value();
@@ -112,7 +112,7 @@ pub(crate) fn RemoteEditorFields(
                 class: "input",
                 id: "edit-database",
                 value: "{current.database}",
-                placeholder: "{database_placeholder}",
+                placeholder: database_placeholder.to_string(),
                 disabled,
                 oninput: move |event| {
                     let value = event.value();

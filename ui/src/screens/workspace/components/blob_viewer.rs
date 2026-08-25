@@ -159,7 +159,7 @@ pub fn BlobViewer(blob: BlobData, on_close: Callback<()>) -> Element {
                             class: "blob-viewer__text-view",
                             pre {
                                 class: "blob-viewer__text-content",
-                                "{text_content}"
+                                {text_content.to_string()}
                             }
                         }
                     },
@@ -168,7 +168,7 @@ pub fn BlobViewer(blob: BlobData, on_close: Callback<()>) -> Element {
                             class: "blob-viewer__image-view",
                             if let Some(data_url) = image_data_url {
                                 img {
-                                    src: "{data_url}",
+                                    src: {data_url.to_string()},
                                     alt: "BLOB Image Preview"
                                 }
                             }

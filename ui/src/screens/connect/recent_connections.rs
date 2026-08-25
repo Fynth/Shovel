@@ -144,7 +144,7 @@ pub fn RecentConnections(
                 },
             }
             if !status().is_empty() {
-                p { class: "{status_class}", "{status_value}" }
+                p { class: status_class.to_string(), {status_value.to_string()} }
             }
         }
     }

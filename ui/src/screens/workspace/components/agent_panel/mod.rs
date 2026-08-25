@@ -8,16 +8,25 @@ mod setup;
 mod state;
 
 use dioxus::prelude::*;
-use models::{AcpMessageKind, AcpPanelState, ChatArtifact, ChatThreadSummary, QueryTabState};
+use models::{
+    AcpMessageKind,
+    AcpPanelState,
+    ChatArtifact,
+    ChatThreadSummary,
+    QueryTabState,
+    WorkspaceToolPanel,
+};
 
 use crate::app_state::{
     APP_UI_SETTINGS,
+    is_panel_collapsed,
     set_deepseek_api_key,
     set_deepseek_base_url,
     set_deepseek_enabled,
     set_deepseek_model,
     set_deepseek_reasoning_effort,
     set_deepseek_thinking_enabled,
+    toggle_panel_collapsed,
 };
 
 use super::{ActionIcon, IconButton};
@@ -97,6 +106,7 @@ pub fn AcpAgentPanel(
     let thread_title = compact_header_title(&thread_title);
     let thread_meta = build_thread_meta(&thread_connection_name, &state);
     let chat_label = sql_connection_label.clone();
+    let collapsed = is_panel_collapsed(WorkspaceToolPanel::Agent);
     let mut setup_mode = use_signal(|| AgentSetupMode::DeepSeek);
     let mut show_dialogs = use_signal(|| false);
     let mut registry_busy = use_signal(|| false);
@@ -135,6 +145,27 @@ pub fn AcpAgentPanel(
     use_effect(move || {
         let _ = active_thread_id;
         message_limit.set(AGENT_MESSAGE_BATCH);
+    });
+
+    // Keep the transcript pinned to the newest message while it streams
+    // in, but only when the user is already near the bottom so reading
+    // older history is not interrupted.
+    use_effect(move || {
+        let _ = chat_revision();
+        let _ = visible_message_total;
+        let _ = streaming_active;
+        let _ = document::eval(
+            r#"
+            (() => {
+                const el = document.getElementById("agent-panel-messages");
+                if (!el) return;
+                const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+                if (nearBottom) {
+                    el.scrollTop = el.scrollHeight;
+                }
+            })()
+            "#,
+        );
     });
 
     use_effect(move || {
@@ -183,6 +214,24 @@ pub fn AcpAgentPanel(
                 }
                 div { class: "agent-panel__header-actions",
                     button {
+                        class: "workspace__panel-collapse",
+                        "aria-label": if collapsed {
+                            "Expand agent panel"
+                        } else {
+                            "Collapse agent panel"
+                        },
+                        "aria-expanded": "{!collapsed}",
+                        onclick: move |_| toggle_panel_collapsed(WorkspaceToolPanel::Agent),
+                        span {
+                            class: if collapsed {
+                                "workspace__panel-chevron"
+                            } else {
+                                "workspace__panel-chevron workspace__panel-chevron--open"
+                            },
+                            ">"
+                        }
+                    }
+                    button {
                         class: if show_dialogs() {
                             "button button--ghost button--small button--active"
                         } else {
@@ -190,11 +239,6 @@ pub fn AcpAgentPanel(
                         },
                         onclick: move |_| show_dialogs.set(!show_dialogs()),
                         "Dialogs"
-                    }
-                    if let Some(connection) = state.connection.clone() {
-                        div { class: "agent-panel__badge",
-                            "{connection.agent_name}"
-                        }
                     }
                     if state.connected && state.busy {
                         IconButton {
@@ -304,9 +348,12 @@ pub fn AcpAgentPanel(
                 }
             }
 
+            if !collapsed {
             if state.connected {
                 div { class: "agent-panel__session",
-                    div { class: "agent-panel__messages",
+                    div {
+                        id: "agent-panel-messages",
+                        class: "agent-panel__messages",
                         if visible_messages.is_empty() {
                             p { class: "empty-state", "Ask for SQL, schema, or data help." }
                         } else {
@@ -386,7 +433,7 @@ pub fn AcpAgentPanel(
                                                         }
                                                         span {
                                                             class: "agent-panel__thinking-label",
-                                                            "{thinking_label}"
+                                                            {thinking_label.to_string()}
                                                         }
                                                     }
                                                 }
@@ -419,7 +466,7 @@ pub fn AcpAgentPanel(
                                                             rsx! {
                                                                 div { class: "agent-panel__code-card",
                                                                     div { class: "agent-panel__code-header",
-                                                                        span { class: "agent-panel__code-language", "{language_label}" }
+                                                                        span { class: "agent-panel__code-language", {language_label.to_string()} }
                                                                     div { class: "agent-panel__code-actions",
                                                                         button {
                                                                             class: "button button--ghost button--small",
@@ -434,50 +481,19 @@ pub fn AcpAgentPanel(
                                                                             if sql.is_some() { "Copy SQL" } else { "Copy" }
                                                                         }
                                                                         if let Some(sql) = sql.clone() {
-                                                                            button {
-                                                                                class: "button button--ghost button--small",
-                                                                                onclick: {
-                                                                                    let sql = sql.clone();
-                                                                                    move |event| {
-                                                                                        event.stop_propagation();
-                                                                                        insert_sql_into_editor(
-                                                                                            panel_state,
-                                                                                            tabs,
-                                                                                            active_tab_id,
-                                                                                            sql.clone(),
-                                                                                        );
-                                                                                    }
-                                                                                },
-                                                                                "Insert SQL"
-                                                                            }
-                                                                            button {
-                                                                                class: "button button--primary button--small",
-                                                                                disabled: !can_execute_agent_sql(
-                                                                                    &sql,
-                                                                                    allow_agent_read_sql_run(),
-                                                                                    allow_agent_write_sql_run(),
-                                                                                ),
-                                                                                onclick: {
-                                                                                    let sql = sql.clone();
-                                                                                    move |event| {
-                                                                                        event.stop_propagation();
-                                                                                        execute_agent_sql_request(
-                                                                                            panel_state,
-                                                                                            tabs,
-                                                                                            active_tab_id,
-                                                                                            chat_revision,
-                                                                                            sql.clone(),
-                                                                                            AgentSqlExecutionMode::Manual,
-                                                                                            true,
-                                                                                        );
-                                                                                    }
-                                                                                },
-                                                                                "Run SQL"
+                                                                            SqlActionButtons {
+                                                                                panel_state,
+                                                                                tabs,
+                                                                                active_tab_id,
+                                                                                chat_revision,
+                                                                                allow_agent_read_sql_run,
+                                                                                allow_agent_write_sql_run,
+                                                                                sql,
                                                                             }
                                                                         }
                                                                     }
                                                                     }
-                                                                    pre { class: "agent-panel__code-body", "{code}" }
+                                                                    pre { class: "agent-panel__code-body", {code.to_string()} }
                                                                 }
                                                              }
                                                          }
@@ -497,60 +513,18 @@ pub fn AcpAgentPanel(
                                                             div { class: "agent-panel__artifact-header",
                                                                 p { class: "agent-panel__artifact-label", {artifact_title(&ChatArtifact::SqlDraft { sql: sql.clone() })} }
                                                                 div { class: "agent-panel__artifact-actions",
-                                                                    button {
-                                                                        class: "button button--ghost button--small",
-                                                                        onclick: {
-                                                                            let sql = sql.clone();
-                                                                            move |event| {
-                                                                                event.stop_propagation();
-                                                                                copy_text_to_clipboard(panel_state, sql.clone(), "SQL")
-                                                                            }
-                                                                        },
-                                                                        "Copy SQL"
-                                                                    }
-                                                                    button {
-                                                                        class: "button button--ghost button--small",
-                                                                        onclick: {
-                                                                            let sql = sql.clone();
-                                                                            move |event| {
-                                                                                event.stop_propagation();
-                                                                                insert_sql_into_editor(
-                                                                                    panel_state,
-                                                                                    tabs,
-                                                                                    active_tab_id,
-                                                                                    sql.clone(),
-                                                                                );
-                                                                            }
-                                                                        },
-                                                                        "Insert SQL"
-                                                                    }
-                                                                    button {
-                                                                        class: "button button--primary button--small",
-                                                                        disabled: !can_execute_agent_sql(
-                                                                            &sql,
-                                                                            allow_agent_read_sql_run(),
-                                                                            allow_agent_write_sql_run(),
-                                                                        ),
-                                                                        onclick: {
-                                                                            let sql = sql.clone();
-                                                                            move |event| {
-                                                                                event.stop_propagation();
-                                                                                execute_agent_sql_request(
-                                                                                    panel_state,
-                                                                                    tabs,
-                                                                                    active_tab_id,
-                                                                                    chat_revision,
-                                                                                    sql.clone(),
-                                                                                    AgentSqlExecutionMode::Manual,
-                                                                                    true,
-                                                                                );
-                                                                            }
-                                                                        },
-                                                                        "Run SQL"
+                                                                    SqlActionButtons {
+                                                                        panel_state,
+                                                                        tabs,
+                                                                        active_tab_id,
+                                                                        chat_revision,
+                                                                        allow_agent_read_sql_run,
+                                                                        allow_agent_write_sql_run,
+                                                                        sql: sql.clone(),
                                                                     }
                                                                 }
                                                             }
-                                                            pre { class: "agent-panel__artifact-body", "{sql}" }
+                                                            pre { class: "agent-panel__artifact-body", {sql.to_string()} }
                                                         }
                                                     },
                                                     ChatArtifact::QuerySummary { sql, summary: _ } => rsx! {
@@ -558,60 +532,18 @@ pub fn AcpAgentPanel(
                                                             div { class: "agent-panel__artifact-header",
                                                                 p { class: "agent-panel__artifact-label", {artifact_title(&ChatArtifact::QuerySummary { sql: sql.clone(), summary: String::new() })} }
                                                                 div { class: "agent-panel__artifact-actions",
-                                                                    button {
-                                                                        class: "button button--ghost button--small",
-                                                                        onclick: {
-                                                                            let sql = sql.clone();
-                                                                            move |event| {
-                                                                                event.stop_propagation();
-                                                                                copy_text_to_clipboard(panel_state, sql.clone(), "SQL")
-                                                                            }
-                                                                        },
-                                                                        "Copy SQL"
-                                                                    }
-                                                                    button {
-                                                                        class: "button button--ghost button--small",
-                                                                        onclick: {
-                                                                            let sql = sql.clone();
-                                                                            move |event| {
-                                                                                event.stop_propagation();
-                                                                                insert_sql_into_editor(
-                                                                                    panel_state,
-                                                                                    tabs,
-                                                                                    active_tab_id,
-                                                                                    sql.clone(),
-                                                                                );
-                                                                            }
-                                                                        },
-                                                                        "Insert SQL"
-                                                                    }
-                                                                    button {
-                                                                        class: "button button--primary button--small",
-                                                                        disabled: !can_execute_agent_sql(
-                                                                            &sql,
-                                                                            allow_agent_read_sql_run(),
-                                                                            allow_agent_write_sql_run(),
-                                                                        ),
-                                                                        onclick: {
-                                                                            let sql = sql.clone();
-                                                                            move |event| {
-                                                                                event.stop_propagation();
-                                                                                execute_agent_sql_request(
-                                                                                    panel_state,
-                                                                                    tabs,
-                                                                                    active_tab_id,
-                                                                                    chat_revision,
-                                                                                    sql.clone(),
-                                                                                    AgentSqlExecutionMode::Manual,
-                                                                                    true,
-                                                                                );
-                                                                            }
-                                                                        },
-                                                                        "Run SQL"
+                                                                    SqlActionButtons {
+                                                                        panel_state,
+                                                                        tabs,
+                                                                        active_tab_id,
+                                                                        chat_revision,
+                                                                        allow_agent_read_sql_run,
+                                                                        allow_agent_write_sql_run,
+                                                                        sql: sql.clone(),
                                                                     }
                                                                 }
                                                             }
-                                                            pre { class: "agent-panel__artifact-body", "{sql}" }
+                                                            pre { class: "agent-panel__artifact-body", {sql.to_string()} }
                                                         }
                                                     },
                                                 }
@@ -622,56 +554,15 @@ pub fn AcpAgentPanel(
                                                         let sql_is_read_only = services::is_read_only_sql(&sql);
                                                         rsx! {
                                                             div { class: "agent-panel__message-actions",
-                                                                button {
-                                                                    class: "button button--ghost button--small",
-                                                                    onclick: {
-                                                                        let sql = sql.clone();
-                                                                        move |event| {
-                                                                            event.stop_propagation();
-                                                                            copy_text_to_clipboard(panel_state, sql.clone(), "SQL");
-                                                                        }
-                                                                    },
-                                                                    "Copy SQL"
-                                                                }
-                                                                button {
-                                                                    class: "button button--ghost button--small",
-                                                                    onclick: {
-                                                                        let sql = sql.clone();
-                                                                        move |event| {
-                                                                            event.stop_propagation();
-                                                                            insert_sql_into_editor(
-                                                                                panel_state,
-                                                                                tabs,
-                                                                                active_tab_id,
-                                                                                sql.clone(),
-                                                                            );
-                                                                        }
-                                                                    },
-                                                                    "Insert SQL"
-                                                                }
-                                                                button {
-                                                                    class: "button button--primary button--small",
-                                                                    disabled: !can_execute_agent_sql(
-                                                                        &sql,
-                                                                        allow_agent_read_sql_run(),
-                                                                        allow_agent_write_sql_run(),
-                                                                    ),
-                                                                    onclick: {
-                                                                        let sql = sql.clone();
-                                                                        move |event| {
-                                                                            event.stop_propagation();
-                                                                            execute_agent_sql_request(
-                                                                                panel_state,
-                                                                                tabs,
-                                                                                active_tab_id,
-                                                                                chat_revision,
-                                                                                sql.clone(),
-                                                                                AgentSqlExecutionMode::Manual,
-                                                                                true,
-                                                                            );
-                                                                        }
-                                                                    },
-                                                                    if sql_is_read_only { "Run again" } else { "Run SQL" }
+                                                                SqlActionButtons {
+                                                                    panel_state,
+                                                                    tabs,
+                                                                    active_tab_id,
+                                                                    chat_revision,
+                                                                    allow_agent_read_sql_run,
+                                                                    allow_agent_write_sql_run,
+                                                                    sql,
+                                                                    run_label: { if sql_is_read_only { "Run again" } else { "Run SQL" } },
                                                                 }
                                                             }
                                                         }
@@ -1027,8 +918,8 @@ pub fn AcpAgentPanel(
                                     rsx! {
                                 div { class: "agent-panel__section-header",
                                     div { class: "agent-panel__section-copy",
-                                        h4 { class: "agent-panel__section-title", "{registry_name}" }
-                                        p { class: "agent-panel__hint", "{registry_hint}" }
+                                        h4 { class: "agent-panel__section-title", {registry_name.to_string()} }
+                                        p { class: "agent-panel__hint", {registry_hint.to_string()} }
                                     }
                                     span { class: "agent-panel__badge", "Registry" }
                                 }
@@ -1186,6 +1077,73 @@ pub fn AcpAgentPanel(
                     }}
                 }
             }
+            }
+        }
+    }
+}
+
+/// Shared Copy / Insert / Run action row for a SQL snippet rendered in
+/// the transcript (code cards, artifacts, and extracted candidates).
+/// The caller wraps these buttons in the container that matches the
+/// surrounding block (`code-actions`, `artifact-actions`, or
+/// `message-actions`).
+#[component]
+fn SqlActionButtons(
+    panel_state: Signal<AcpPanelState>,
+    tabs: Signal<Vec<QueryTabState>>,
+    active_tab_id: Signal<u64>,
+    chat_revision: Signal<u64>,
+    allow_agent_read_sql_run: Signal<bool>,
+    allow_agent_write_sql_run: Signal<bool>,
+    sql: String,
+    #[props(default = "Run SQL")] run_label: &'static str,
+) -> Element {
+    rsx! {
+        button {
+            class: "button button--ghost button--small",
+            onclick: {
+                let sql = sql.clone();
+                move |event| {
+                    event.stop_propagation();
+                    copy_text_to_clipboard(panel_state, sql.clone(), "SQL");
+                }
+            },
+            "Copy SQL"
+        }
+        button {
+            class: "button button--ghost button--small",
+            onclick: {
+                let sql = sql.clone();
+                move |event| {
+                    event.stop_propagation();
+                    insert_sql_into_editor(panel_state, tabs, active_tab_id, sql.clone());
+                }
+            },
+            "Insert SQL"
+        }
+        button {
+            class: "button button--primary button--small",
+            disabled: !can_execute_agent_sql(
+                &sql,
+                allow_agent_read_sql_run(),
+                allow_agent_write_sql_run(),
+            ),
+            onclick: {
+                let sql = sql.clone();
+                move |event| {
+                    event.stop_propagation();
+                    execute_agent_sql_request(
+                        panel_state,
+                        tabs,
+                        active_tab_id,
+                        chat_revision,
+                        sql.clone(),
+                        AgentSqlExecutionMode::Manual,
+                        true,
+                    );
+                }
+            },
+            {run_label.to_string()}
         }
     }
 }
