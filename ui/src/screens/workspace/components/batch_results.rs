@@ -91,9 +91,9 @@ pub fn BatchResultsView(store: TabStore) -> Element {
                         rsx! {
                             button {
                                 class,
-                                title: "{label}",
+                                title: {label.to_string()},
                                 onclick: move |_| select_batch_index(store, pos),
-                                span { class: "batch-results__tab-label", "{label}" }
+                                span { class: "batch-results__tab-label", {label.to_string()} }
                                 span { class: "batch-results__tab-meta",
                                     span { class: "batch-results__chip {chip_class}", {chip_label.to_string()} }
                                     if !meta.is_empty() {

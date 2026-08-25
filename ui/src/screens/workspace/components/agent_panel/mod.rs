@@ -8,13 +8,7 @@ mod setup;
 mod state;
 
 use dioxus::prelude::*;
-use models::{
-    AcpMessageKind,
-    AcpPanelState,
-    ChatArtifact,
-    ChatThreadSummary,
-    WorkspaceToolPanel,
-};
+use models::{AcpMessageKind, AcpPanelState, ChatArtifact, ChatThreadSummary, WorkspaceToolPanel};
 
 use crate::{
     app_state::{

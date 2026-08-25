@@ -15,12 +15,7 @@ use crate::screens::workspace::{
     tab_store::TabStore,
 };
 use dioxus::prelude::*;
-use models::{
-    ExecutionPlan,
-    ExecutionPlanNode,
-    OptimizerRecommendation,
-    OptimizerSeverity,
-};
+use models::{ExecutionPlan, ExecutionPlanNode, OptimizerRecommendation, OptimizerSeverity};
 use std::collections::HashSet;
 
 /// Color category for a plan node operation
