@@ -9,3 +9,6 @@
 
 # Session/plan artifacts (not part of the product)
 /.omo
+
+# Isolated worktrees
+/.worktrees
