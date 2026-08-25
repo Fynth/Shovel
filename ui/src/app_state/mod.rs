@@ -843,10 +843,11 @@ mod tests {
     }
 
     fn test_tab(id: u64, title: &str) -> models::QueryTabState {
-        let mut tab = models::QueryTabState::default();
-        tab.id = id;
-        tab.title = title.to_string();
-        tab
+        models::QueryTabState {
+            id,
+            title: title.to_string(),
+            ..Default::default()
+        }
     }
 
     #[test]

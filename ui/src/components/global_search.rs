@@ -461,12 +461,12 @@ mod tests {
 
     #[test]
     fn snapshot_items_round_trip_through_pure_helpers() {
-        let tabs = vec![GlobalSearchTabItem {
+        let tabs = [GlobalSearchTabItem {
             tab_id: 99,
             session_id: 7,
             title: "snapshot-tab".to_string(),
         }];
-        let objects = vec![GlobalSearchObjectItem {
+        let objects = [GlobalSearchObjectItem {
             session_id: 7,
             session_name: "db7".to_string(),
             name: "orders".to_string(),

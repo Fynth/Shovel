@@ -979,6 +979,7 @@ pub fn Workspace() -> Element {
     // The height signal mirrors APP_BOTTOM_PANEL_HEIGHT on first render so
     // the dock restores to the user's last size; the active tab lives in
     // memory only — switching tabs is cheap and not worth persisting.
+    #[allow(clippy::redundant_closure)]
     let bottom_panel_height = use_signal(|| APP_BOTTOM_PANEL_HEIGHT());
     let bottom_resize_active = use_signal(|| false);
     let bottom_active_tab = use_signal(|| BottomPanelTab::Output);

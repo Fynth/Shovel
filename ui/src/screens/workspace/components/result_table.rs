@@ -957,7 +957,7 @@ pub fn ResultTable(
                                                                 "aria-label": "{row_label}",
                                                                 onclick: {
                                                                     let row_ref = display_row.row_ref.clone();
-                                                                    let values: Vec<(usize, String)> = display_row.values.iter().cloned().enumerate().map(|(i, v)| (i, v)).collect();
+                                                                    let values: Vec<(usize, String)> = display_row.values.iter().cloned().enumerate().collect();
                                                                     move |_| {
                                                                         selected_row_index.set(Some(row_index));
                                                                         editing_row_values.set(values.clone());
@@ -2064,6 +2064,7 @@ fn build_row_context_menu(
     items
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_cell_context_menu(
     columns: Vec<String>,
     row_values: Vec<String>,

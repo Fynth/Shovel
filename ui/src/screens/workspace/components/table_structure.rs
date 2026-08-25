@@ -103,11 +103,10 @@ pub fn StructurePanel(
                         // `open_structure_tab` already does.
                         let tab_id = active_id_sig();
                         tabs_sig.with_mut(|all_tabs| {
-                            if let Some(tab) = all_tabs.iter_mut().find(|t| t.id == tab_id) {
-                                if matches!(tab.preview_source.as_ref(), Some(s) if s == &source_clone)
-                                {
-                                    tab.result = Some(output.clone());
-                                }
+                            if let Some(tab) = all_tabs.iter_mut().find(|t| t.id == tab_id)
+                                && matches!(tab.preview_source.as_ref(), Some(s) if s == &source_clone)
+                            {
+                                tab.result = Some(output.clone());
                             }
                         });
                         loaded_result.set(Some(output));

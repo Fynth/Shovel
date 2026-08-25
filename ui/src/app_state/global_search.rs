@@ -643,10 +643,9 @@ mod tests {
         if let Some(tab_idx) = groups
             .iter()
             .position(|g| g.kind == SearchGroupKind::OpenTab)
+            && let Some(table_idx) = groups.iter().position(|g| g.kind == SearchGroupKind::Table)
         {
-            if let Some(table_idx) = groups.iter().position(|g| g.kind == SearchGroupKind::Table) {
-                assert!(tab_idx < table_idx, "tabs must come before tables");
-            }
+            assert!(tab_idx < table_idx, "tabs must come before tables");
         }
         if let Some(action_idx) = groups
             .iter()
