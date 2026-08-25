@@ -1,4 +1,4 @@
-use models::QueryOptimizerResult;
+use models::{QueryOptimizerResult, QueryTabState};
 
 /// Extract the first fenced ```json ... ``` block from a raw agent response.
 /// Falls back to the whole string when no fence is present.
@@ -30,10 +30,21 @@ pub fn parse_optimizer_result(raw: &str) -> Result<QueryOptimizerResult, String>
     serde_json::from_str(&block).map_err(|err| format!("Invalid optimizer JSON: {err}"))
 }
 
+/// Store a parsed optimizer result on the tab with the given id, if present.
+pub fn store_optimizer_result_on_tab(
+    tabs: &mut [QueryTabState],
+    tab_id: u64,
+    result: QueryOptimizerResult,
+) {
+    if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == tab_id) {
+        tab.optimizer_result = Some(result);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use models::{OptimizerSeverity, RecommendationCategory};
+    use models::{OptimizerSeverity, QueryTabState, RecommendationCategory};
 
     #[test]
     fn parses_fenced_json_block() {
@@ -69,5 +80,17 @@ mod tests {
             rec.suggested_index.as_deref(),
             Some("CREATE INDEX i ON t(c)")
         );
+    }
+
+    #[test]
+    fn stores_result_on_active_tab() {
+        let mut tabs = vec![QueryTabState::default()];
+        let result = QueryOptimizerResult {
+            summary: "s".to_string(),
+            recommendations: vec![],
+            rewritten_sql: None,
+        };
+        store_optimizer_result_on_tab(&mut tabs, 0, result.clone());
+        assert_eq!(tabs[0].optimizer_result, Some(result));
     }
 }

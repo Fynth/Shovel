@@ -14,8 +14,10 @@ use super::super::{
         default_acp_panel_state,
         execute_agent_sql_request,
         extract_sql_candidate,
+        parse_optimizer_result,
         preferred_sql_target_tab_id,
         replace_messages,
+        store_optimizer_result_on_tab,
     },
     helpers::{derive_chat_thread_title, reset_panel_for_thread, upsert_chat_thread_summary},
 };
@@ -63,7 +65,7 @@ pub fn use_acp_state(inputs: AcpStateInputs) -> AcpState {
     let mut chat_threads = inputs.chat_threads;
     let active_chat_thread_id = inputs.active_chat_thread_id;
     let mut chat_revision = inputs.chat_revision;
-    let tabs = inputs.tabs;
+    let mut tabs = inputs.tabs;
     let mut active_tab_id = inputs.active_tab_id;
     let connection_label = inputs.connection_label;
 
@@ -327,6 +329,27 @@ pub fn use_acp_state(inputs: AcpStateInputs) -> AcpState {
                         && !acp_panel_state().hidden_agent_response.is_empty()
                     {
                         acp_panel_state.with_mut(|state| state.hidden_agent_response.clear());
+                    }
+
+                    let optimizer_parsed = {
+                        let panel_state = acp_panel_state();
+                        if panel_state.optimizer_request_active
+                            && !panel_state.optimizer_response.is_empty()
+                        {
+                            parse_optimizer_result(&panel_state.optimizer_response).ok()
+                        } else {
+                            None
+                        }
+                    };
+                    if let Some(result) = optimizer_parsed {
+                        let target_id = active_tab_id();
+                        tabs.with_mut(|all_tabs| {
+                            store_optimizer_result_on_tab(all_tabs, target_id, result);
+                        });
+                        acp_panel_state.with_mut(|state| {
+                            state.optimizer_request_active = false;
+                            state.optimizer_response.clear();
+                        });
                     }
                 }
 
