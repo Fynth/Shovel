@@ -1347,7 +1347,7 @@ pub fn refresh_tab_result(
     }
 }
 
-pub fn mark_table_deleted(store: TabStore, session_id: u64, source: TablePreviewSource) {
+pub fn mark_table_deleted(mut store: TabStore, session_id: u64, source: TablePreviewSource) {
     let tab_ids: Vec<u64> = store
         .meta
         .read()
@@ -1408,7 +1408,7 @@ pub fn mark_table_deleted(store: TabStore, session_id: u64, source: TablePreview
 }
 
 pub fn mark_table_truncated(
-    store: TabStore,
+    mut store: TabStore,
     session_id: u64,
     connection: DatabaseConnection,
     source: TablePreviewSource,
