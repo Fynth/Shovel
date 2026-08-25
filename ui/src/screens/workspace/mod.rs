@@ -4,6 +4,7 @@ pub(crate) mod components;
 mod context;
 pub mod helpers;
 mod hooks;
+mod tab_store;
 
 use crate::{
     app_state::{
