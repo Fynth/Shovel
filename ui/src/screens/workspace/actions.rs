@@ -1756,7 +1756,8 @@ pub fn run_active_tab_explain(store: TabStore, active_tab_id: u64) {
 }
 
 /// Format the active tab's SQL in place. Mirrors the toolbar's
-/// Format button.
+/// Format button. The formatter runs on a blocking thread so a large
+/// query never stalls the render loop.
 pub fn format_active_tab(
     store: TabStore,
     active_tab_id: u64,
@@ -1783,8 +1784,16 @@ pub fn format_active_tab(
 
     let session_id = store.meta.read().get(&current_id).map(|m| m.session_id);
     let session_kind = session_id.and_then(|sid| APP_STATE.read().session(sid).map(|s| s.kind));
-    let formatted = services::format_sql(session_kind, sql, &format_settings);
-    replace_active_tab_sql(store, current_id, formatted, "SQL formatted".to_string());
+    let sql = sql.to_string();
+    let fallback_sql = sql.clone();
+    spawn(async move {
+        let formatted = tokio::task::spawn_blocking(move || {
+            services::format_sql(session_kind, &sql, &format_settings)
+        })
+        .await
+        .unwrap_or(fallback_sql);
+        replace_active_tab_sql(store, current_id, formatted, "SQL formatted".to_string());
+    });
 }
 
 /// Toggle `--` line comments on every selected line in the active

@@ -772,7 +772,9 @@ fn WorkspaceBody(
                                 let fks = services::load_foreign_keys(connection)
                                     .await
                                     .unwrap_or_default();
-                                if let Some(diagram) = helpers::build_er_diagram(&sections, &fks) {
+                                if let Some(diagram) =
+                                    helpers::build_er_diagram_async(sections, fks).await
+                                {
                                     windows::open_er_diagram_window(diagram, APP_THEME());
                                 }
                             });

@@ -1019,8 +1019,16 @@ fn format_active_sql(
         .read()
         .session(current_tab.session_id)
         .map(|session| session.kind);
-    let formatted = services::format_sql(session_kind, sql, &format_settings);
-    replace_active_tab_sql(store, current_id, formatted, "SQL formatted".to_string());
+    let sql = sql.to_string();
+    let fallback_sql = sql.clone();
+    spawn(async move {
+        let formatted = tokio::task::spawn_blocking(move || {
+            services::format_sql(session_kind, &sql, &format_settings)
+        })
+        .await
+        .unwrap_or(fallback_sql);
+        replace_active_tab_sql(store, current_id, formatted, "SQL formatted".to_string());
+    });
 }
 
 #[allow(clippy::too_many_arguments)]
