@@ -356,50 +356,63 @@ pub fn replace_active_tab_sql(
 }
 
 pub fn open_structure_tab(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    mut active_tab_id: Signal<u64>,
-    mut next_tab_id: Signal<u64>,
+    mut store: TabStore,
     session_id: u64,
     connection: DatabaseConnection,
     source: TablePreviewSource,
 ) {
+    let mut next_tab_id = store.next_tab_id;
     let tab_id = next_tab_id();
     next_tab_id += 1;
 
     let title = format!("Structure · {}", source.table_name);
 
-    tabs.with_mut(|all_tabs| {
-        let mut tab = new_query_tab(tab_id, session_id, title, String::new());
-        tab.tab_kind = WorkspaceTabKind::Structure;
-        tab.status = format!("Loading structure for {}...", source.table_name);
-        all_tabs.push(tab);
+    let (mut meta, editor, mut result, pending) =
+        new_query_tab(tab_id, session_id, title, String::new());
+    meta.tab_kind = WorkspaceTabKind::Structure;
+    result.status = format!("Loading structure for {}...", source.table_name);
+    store.meta.with_mut(|m| {
+        m.insert(tab_id, meta);
     });
-    active_tab_id.set(tab_id);
+    store.editor.with_mut(|m| {
+        m.insert(tab_id, editor);
+    });
+    store.result.with_mut(|m| {
+        m.insert(tab_id, result);
+    });
+    store.pending.with_mut(|m| {
+        m.insert(tab_id, pending);
+    });
+    store.active_tab_id.set(tab_id);
 
     spawn(async move {
         match services::describe_table(connection, source.schema.clone(), source.table_name.clone())
             .await
         {
             Ok(output) => {
-                tabs.with_mut(|all_tabs| {
-                    if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == tab_id) {
-                        tab.result = Some(output);
-                        tab.status = format!("Loaded structure for {}", source.table_name);
-                        tab.current_offset = 0;
-                        tab.last_run_sql = None;
-                        tab.preview_source = None;
-                        tab.filter = None;
-                        tab.sort = None;
-                        tab.is_loading_more = false;
-                        tab.pending_table_changes = PendingTableChanges::default();
+                store.result.with_mut(|m| {
+                    if let Some(res) = m.get_mut(&tab_id) {
+                        res.result = Some(output);
+                        res.status = format!("Loaded structure for {}", source.table_name);
+                        res.current_offset = 0;
+                        res.last_run_sql = None;
+                        res.preview_source = None;
+                        res.filter = None;
+                        res.sort = None;
+                        res.is_loading_more = false;
+                    }
+                });
+                store.pending.with_mut(|m| {
+                    if let Some(p) = m.get_mut(&tab_id) {
+                        p.pending_table_changes = PendingTableChanges::default();
                     }
                 });
             }
             Err(err) => {
-                tabs.with_mut(|all_tabs| {
-                    if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == tab_id) {
-                        tab.result = None;
-                        tab.status = format!("Structure error: {err}");
+                store.result.with_mut(|m| {
+                    if let Some(res) = m.get_mut(&tab_id) {
+                        res.result = None;
+                        res.status = format!("Structure error: {err}");
                     }
                 });
             }
@@ -408,21 +421,21 @@ pub fn open_structure_tab(
 }
 
 pub fn tab_connection_or_error(
-    tabs: Signal<Vec<QueryTabState>>,
+    store: TabStore,
     tab_id: u64,
     session_id: u64,
 ) -> Option<DatabaseConnection> {
     match session_connection(session_id) {
         Some(connection) => Some(connection),
         None => {
-            set_active_tab_status(tabs, tab_id, "The bound connection was closed".to_string());
+            set_active_tab_status(store, tab_id, "The bound connection was closed".to_string());
             None
         }
     }
 }
 
 pub fn run_query_for_tab(
-    mut tabs: Signal<Vec<QueryTabState>>,
+    mut store: TabStore,
     current_id: u64,
     connection: DatabaseConnection,
     sql: String,
@@ -434,11 +447,11 @@ pub fn run_query_for_tab(
     // :memory: pool never has to answer a SQL statement.
     #[cfg(debug_assertions)]
     {
-        let tab_session_id = tabs
+        let tab_session_id = store
+            .meta
             .read()
-            .iter()
-            .find(|tab| tab.id == current_id)
-            .map(|tab| tab.session_id);
+            .get(&current_id)
+            .map(|meta| meta.session_id);
         if let Some(session_id) = tab_session_id
             && crate::dev::is_mock_session(session_id)
             && let Some(output) = crate::dev::mock_query_for(&sql)
@@ -447,17 +460,21 @@ pub fn run_query_for_tab(
                 QueryOutput::Table(page) => format_loaded_rows_status(page.offset, page.rows.len()),
                 QueryOutput::AffectedRows(rows) => format!("Rows affected: {rows}"),
             };
-            tabs.with_mut(|all_tabs| {
-                if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                    tab.result = Some(output);
-                    tab.status = status;
-                    tab.current_offset = 0;
-                    tab.page_size = page_size;
-                    tab.last_run_sql = Some(sql.clone());
-                    tab.preview_source = None;
-                    tab.is_loading_more = false;
-                    tab.pending_table_changes = PendingTableChanges::default();
-                    tab.last_duration_ms = Some(0);
+            store.result.with_mut(|m| {
+                if let Some(res) = m.get_mut(&current_id) {
+                    res.result = Some(output);
+                    res.status = status;
+                    res.current_offset = 0;
+                    res.page_size = page_size;
+                    res.last_run_sql = Some(sql.clone());
+                    res.preview_source = None;
+                    res.is_loading_more = false;
+                    res.last_duration_ms = Some(0);
+                }
+            });
+            store.pending.with_mut(|m| {
+                if let Some(p) = m.get_mut(&current_id) {
+                    p.pending_table_changes = PendingTableChanges::default();
                 }
             });
             let _ = connection;
@@ -466,7 +483,6 @@ pub fn run_query_for_tab(
         }
     }
     // Многооператорные скрипты уходят в пакетный исполнитель, который
-    // Многооператорные скрипты уходят в пакетный исполнитель, который
     // показывает пооператорные результаты. Однооператорные запросы
     // остаются на существующем пути с пагинацией/фильтрами.
     let non_empty_count = services::split_sql(&sql)
@@ -474,36 +490,40 @@ pub fn run_query_for_tab(
         .filter(|stmt| !stmt.is_empty())
         .count();
     if non_empty_count > 1 {
-        run_batch_for_tab(tabs, current_id, connection, sql, page_size, history);
+        run_batch_for_tab(store, current_id, connection, sql, page_size, history);
         return;
     }
 
     if read_only_mode_blocks_sql(&sql) {
-        set_active_tab_status(tabs, current_id, read_only_mode_block_status("write SQL"));
+        set_active_tab_status(store, current_id, read_only_mode_block_status("write SQL"));
         return;
     }
 
-    let filter = tabs
+    let filter = store
+        .result
         .read()
-        .iter()
-        .find(|tab| tab.id == current_id)
-        .and_then(|tab| tab.filter.clone());
-    let sort = tabs
+        .get(&current_id)
+        .and_then(|r| r.filter.clone());
+    let sort = store
+        .result
         .read()
-        .iter()
-        .find(|tab| tab.id == current_id)
-        .and_then(|tab| tab.sort.clone());
+        .get(&current_id)
+        .and_then(|r| r.sort.clone());
 
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-            tab.status = format!("Running query at offset {offset}...");
-            tab.preview_source = None;
-            tab.is_loading_more = false;
-            tab.pending_table_changes = PendingTableChanges::default();
-            tab.show_execution_plan = false;
-            tab.last_duration_ms = None;
-            tab.batch_results = None;
-            tab.batch_outputs.clear();
+    store.result.with_mut(|m| {
+        if let Some(res) = m.get_mut(&current_id) {
+            res.status = format!("Running query at offset {offset}...");
+            res.preview_source = None;
+            res.is_loading_more = false;
+            res.show_execution_plan = false;
+            res.last_duration_ms = None;
+            res.batch_results = None;
+            res.batch_outputs.clear();
+        }
+    });
+    store.pending.with_mut(|m| {
+        if let Some(p) = m.get_mut(&current_id) {
+            p.pending_table_changes = PendingTableChanges::default();
         }
     });
 
@@ -534,17 +554,21 @@ pub fn run_query_for_tab(
                     QueryOutput::AffectedRows(count) => Some(*count as usize),
                 };
 
-                tabs.with_mut(|all_tabs| {
-                    if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                        tab.result = Some(output);
-                        tab.status = status.clone();
-                        tab.current_offset = current_offset;
-                        tab.page_size = page_size;
-                        tab.last_run_sql = Some(sql.clone());
-                        tab.preview_source = None;
-                        tab.is_loading_more = false;
-                        tab.pending_table_changes = PendingTableChanges::default();
-                        tab.last_duration_ms = Some(duration_ms);
+                store.result.with_mut(|m| {
+                    if let Some(res) = m.get_mut(&current_id) {
+                        res.result = Some(output);
+                        res.status = status.clone();
+                        res.current_offset = current_offset;
+                        res.page_size = page_size;
+                        res.last_run_sql = Some(sql.clone());
+                        res.preview_source = None;
+                        res.is_loading_more = false;
+                        res.last_duration_ms = Some(duration_ms);
+                    }
+                });
+                store.pending.with_mut(|m| {
+                    if let Some(p) = m.get_mut(&current_id) {
+                        p.pending_table_changes = PendingTableChanges::default();
                     }
                 });
 
@@ -584,14 +608,18 @@ pub fn run_query_for_tab(
                 let duration_ms = start_time.elapsed().as_millis() as u64;
                 let duration_suffix =
                     format!(" · {}", super::helpers::format_duration(duration_ms));
-                tabs.with_mut(|all_tabs| {
-                    if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                        tab.result = None;
-                        tab.status = format!("Error: {err}{duration_suffix}");
-                        tab.preview_source = None;
-                        tab.is_loading_more = false;
-                        tab.pending_table_changes = PendingTableChanges::default();
-                        tab.last_duration_ms = Some(duration_ms);
+                store.result.with_mut(|m| {
+                    if let Some(res) = m.get_mut(&current_id) {
+                        res.result = None;
+                        res.status = format!("Error: {err}{duration_suffix}");
+                        res.preview_source = None;
+                        res.is_loading_more = false;
+                        res.last_duration_ms = Some(duration_ms);
+                    }
+                });
+                store.pending.with_mut(|m| {
+                    if let Some(p) = m.get_mut(&current_id) {
+                        p.pending_table_changes = PendingTableChanges::default();
                     }
                 });
 
@@ -643,7 +671,7 @@ pub fn run_query_for_tab(
 /// На первой ошибке выполнение останавливается, оставшиеся операторы
 /// помечаются `Skipped`.
 fn run_batch_for_tab(
-    mut tabs: Signal<Vec<QueryTabState>>,
+    mut store: TabStore,
     current_id: u64,
     connection: DatabaseConnection,
     sql: String,
@@ -654,11 +682,11 @@ fn run_batch_for_tab(
     let plan = services::plan_batch(&sql, family);
 
     if APP_READ_ONLY_MODE() && plan.has_writes {
-        set_active_tab_status(tabs, current_id, read_only_mode_block_status("write SQL"));
+        set_active_tab_status(store, current_id, read_only_mode_block_status("write SQL"));
         return;
     }
     if plan.executable_count == 0 {
-        set_active_tab_status(tabs, current_id, "Query is empty".to_string());
+        set_active_tab_status(store, current_id, "Query is empty".to_string());
         return;
     }
 
@@ -679,22 +707,26 @@ fn run_batch_for_tab(
     let statement_count = results.len();
     let connection_type = get_connection_type(&connection);
 
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-            tab.status = format!("Running batch: {statement_count} statements...");
-            tab.result = None;
-            tab.preview_source = None;
-            tab.is_loading_more = false;
-            tab.pending_table_changes = PendingTableChanges::default();
-            tab.show_execution_plan = false;
-            tab.last_duration_ms = None;
-            tab.batch_results = Some(BatchRunState {
+    store.result.with_mut(|m| {
+        if let Some(res) = m.get_mut(&current_id) {
+            res.status = format!("Running batch: {statement_count} statements...");
+            res.result = None;
+            res.preview_source = None;
+            res.is_loading_more = false;
+            res.show_execution_plan = false;
+            res.last_duration_ms = None;
+            res.batch_results = Some(BatchRunState {
                 results,
                 active_index: 0,
                 tx_state: BatchTransactionState::None,
                 total_duration_ms: 0,
             });
-            tab.batch_outputs = vec![None; statement_count];
+            res.batch_outputs = vec![None; statement_count];
+        }
+    });
+    store.pending.with_mut(|m| {
+        if let Some(p) = m.get_mut(&current_id) {
+            p.pending_table_changes = PendingTableChanges::default();
         }
     });
 
@@ -731,9 +763,9 @@ fn run_batch_for_tab(
                     // Первый успешный оператор становится активным по умолчанию.
                     first_output_pos.get_or_insert(pos);
                     let output_for_slot = Some(output.clone());
-                    tabs.with_mut(|all_tabs| {
-                        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                            if let Some(batch) = tab.batch_results.as_mut() {
+                    store.result.with_mut(|m| {
+                        if let Some(res) = m.get_mut(&current_id) {
+                            if let Some(batch) = res.batch_results.as_mut() {
                                 if let Some(result) = batch.results.get_mut(pos) {
                                     result.outcome = BatchOutcome::Ok;
                                     result.duration_ms = Some(duration_ms);
@@ -741,7 +773,7 @@ fn run_batch_for_tab(
                                 }
                                 batch.total_duration_ms = total_ms;
                             }
-                            if let Some(slot) = tab.batch_outputs.get_mut(pos) {
+                            if let Some(slot) = res.batch_outputs.get_mut(pos) {
                                 *slot = output_for_slot;
                             }
                         }
@@ -749,9 +781,9 @@ fn run_batch_for_tab(
                 }
                 Err(err) => {
                     let message = err.to_string();
-                    tabs.with_mut(|all_tabs| {
-                        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id)
-                            && let Some(batch) = tab.batch_results.as_mut()
+                    store.result.with_mut(|m| {
+                        if let Some(res) = m.get_mut(&current_id)
+                            && let Some(batch) = res.batch_results.as_mut()
                         {
                             if let Some(result) = batch.results.get_mut(pos) {
                                 result.outcome = BatchOutcome::Error;
@@ -770,9 +802,9 @@ fn run_batch_for_tab(
 
         // Оставшиеся после ошибки операторы — пропущены.
         if let Some(failed_pos) = error_pos {
-            tabs.with_mut(|all_tabs| {
-                if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id)
-                    && let Some(batch) = tab.batch_results.as_mut()
+            store.result.with_mut(|m| {
+                if let Some(res) = m.get_mut(&current_id)
+                    && let Some(batch) = res.batch_results.as_mut()
                 {
                     for result in batch.results.iter_mut().skip(failed_pos + 1) {
                         result.outcome = BatchOutcome::Skipped;
@@ -801,15 +833,15 @@ fn run_batch_for_tab(
         };
 
         let active_index = first_output_pos.unwrap_or(0);
-        tabs.with_mut(|all_tabs| {
-            if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                tab.status = status_label.clone();
-                tab.last_duration_ms = Some(total_duration_ms);
-                tab.result = tab
+        store.result.with_mut(|m| {
+            if let Some(res) = m.get_mut(&current_id) {
+                res.status = status_label.clone();
+                res.last_duration_ms = Some(total_duration_ms);
+                res.result = res
                     .batch_outputs
                     .get(active_index)
                     .and_then(|slot| slot.clone());
-                if let Some(batch) = tab.batch_results.as_mut() {
+                if let Some(batch) = res.batch_results.as_mut() {
                     batch.total_duration_ms = total_duration_ms;
                     batch.active_index = active_index;
                 }
@@ -826,11 +858,11 @@ fn run_batch_for_tab(
             let history_id = next_history_id();
             next_history_id += 1;
             let rows_returned = {
-                let total: usize = tabs
+                let total: usize = store
+                    .result
                     .read()
-                    .iter()
-                    .find(|tab| tab.id == current_id)
-                    .and_then(|tab| tab.batch_results.as_ref())
+                    .get(&current_id)
+                    .and_then(|res| res.batch_results.as_ref())
                     .map(|batch| batch.results.iter().filter_map(|r| r.rows).sum())
                     .unwrap_or(0);
                 if total > 0 { Some(total) } else { None }
@@ -841,10 +873,11 @@ fn run_batch_for_tab(
                 "Success".to_string()
             };
             let error_message = if failed {
-                tabs.read()
-                    .iter()
-                    .find(|tab| tab.id == current_id)
-                    .and_then(|tab| tab.batch_results.as_ref())
+                store
+                    .result
+                    .read()
+                    .get(&current_id)
+                    .and_then(|res| res.batch_results.as_ref())
                     .and_then(|batch| batch.results.iter().find_map(|r| r.error_message.clone()))
             } else {
                 None
@@ -873,24 +906,24 @@ fn run_batch_for_tab(
 }
 
 pub fn run_explain_for_tab(
-    mut tabs: Signal<Vec<QueryTabState>>,
+    mut store: TabStore,
     current_id: u64,
     connection: DatabaseConnection,
     sql: String,
 ) {
     if sql.trim().is_empty() {
-        tabs.with_mut(|all_tabs| {
-            if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                tab.status = "Query is empty".to_string();
+        store.result.with_mut(|m| {
+            if let Some(res) = m.get_mut(&current_id) {
+                res.status = "Query is empty".to_string();
             }
         });
         return;
     }
 
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-            tab.status = "Running EXPLAIN...".to_string();
-            tab.execution_plan = None;
+    store.result.with_mut(|m| {
+        if let Some(res) = m.get_mut(&current_id) {
+            res.status = "Running EXPLAIN...".to_string();
+            res.execution_plan = None;
         }
     });
 
@@ -898,18 +931,18 @@ pub fn run_explain_for_tab(
         match services::execute_explain(connection, &sql, false).await {
             Ok(plan) => {
                 let node_count = plan.flattened_with_depth().len();
-                tabs.with_mut(|all_tabs| {
-                    if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                        tab.execution_plan = Some(plan);
-                        tab.show_execution_plan = true;
-                        tab.status = format!("Execution plan loaded ({} operations)", node_count);
+                store.result.with_mut(|m| {
+                    if let Some(res) = m.get_mut(&current_id) {
+                        res.execution_plan = Some(plan);
+                        res.show_execution_plan = true;
+                        res.status = format!("Execution plan loaded ({} operations)", node_count);
                     }
                 });
             }
             Err(err) => {
-                tabs.with_mut(|all_tabs| {
-                    if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                        tab.status = format!("EXPLAIN error: {err}");
+                store.result.with_mut(|m| {
+                    if let Some(res) = m.get_mut(&current_id) {
+                        res.status = format!("EXPLAIN error: {err}");
                     }
                 });
             }
@@ -918,7 +951,7 @@ pub fn run_explain_for_tab(
 }
 
 pub fn run_table_preview_for_tab(
-    mut tabs: Signal<Vec<QueryTabState>>,
+    mut store: TabStore,
     current_id: u64,
     connection: DatabaseConnection,
     source: TablePreviewSource,
@@ -938,59 +971,63 @@ pub fn run_table_preview_for_tab(
                 ),
                 QueryOutput::AffectedRows(rows) => format!("Rows affected: {rows}"),
             };
-            tabs.with_mut(|all_tabs| {
-                if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                    tab.preview_source = Some(source.clone());
-                    tab.tab_kind = WorkspaceTabKind::TablePreview;
-                    tab.result = Some(output);
-                    tab.status = status;
-                    tab.current_offset = offset;
-                    tab.page_size = page_size;
-                    tab.last_run_sql = Some(format!(
+            store.result.with_mut(|m| {
+                if let Some(res) = m.get_mut(&current_id) {
+                    res.preview_source = Some(source.clone());
+                    res.result = Some(output);
+                    res.status = status;
+                    res.current_offset = offset;
+                    res.page_size = page_size;
+                    res.last_run_sql = Some(format!(
                         "select * from {} limit {};",
                         source.qualified_name, page_size
                     ));
-                    tab.is_loading_more = false;
+                    res.is_loading_more = false;
+                }
+            });
+            store.meta.with_mut(|m| {
+                if let Some(meta) = m.get_mut(&current_id) {
+                    meta.tab_kind = WorkspaceTabKind::TablePreview;
                 }
             });
             let _ = connection;
             return;
         }
     }
-    let filter = tabs
-        .read()
-        .iter()
-        .find(|tab| tab.id == current_id)
-        .and_then(|tab| {
-            if tab.preview_source.as_ref() == Some(&source) {
-                tab.filter.clone()
-            } else {
-                None
-            }
-        });
-    let sort = tabs
-        .read()
-        .iter()
-        .find(|tab| tab.id == current_id)
-        .and_then(|tab| {
-            if tab.preview_source.as_ref() == Some(&source) {
-                tab.sort.clone()
-            } else {
-                None
-            }
-        });
+    let filter = store.result.read().get(&current_id).and_then(|res| {
+        if res.preview_source.as_ref() == Some(&source) {
+            res.filter.clone()
+        } else {
+            None
+        }
+    });
+    let sort = store.result.read().get(&current_id).and_then(|res| {
+        if res.preview_source.as_ref() == Some(&source) {
+            res.sort.clone()
+        } else {
+            None
+        }
+    });
 
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-            tab.status = format!("Loading rows from {}...", source.table_name);
-            if tab.preview_source.as_ref() != Some(&source) {
-                tab.filter = None;
-                tab.sort = None;
-                tab.is_loading_more = false;
-                tab.pending_table_changes = PendingTableChanges::default();
+    store.result.with_mut(|m| {
+        if let Some(res) = m.get_mut(&current_id) {
+            res.status = format!("Loading rows from {}...", source.table_name);
+            if res.preview_source.as_ref() != Some(&source) {
+                res.filter = None;
+                res.sort = None;
+                res.is_loading_more = false;
             }
-            tab.preview_source = Some(source.clone());
-            tab.tab_kind = WorkspaceTabKind::TablePreview;
+            res.preview_source = Some(source.clone());
+        }
+    });
+    store.pending.with_mut(|m| {
+        if let Some(p) = m.get_mut(&current_id) {
+            p.pending_table_changes = PendingTableChanges::default();
+        }
+    });
+    store.meta.with_mut(|m| {
+        if let Some(meta) = m.get_mut(&current_id) {
+            meta.tab_kind = WorkspaceTabKind::TablePreview;
         }
     });
 
@@ -1015,28 +1052,28 @@ pub fn run_table_preview_for_tab(
                     QueryOutput::AffectedRows(rows) => format!("Rows affected: {rows}"),
                 };
 
-                tabs.with_mut(|all_tabs| {
-                    if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                        tab.result = Some(output);
-                        tab.status = status;
-                        tab.current_offset = offset;
-                        tab.page_size = page_size;
-                        tab.last_run_sql = Some(format!(
+                store.result.with_mut(|m| {
+                    if let Some(res) = m.get_mut(&current_id) {
+                        res.result = Some(output);
+                        res.status = status;
+                        res.current_offset = offset;
+                        res.page_size = page_size;
+                        res.last_run_sql = Some(format!(
                             "select * from {} limit {};",
                             source.qualified_name, page_size
                         ));
-                        tab.preview_source = Some(source.clone());
-                        tab.is_loading_more = false;
+                        res.preview_source = Some(source.clone());
+                        res.is_loading_more = false;
                     }
                 });
             }
             Err(err) => {
-                tabs.with_mut(|all_tabs| {
-                    if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == current_id) {
-                        tab.result = None;
-                        tab.status = format!("Preview error: {err}");
-                        tab.preview_source = Some(source.clone());
-                        tab.is_loading_more = false;
+                store.result.with_mut(|m| {
+                    if let Some(res) = m.get_mut(&current_id) {
+                        res.result = None;
+                        res.status = format!("Preview error: {err}");
+                        res.preview_source = Some(source.clone());
+                        res.is_loading_more = false;
                     }
                 });
             }
