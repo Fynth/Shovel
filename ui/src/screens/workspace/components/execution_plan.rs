@@ -677,7 +677,6 @@ pub fn ExecutionPlanView(
     let mut view_mode = use_signal(|| PlanViewMode::Tree);
     let mut expanded_nodes = use_signal(HashSet::<NodePath>::new);
     let mut expanded_plan_key = use_signal(String::new);
-    let mut optimizer_busy = use_signal(|| false);
     let mut show_optimized = use_signal(|| false);
 
     let flattened = plan.flattened_with_depth();
@@ -743,12 +742,14 @@ pub fn ExecutionPlanView(
         .as_ref()
         .and_then(|result| result.rewritten_sql.clone());
 
-    // Clear the "Optimize with AI" busy flag once a result lands on the tab.
-    use_effect(move || {
-        if optimizer_result.is_some() {
-            optimizer_busy.set(false);
-        }
-    });
+    // The optimizer is busy while a request is in flight. This is derived from
+    // the panel state (set when the request starts, cleared when the result
+    // lands or the prompt finishes/errors) so the button re-enables once the
+    // response arrives.
+    let optimizer_busy = match acp_ctx.as_ref() {
+        Some(ctx) => (ctx.acp_panel_state)().optimizer_request_active,
+        None => false,
+    };
 
     rsx! {
         div { class: "execution-plan",
@@ -1022,20 +1023,19 @@ pub fn ExecutionPlanView(
                                 if ai_button_visible {
                                     IconButton {
                                         icon: ActionIcon::Agent,
-                                        label: if optimizer_busy() {
+                                        label: if optimizer_busy {
                                             "Optimizing…".to_string()
                                         } else {
                                             "Optimize with AI".to_string()
                                         },
                                         small: true,
-                                        disabled: ai_button_disabled || optimizer_busy(),
+                                        disabled: ai_button_disabled || optimizer_busy,
                                         onclick: move |_| {
                                             if let Some(ctx) = try_use_context::<WorkspaceAcpContext>() {
                                                 let panel_state = ctx.acp_panel_state;
                                                 let chat_revision = ctx.chat_revision;
                                                 let allow_db_read = (ctx.allow_agent_db_read)();
                                                 let allow_read_sql_run = (ctx.allow_agent_read_sql_run)();
-                                                optimizer_busy.set(true);
                                                 send_sql_plan_request(
                                                     panel_state,
                                                     tabs,
