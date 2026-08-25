@@ -3,31 +3,36 @@ use crate::{
         APP_STATE,
         context_menu::{ContextMenuItem, open_context_menu},
     },
-    screens::workspace::actions::{append_to_tab_sql, ensure_tab_for_session, set_active_tab_sql},
+    screens::workspace::{
+        actions::{append_to_tab_sql, ensure_tab_for_session, set_active_tab_sql},
+        tab_store::TabStore,
+    },
 };
 use dioxus::prelude::*;
-use models::{QueryTabState, SavedQuery, SavedQueryKind};
+use models::{SavedQuery, SavedQueryKind};
 
 #[component]
 pub fn SavedQueriesPanel(
     saved_queries: Vec<SavedQuery>,
     saved_queries_signal: Signal<Vec<SavedQuery>>,
     next_saved_query_id: Signal<u64>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    next_tab_id: Signal<u64>,
+    store: TabStore,
 ) -> Element {
     let mut save_title = use_signal(String::new);
     let mut panel_status = use_signal(String::new);
 
-    let active_tab = tabs
+    let active_tab_id = store.active_tab_id();
+    let active_tab = store
+        .meta
         .read()
-        .iter()
-        .find(|tab| tab.id == active_tab_id())
-        .cloned();
-    let active_sql = active_tab
-        .as_ref()
-        .map(|tab| tab.sql.trim().to_string())
+        .get(&active_tab_id)
+        .cloned()
+        .map(|meta| (meta.id, meta.session_id, meta.title));
+    let active_sql = store
+        .editor
+        .read()
+        .get(&active_tab_id)
+        .map(|ed| ed.sql.trim().to_string())
         .unwrap_or_default();
     let can_save = !active_sql.is_empty();
 
@@ -66,7 +71,7 @@ pub fn SavedQueriesPanel(
                         value: "{save_title}",
                         placeholder: active_tab
                             .as_ref()
-                            .map(|tab| tab.title.clone())
+                            .map(|(_, _, title)| title.clone())
                             .unwrap_or_else(|| "Saved Query".to_string()),
                         oninput: move |event| save_title.set(event.value()),
                     }
@@ -80,6 +85,7 @@ pub fn SavedQueriesPanel(
                                     save_current_sql(
                                         SavedQueryKind::Snippet,
                                         active_tab.clone(),
+                                        active_sql.clone(),
                                         save_title,
                                         next_saved_query_id,
                                         saved_queries_signal,
@@ -98,6 +104,7 @@ pub fn SavedQueriesPanel(
                                     save_current_sql(
                                         SavedQueryKind::Query,
                                         active_tab.clone(),
+                                        active_sql.clone(),
                                         save_title,
                                         next_saved_query_id,
                                         saved_queries_signal,
@@ -133,9 +140,7 @@ pub fn SavedQueriesPanel(
                                 source_session_id,
                                 saved_queries_signal,
                                 panel_status,
-                                tabs,
-                                active_tab_id,
-                                next_tab_id,
+                                store,
                             );
 
                             rsx! {
@@ -171,9 +176,7 @@ pub fn SavedQueriesPanel(
                                                     load_saved_query_into_workspace(
                                                         item.clone(),
                                                         source_session_id,
-                                                        tabs,
-                                                        active_tab_id,
-                                                        next_tab_id,
+                                                        store,
                                                     );
                                                     panel_status.set(format!(
                                                         "{} loaded into workspace.",
@@ -213,32 +216,33 @@ pub fn SavedQueriesPanel(
 
 fn save_current_sql(
     kind: SavedQueryKind,
-    active_tab: Option<QueryTabState>,
+    active_tab: Option<(u64, u64, String)>,
+    active_sql: String,
     mut save_title: Signal<String>,
     mut next_saved_query_id: Signal<u64>,
     mut saved_queries_signal: Signal<Vec<SavedQuery>>,
     mut panel_status: Signal<String>,
 ) {
-    let Some(active_tab) = active_tab else {
+    let Some((_tab_id, session_id, title)) = active_tab else {
         panel_status.set("No active SQL tab available.".to_string());
         return;
     };
-    if active_tab.sql.trim().is_empty() {
+    if active_sql.trim().is_empty() {
         panel_status.set("Current SQL tab is empty.".to_string());
         return;
     }
 
     let title = if save_title().trim().is_empty() {
-        active_tab.title.clone()
+        title
     } else {
         save_title().trim().to_string()
     };
-    let connection_name = APP_STATE.read().session_name(active_tab.session_id);
+    let connection_name = APP_STATE.read().session_name(session_id);
     let item = SavedQuery {
         id: next_saved_query_id(),
         title: title.clone(),
         folder: String::new(),
-        sql: active_tab.sql,
+        sql: active_sql,
         kind,
         connection_name,
     };
@@ -263,14 +267,12 @@ fn save_current_sql(
 fn load_saved_query_into_workspace(
     item: SavedQuery,
     source_session_id: Option<u64>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    next_tab_id: Signal<u64>,
+    store: TabStore,
 ) {
     let target_tab_id = if let Some(session_id) = source_session_id {
-        ensure_tab_for_session(tabs, active_tab_id, next_tab_id, session_id)
+        ensure_tab_for_session(store, session_id)
     } else {
-        active_tab_id()
+        store.active_tab_id()
     };
 
     if target_tab_id == 0 {
@@ -279,13 +281,13 @@ fn load_saved_query_into_workspace(
 
     match item.kind {
         SavedQueryKind::Query => set_active_tab_sql(
-            tabs,
+            store,
             target_tab_id,
             item.sql,
             "Loaded saved query".to_string(),
         ),
         SavedQueryKind::Snippet => append_to_tab_sql(
-            tabs,
+            store,
             target_tab_id,
             item.sql,
             "Inserted saved snippet".to_string(),
@@ -293,15 +295,12 @@ fn load_saved_query_into_workspace(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn build_saved_query_context_menu(
     item: SavedQuery,
     source_session_id: Option<u64>,
     mut saved_queries_signal: Signal<Vec<SavedQuery>>,
     mut panel_status: Signal<String>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-    next_tab_id: Signal<u64>,
+    store: TabStore,
 ) -> Vec<ContextMenuItem> {
     use crate::{app_state::context_menu::copy_to_clipboard, screens::workspace::ActionIcon};
 
@@ -318,13 +317,7 @@ fn build_saved_query_context_menu(
         let item = item.clone();
         items.push(
             ContextMenuItem::new(open_label, move || {
-                load_saved_query_into_workspace(
-                    item.clone(),
-                    source_session_id,
-                    tabs,
-                    active_tab_id,
-                    next_tab_id,
-                );
+                load_saved_query_into_workspace(item.clone(), source_session_id, store);
             })
             .with_icon(ActionIcon::Run),
         );

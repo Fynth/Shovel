@@ -4,9 +4,13 @@ use crate::app_state::{
     context_menu::{ContextMenuItem, open_context_menu},
 };
 use dioxus::prelude::*;
-use models::{QueryHistoryItem, QueryTabState};
+use models::QueryHistoryItem;
 
-use crate::screens::workspace::{actions::set_active_tab_sql, helpers::format_duration};
+use crate::screens::workspace::{
+    actions::set_active_tab_sql,
+    helpers::format_duration,
+    tab_store::TabStore,
+};
 
 const PAGE_SIZE: usize = 50;
 
@@ -208,11 +212,7 @@ fn build_csv(items: &[QueryHistoryItem]) -> String {
 }
 
 #[component]
-pub fn QueryHistoryPanel(
-    history: Signal<Vec<QueryHistoryItem>>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
-) -> Element {
+pub fn QueryHistoryPanel(history: Signal<Vec<QueryHistoryItem>>, store: TabStore) -> Element {
     let mut search_query = use_signal(String::new);
     let mut date_filter = use_signal(|| DateFilter::All);
     let mut connection_filter = use_signal(String::new);
@@ -440,8 +440,7 @@ pub fn QueryHistoryPanel(
                             let context_items = build_history_context_menu(
                                 item.clone(),
                                 source_session_id,
-                                tabs,
-                                active_tab_id,
+                                store,
                                 history,
                             );
 
@@ -530,8 +529,8 @@ pub fn QueryHistoryPanel(
                                                 let sql = item.sql.clone();
                                                 move |_| {
                                                     set_active_tab_sql(
-                                                        tabs,
-                                                        active_tab_id(),
+                                                        store,
+                                                        store.active_tab_id(),
                                                         sql.clone(),
                                                         "Loaded query from history".to_string(),
                                                     );
@@ -545,8 +544,8 @@ pub fn QueryHistoryPanel(
                                                 let sql = item.sql.clone();
                                                 move |_| {
                                                     set_active_tab_sql(
-                                                        tabs,
-                                                        active_tab_id(),
+                                                        store,
+                                                        store.active_tab_id(),
                                                         sql.clone(),
                                                         "Copied query to editor".to_string(),
                                                     );
@@ -590,8 +589,7 @@ pub fn QueryHistoryPanel(
 fn build_history_context_menu(
     item: QueryHistoryItem,
     source_session_id: Option<u64>,
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: Signal<u64>,
+    store: TabStore,
     mut history_signal: Signal<Vec<QueryHistoryItem>>,
 ) -> Vec<ContextMenuItem> {
     use crate::{app_state::context_menu::copy_to_clipboard, screens::workspace::ActionIcon};
@@ -604,8 +602,8 @@ fn build_history_context_menu(
         items.push(
             ContextMenuItem::new("Load in tab", move || {
                 set_active_tab_sql(
-                    tabs,
-                    active_tab_id(),
+                    store,
+                    store.active_tab_id(),
                     sql.clone(),
                     "Loaded query from history".to_string(),
                 );
