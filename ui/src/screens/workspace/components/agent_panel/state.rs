@@ -51,12 +51,14 @@ pub(crate) fn apply_acp_events(state: &mut AcpPanelState, events: Vec<AcpEvent>)
             AcpEvent::Status(status) => {
                 state.status = status;
             }
-            AcpEvent::Message { kind, text } =>
+            AcpEvent::Message { kind, text } => {
+                buffer_optimizer_message(state, kind.clone(), text.clone());
                 if state.suppress_transcript {
                     buffer_hidden_message(state, kind, text);
                 } else {
                     push_or_append_message(state, kind, text);
-                },
+                }
+            }
             AcpEvent::PermissionRequested(request) => {
                 state.pending_permission = Some(request);
                 state.busy = true;
@@ -70,6 +72,7 @@ pub(crate) fn apply_acp_events(state: &mut AcpPanelState, events: Vec<AcpEvent>)
                 state.busy = false;
                 state.pending_permission = None;
                 state.suppress_transcript = false;
+                state.optimizer_request_active = false;
                 state.status = prompt_finished_status(&stop_reason);
                 state
                     .messages
@@ -81,6 +84,7 @@ pub(crate) fn apply_acp_events(state: &mut AcpPanelState, events: Vec<AcpEvent>)
                 state.pending_permission = None;
                 state.pending_sql_insert = false;
                 state.suppress_transcript = false;
+                state.optimizer_request_active = false;
                 state.hidden_agent_response.clear();
                 state.status = error.clone();
                 state
@@ -172,6 +176,12 @@ fn buffer_hidden_message(state: &mut AcpPanelState, kind: AcpMessageKind, text: 
     }
 }
 
+fn buffer_optimizer_message(state: &mut AcpPanelState, kind: AcpMessageKind, text: String) {
+    if state.optimizer_request_active && matches!(kind, AcpMessageKind::Agent) && !text.is_empty() {
+        state.optimizer_response.push_str(&text);
+    }
+}
+
 pub(super) fn push_message(state: &mut AcpPanelState, kind: AcpMessageKind, text: String) {
     push_message_with_artifact(state, kind, text, None);
 }
@@ -256,7 +266,12 @@ fn unix_timestamp() -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_acp_events, prompt_finished_status, replace_messages};
+    use super::{
+        apply_acp_events,
+        buffer_optimizer_message,
+        prompt_finished_status,
+        replace_messages,
+    };
     use models::{
         AcpEvent,
         AcpLaunchRequest,
@@ -325,6 +340,33 @@ mod tests {
         assert!(state.messages.is_empty());
         assert!(!state.suppress_transcript);
         assert!(state.hidden_agent_response.is_empty());
+    }
+
+    #[test]
+    fn optimizer_response_buffers_only_when_active() {
+        let mut state = test_state();
+        state.optimizer_request_active = true;
+        buffer_optimizer_message(
+            &mut state,
+            AcpMessageKind::Agent,
+            "{\"summary\":\"s\"".to_string(),
+        );
+        buffer_optimizer_message(
+            &mut state,
+            AcpMessageKind::Agent,
+            ",\"recommendations\":[]}".to_string(),
+        );
+        assert_eq!(
+            state.optimizer_response,
+            "{\"summary\":\"s\",\"recommendations\":[]}"
+        );
+        // When not active, nothing is buffered.
+        state.optimizer_request_active = false;
+        buffer_optimizer_message(&mut state, AcpMessageKind::Agent, "extra".to_string());
+        assert_eq!(
+            state.optimizer_response,
+            "{\"summary\":\"s\",\"recommendations\":[]}"
+        );
     }
 
     #[test]
