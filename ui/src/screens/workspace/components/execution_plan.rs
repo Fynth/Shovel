@@ -1,10 +1,26 @@
 use crate::screens::workspace::{
-    components::{ActionIcon, IconButton, send_sql_plan_request},
+    actions::{
+        apply_optimized_sql_impl,
+        run_explain_for_tab,
+        set_active_tab_status,
+        tab_connection_or_error,
+    },
+    components::{
+        ActionIcon,
+        IconButton,
+        agent_panel::insert_sql_into_editor,
+        send_sql_plan_request,
+    },
     context::WorkspaceAcpContext,
     tab_store::TabStore,
 };
 use dioxus::prelude::*;
-use models::{ExecutionPlan, ExecutionPlanNode};
+use models::{
+    ExecutionPlan,
+    ExecutionPlanNode,
+    OptimizerRecommendation,
+    OptimizerSeverity,
+};
 use std::collections::HashSet;
 
 /// Color category for a plan node operation
@@ -63,6 +79,22 @@ fn severity_label(severity: AdviceSeverity) -> &'static str {
         AdviceSeverity::Info => "Info",
         AdviceSeverity::Warning => "Warning",
         AdviceSeverity::Critical => "Critical",
+    }
+}
+
+fn optimizer_severity_badge_class(severity: OptimizerSeverity) -> &'static str {
+    match severity {
+        OptimizerSeverity::Info => "execution-plan__advice--info",
+        OptimizerSeverity::Warning => "execution-plan__advice--warning",
+        OptimizerSeverity::Critical => "execution-plan__advice--critical",
+    }
+}
+
+fn optimizer_severity_label(severity: OptimizerSeverity) -> &'static str {
+    match severity {
+        OptimizerSeverity::Info => "Info",
+        OptimizerSeverity::Warning => "Warning",
+        OptimizerSeverity::Critical => "Critical",
     }
 }
 
@@ -212,6 +244,43 @@ pub fn analyze_plan(plan: &models::ExecutionPlan) -> Vec<PlanAdvice> {
     critical.into_iter().chain(warnings).chain(infos).collect()
 }
 
+/// A unified card for the optimizer panel, from either local heuristics or AI.
+struct OptimizerCard {
+    is_ai: bool,
+    severity: OptimizerSeverity,
+    title: String,
+    detail: String,
+    suggested_index: Option<String>,
+}
+
+fn merge_optimizer_cards(
+    local: &[PlanAdvice],
+    ai: &[OptimizerRecommendation],
+) -> Vec<OptimizerCard> {
+    let mut cards: Vec<OptimizerCard> = ai
+        .iter()
+        .map(|rec| OptimizerCard {
+            is_ai: true,
+            severity: rec.severity,
+            title: rec.title.clone(),
+            detail: rec.detail.clone(),
+            suggested_index: rec.suggested_index.clone(),
+        })
+        .collect();
+    cards.extend(local.iter().map(|advice| OptimizerCard {
+        is_ai: false,
+        severity: match advice.severity {
+            AdviceSeverity::Info => OptimizerSeverity::Info,
+            AdviceSeverity::Warning => OptimizerSeverity::Warning,
+            AdviceSeverity::Critical => OptimizerSeverity::Critical,
+        },
+        title: advice.message.clone(),
+        detail: String::new(),
+        suggested_index: None,
+    }));
+    cards
+}
+
 fn op_category_class(cat: OpCategory) -> &'static str {
     match cat {
         OpCategory::Scan => "execution-plan__node-badge--scan",
@@ -326,8 +395,21 @@ fn node_path_key(path: &[usize]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{AdviceSeverity, analyze_plan, collect_expandable_paths, visible_plan_nodes};
-    use models::{ExecutionPlan, ExecutionPlanNode};
+    use super::{
+        AdviceSeverity,
+        PlanAdvice,
+        analyze_plan,
+        collect_expandable_paths,
+        merge_optimizer_cards,
+        visible_plan_nodes,
+    };
+    use models::{
+        ExecutionPlan,
+        ExecutionPlanNode,
+        OptimizerRecommendation,
+        OptimizerSeverity,
+        RecommendationCategory,
+    };
     use std::collections::HashSet;
 
     fn sample_plan_nodes() -> Vec<ExecutionPlanNode> {
@@ -577,6 +659,24 @@ mod tests {
             "expected critical then warning, got {order:?}"
         );
     }
+
+    #[test]
+    fn merges_local_and_ai_advice() {
+        let local = vec![PlanAdvice {
+            severity: AdviceSeverity::Warning,
+            message: "Seq scan on users".to_string(),
+        }];
+        let ai = vec![OptimizerRecommendation {
+            severity: OptimizerSeverity::Critical,
+            category: RecommendationCategory::Join,
+            title: "Unindexed join".to_string(),
+            detail: "d".to_string(),
+            suggested_index: None,
+        }];
+        let merged = merge_optimizer_cards(&local, &ai);
+        assert_eq!(merged.len(), 2);
+        assert!(merged[0].is_ai);
+    }
 }
 
 #[component]
@@ -584,6 +684,8 @@ pub fn ExecutionPlanView(plan: ExecutionPlan, store: TabStore) -> Element {
     let mut view_mode = use_signal(|| PlanViewMode::Tree);
     let mut expanded_nodes = use_signal(HashSet::<NodePath>::new);
     let mut expanded_plan_key = use_signal(String::new);
+    let mut show_optimized = use_signal(|| false);
+    let mut show_raw_optimizer = use_signal(|| false);
 
     let flattened = plan.flattened_with_depth();
     let raw_text = plan.raw_text.join("\n");
@@ -625,6 +727,54 @@ pub fn ExecutionPlanView(plan: ExecutionPlan, store: TabStore) -> Element {
             panel_busy || !allow_read
         }
         None => true,
+    };
+
+    // Read the active tab's AI optimizer result (if any) and merge it with the
+    // local heuristics into a single card list for the Analysis panel.
+    let optimizer_result = {
+        let current_id = store.active_tab_id();
+        store
+            .result
+            .read()
+            .get(&current_id)
+            .and_then(|r| r.optimizer_result.clone())
+    };
+    // Raw optimizer response when the AI returned unstructured (non-JSON) output.
+    // Rendered as a fallback card so the user can still see what the agent said.
+    let optimizer_raw_response = {
+        let current_id = store.active_tab_id();
+        store
+            .result
+            .read()
+            .get(&current_id)
+            .and_then(|r| r.optimizer_raw_response.clone())
+    };
+    let ai_recommendations = optimizer_result
+        .as_ref()
+        .map(|result| result.recommendations.as_slice())
+        .unwrap_or_default();
+    let optimizer_cards = merge_optimizer_cards(&plan_advice, ai_recommendations);
+    let optimizer_summary = optimizer_result
+        .as_ref()
+        .map(|result| result.summary.clone());
+    let rewritten_sql = optimizer_result
+        .as_ref()
+        .and_then(|result| result.rewritten_sql.clone());
+
+    // The active tab's session id, used to resolve the bound connection for
+    // re-running EXPLAIN on the optimized SQL.
+    let active_session_id = {
+        let current_id = store.active_tab_id();
+        store.meta.read().get(&current_id).map(|m| m.session_id)
+    };
+
+    // The optimizer is busy while a request is in flight. This is derived from
+    // the panel state (set when the request starts, cleared when the result
+    // lands or the prompt finishes/errors) so the button re-enables once the
+    // response arrives.
+    let optimizer_busy = match acp_ctx.as_ref() {
+        Some(ctx) => (ctx.acp_panel_state)().optimizer_request_active,
+        None => false,
     };
 
     rsx! {
@@ -894,13 +1044,159 @@ pub fn ExecutionPlanView(plan: ExecutionPlan, store: TabStore) -> Element {
                     },
                     PlanViewMode::Analysis => rsx! {
                         div { class: "execution-plan__analysis",
-                            for item in &plan_advice {
-                                div {
-                                    class: "execution-plan__advice {item.severity.badge_class()}",
-                                    span { class: "execution-plan__advice-badge",
-                                        {severity_label(item.severity)}
+                            div { class: "execution-plan__optimizer-header",
+                                span { class: "execution-plan__optimizer-title", "Query Optimizer" }
+                                if ai_button_visible {
+                                    IconButton {
+                                        icon: ActionIcon::Agent,
+                                        label: if optimizer_busy {
+                                            "Optimizing…".to_string()
+                                        } else {
+                                            "Optimize with AI".to_string()
+                                        },
+                                        small: true,
+                                        disabled: ai_button_disabled || optimizer_busy,
+                                        onclick: move |_| {
+                                            if let Some(ctx) = try_use_context::<WorkspaceAcpContext>() {
+                                                let panel_state = ctx.acp_panel_state;
+                                                let chat_revision = ctx.chat_revision;
+                                                let allow_db_read = (ctx.allow_agent_db_read)();
+                                                let allow_read_sql_run = (ctx.allow_agent_read_sql_run)();
+                                                send_sql_plan_request(
+                                                    panel_state,
+                                                    store,
+                                                    store.active_tab_id(),
+                                                    ctx.connection_label.clone(),
+                                                    chat_revision,
+                                                    allow_db_read,
+                                                    allow_read_sql_run,
+                                                );
+                                            }
+                                        },
                                     }
-                                    span { class: "execution-plan__advice-text", "{item.message}" }
+                                }
+                            }
+
+                            if let Some(summary) = &optimizer_summary {
+                                div { class: "execution-plan__optimizer-summary", {summary.to_string()} }
+                            }
+
+                            if let Some(raw) = &optimizer_raw_response {
+                                div { class: "execution-plan__optimizer-fallback",
+                                    div { class: "execution-plan__optimizer-fallback-header",
+                                        span { class: "execution-plan__optimizer-fallback-title",
+                                            "AI returned unstructured response"
+                                        }
+                                        button {
+                                            class: "button button--ghost button--small",
+                                            onclick: move |_| show_raw_optimizer.set(!show_raw_optimizer()),
+                                            if show_raw_optimizer() {
+                                                "Hide raw"
+                                            } else {
+                                                "View raw"
+                                            }
+                                        }
+                                    }
+                                    if show_raw_optimizer() {
+                                        div { class: "execution-plan__optimizer-fallback-raw",
+                                            pre { {raw.to_string()} }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if rewritten_sql.is_some() {
+                                div { class: "execution-plan__optimizer-toggle",
+                                    button {
+                                        class: if !show_optimized() {
+                                            "execution-plan__toggle execution-plan__toggle--active"
+                                        } else {
+                                            "execution-plan__toggle"
+                                        },
+                                        onclick: move |_| show_optimized.set(false),
+                                        "Original"
+                                    }
+                                    button {
+                                        class: if show_optimized() {
+                                            "execution-plan__toggle execution-plan__toggle--active"
+                                        } else {
+                                            "execution-plan__toggle"
+                                        },
+                                        onclick: move |_| show_optimized.set(true),
+                                        "Optimized"
+                                    }
+                                }
+                            }
+
+                            if show_optimized() {
+                                if let Some(sql) = &rewritten_sql {
+                                    div { class: "execution-plan__optimizer-rewritten",
+                                        code { {sql.to_string()} }
+                                    }
+                                    div { class: "execution-plan__optimizer-actions",
+                                        button {
+                                            class: "button button--ghost button--small",
+                                            onclick: {
+                                                let sql = sql.clone();
+                                                move |_| {
+                                                    if let Err(message) = apply_optimized_sql_impl(&sql) {
+                                                        set_active_tab_status(store, store.active_tab_id(), message);
+                                                        return;
+                                                    }
+                                                    if let Some(ctx) = try_use_context::<WorkspaceAcpContext>() {
+                                                        insert_sql_into_editor(
+                                                            ctx.acp_panel_state,
+                                                            store,
+                                                            store.active_tab_id,
+                                                            sql.clone(),
+                                                        );
+                                                    }
+                                                }
+                                            },
+                                            "Apply rewritten SQL"
+                                        }
+                                        button {
+                                            class: "button button--ghost button--small",
+                                            onclick: {
+                                                let sql = sql.clone();
+                                                move |_| {
+                                                    let Some(session_id) = active_session_id else {
+                                                        return;
+                                                    };
+                                                    let Some(connection) =
+                                                        tab_connection_or_error(store, store.active_tab_id(), session_id)
+                                                    else {
+                                                        return;
+                                                    };
+                                                    run_explain_for_tab(store, store.active_tab_id(), connection, sql.clone());
+                                                }
+                                            },
+                                            "Run EXPLAIN on optimized"
+                                        }
+                                    }
+                                }
+                            } else {
+                                for card in &optimizer_cards {
+                                    div {
+                                        class: "execution-plan__advice {optimizer_severity_badge_class(card.severity)}",
+                                        span { class: "execution-plan__advice-badge",
+                                            {optimizer_severity_label(card.severity)}
+                                        }
+                                        span { class: "execution-plan__advice-text",
+                                            if card.is_ai {
+                                                span { class: "execution-plan__optimizer-source", "AI" }
+                                            } else {
+                                                span { class: "execution-plan__optimizer-source execution-plan__optimizer-source--local", "Local" }
+                                            }
+                                            "{card.title}"
+                                            if !card.detail.is_empty() {
+                                                div { class: "execution-plan__optimizer-detail", "{card.detail}" }
+                                            }
+                                            if let Some(index) = &card.suggested_index {
+                                                div { class: "execution-plan__optimizer-index", {index.to_string()} }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

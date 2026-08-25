@@ -4,6 +4,7 @@ use models::{
     ExecutionPlan,
     PendingTableChanges,
     QueryFilter,
+    QueryOptimizerResult,
     QueryOutput,
     QuerySort,
     QueryTabState,
@@ -45,6 +46,8 @@ pub struct TabResultState {
     pub batch_results: Option<BatchRunState>,
     pub batch_outputs: Vec<Option<QueryOutput>>,
     pub last_duration_ms: Option<u64>,
+    pub optimizer_result: Option<QueryOptimizerResult>,
+    pub optimizer_raw_response: Option<String>,
 }
 
 /// Pending table-edit state. Changes when a cell/row is edited.
@@ -90,6 +93,8 @@ pub fn tab_result(page_size: u32) -> TabResultState {
         batch_results: None,
         batch_outputs: Vec::new(),
         last_duration_ms: None,
+        optimizer_result: None,
+        optimizer_raw_response: None,
     }
 }
 
@@ -164,6 +169,10 @@ pub fn materialize_tab_state(store: TabStore, tab_id: u64) -> Option<QueryTabSta
             .map(|r| r.batch_outputs.clone())
             .unwrap_or_default(),
         last_duration_ms: result.as_ref().and_then(|r| r.last_duration_ms),
+        optimizer_result: result.as_ref().and_then(|r| r.optimizer_result.clone()),
+        optimizer_raw_response: result
+            .as_ref()
+            .and_then(|r| r.optimizer_raw_response.clone()),
         pinned: meta.pinned,
     })
 }
@@ -205,6 +214,8 @@ pub fn restore_tab_state(mut store: TabStore, tab: QueryTabState) {
                 batch_results: tab.batch_results,
                 batch_outputs: tab.batch_outputs,
                 last_duration_ms: tab.last_duration_ms,
+                optimizer_result: tab.optimizer_result,
+                optimizer_raw_response: tab.optimizer_raw_response,
             },
         );
     });

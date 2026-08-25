@@ -14,6 +14,7 @@ use super::super::{
         default_acp_panel_state,
         execute_agent_sql_request,
         extract_sql_candidate,
+        parse_optimizer_result,
         preferred_sql_target_tab_id,
         replace_messages,
     },
@@ -64,7 +65,7 @@ pub fn use_acp_state(inputs: AcpStateInputs) -> AcpState {
     let mut chat_threads = inputs.chat_threads;
     let active_chat_thread_id = inputs.active_chat_thread_id;
     let mut chat_revision = inputs.chat_revision;
-    let store = inputs.store;
+    let mut store = inputs.store;
     let mut active_tab_id = store.active_tab_id;
     let connection_label = inputs.connection_label;
 
@@ -355,6 +356,54 @@ pub fn use_acp_state(inputs: AcpStateInputs) -> AcpState {
                         && !acp_panel_state().hidden_agent_response.is_empty()
                     {
                         acp_panel_state.with_mut(|state| state.hidden_agent_response.clear());
+                    }
+
+                    let optimizer_parsed = {
+                        let panel_state = acp_panel_state();
+                        // The buffer is only populated while `optimizer_request_active`
+                        // was true, and `apply_acp_events` clears that flag on
+                        // `PromptFinished`. So a non-empty buffer with the flag cleared
+                        // means the full response landed in this batch. Gate on buffer
+                        // non-emptiness (not the flag) so the last chunk and
+                        // `PromptFinished` arriving together don't drop the result.
+                        if !panel_state.optimizer_response.is_empty()
+                            && !panel_state.optimizer_request_active
+                        {
+                            Some(parse_optimizer_result(&panel_state.optimizer_response))
+                        } else {
+                            None
+                        }
+                    };
+                    if let Some(parse_result) = optimizer_parsed {
+                        let target_id = active_tab_id();
+                        match parse_result {
+                            Ok(result) => {
+                                store.result.with_mut(|m| {
+                                    if let Some(r) = m.get_mut(&target_id) {
+                                        r.optimizer_result = Some(result);
+                                        r.optimizer_raw_response = None;
+                                    }
+                                });
+                            }
+                            Err(_) => {
+                                // Invalid JSON: keep the raw text so the Analysis
+                                // panel can render an "unstructured response" card.
+                                let raw = {
+                                    let panel_state = acp_panel_state();
+                                    panel_state.optimizer_response.clone()
+                                };
+                                store.result.with_mut(|m| {
+                                    if let Some(r) = m.get_mut(&target_id) {
+                                        r.optimizer_raw_response = Some(raw);
+                                        r.optimizer_result = None;
+                                    }
+                                });
+                            }
+                        }
+                        acp_panel_state.with_mut(|state| {
+                            state.optimizer_request_active = false;
+                            state.optimizer_response.clear();
+                        });
                     }
                 }
 

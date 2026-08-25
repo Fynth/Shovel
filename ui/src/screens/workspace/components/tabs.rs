@@ -918,6 +918,8 @@ fn import_csv_into_active_table(store: TabStore, current_id: u64) {
         batch_results: current_tab.batch_results.clone(),
         batch_outputs: current_tab.batch_outputs.clone(),
         last_duration_ms: current_tab.last_duration_ms,
+        optimizer_result: current_tab.optimizer_result.clone(),
+        optimizer_raw_response: current_tab.optimizer_raw_response.clone(),
     };
     let Some(source) = actionable_table_source(&result_state) else {
         set_active_tab_status(
@@ -1124,6 +1126,8 @@ fn open_structure_for_active_preview(store: TabStore, current_id: u64) {
         batch_results: current_tab.batch_results.clone(),
         batch_outputs: current_tab.batch_outputs.clone(),
         last_duration_ms: current_tab.last_duration_ms,
+        optimizer_result: current_tab.optimizer_result.clone(),
+        optimizer_raw_response: current_tab.optimizer_raw_response.clone(),
     };
     let Some(source) = actionable_table_source(&result_state) else {
         set_active_tab_status(

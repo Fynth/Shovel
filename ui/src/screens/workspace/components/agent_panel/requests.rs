@@ -464,8 +464,8 @@ pub(crate) fn send_sql_plan_request(
     panel_state.with_mut(|state| {
         state.busy = true;
         state.pending_sql_insert = false;
-        state.suppress_transcript = false;
-        state.hidden_agent_response.clear();
+        state.optimizer_request_active = true;
+        state.optimizer_response.clear();
         state.status = "Running EXPLAIN for the active SQL...".to_string();
     });
 

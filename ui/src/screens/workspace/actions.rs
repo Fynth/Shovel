@@ -2113,12 +2113,22 @@ pub(crate) fn indent_segment(sql: &str, direction: IndentDirection) -> String {
         .join("\n")
 }
 
+/// Validate that a rewritten SQL is safe to insert (read-only).
+pub fn apply_optimized_sql_impl(sql: &str) -> Result<(), String> {
+    if services::is_read_only_sql(sql) {
+        Ok(())
+    } else {
+        Err("The optimized SQL is not read-only; refusing to insert.".to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         IndentDirection,
         append_query_page,
         apply_indent,
+        apply_optimized_sql_impl,
         comment_segment,
         format_loaded_rows_from_source_status,
         format_loaded_rows_status,
@@ -2377,5 +2387,17 @@ mod tests {
         let preview = preview_statement(&long);
         assert!(preview.chars().count() <= 80);
         assert!(preview.ends_with('…'));
+    }
+
+    #[test]
+    fn apply_optimized_sql_rejects_write_statements() {
+        let result = apply_optimized_sql_impl("DELETE FROM orders");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn apply_optimized_sql_accepts_read_only() {
+        let result = apply_optimized_sql_impl("SELECT * FROM orders");
+        assert!(result.is_ok());
     }
 }

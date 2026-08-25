@@ -11,6 +11,7 @@ pub(crate) mod explorer;
 mod history;
 mod icon_button;
 mod object_icon;
+mod optimizer_parse;
 mod result_table;
 mod saved_queries;
 mod session_rail;
@@ -48,6 +49,8 @@ pub use explorer::{ExplorerConnectionSection, SidebarConnectionTree};
 pub use history::QueryHistoryPanel;
 pub use icon_button::{ActionIcon, Chevron, IconButton, IconGlyph};
 pub(crate) use object_icon::ObjectIcon;
+#[allow(unused_imports)] // `extract_json_block` is part of the optimizer_parse public API
+pub use optimizer_parse::{extract_json_block, parse_optimizer_result};
 pub use result_table::ResultTable;
 pub use saved_queries::SavedQueriesPanel;
 pub use session_rail::SessionRail;
