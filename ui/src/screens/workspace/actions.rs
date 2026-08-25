@@ -26,6 +26,18 @@ use models::{
 };
 use std::time::Instant;
 
+use super::tab_store::{
+    TabEditorState,
+    TabMeta,
+    TabPendingState,
+    TabResultState,
+    TabStore,
+    tab_editor,
+    tab_meta,
+    tab_pending,
+    tab_result,
+};
+
 fn redact_sql(sql: &str) -> String {
     let lower = sql.to_lowercase();
     if lower.contains("password") || lower.contains("secret") || lower.contains("token") {
@@ -112,73 +124,94 @@ pub fn read_only_mode_block_status(action: &str) -> String {
     format!("Read-only mode blocked {action}. Disable read-only mode in Settings to allow writes.")
 }
 
-pub fn new_query_tab(id: u64, session_id: u64, title: String, sql: String) -> QueryTabState {
-    QueryTabState {
-        id,
-        session_id,
-        title,
-        sql,
-        status: "Ready".to_string(),
-        page_size: APP_UI_SETTINGS().default_page_size,
-        tab_kind: WorkspaceTabKind::Query,
-        ..QueryTabState::default()
-    }
+pub fn new_query_tab(
+    id: u64,
+    session_id: u64,
+    title: String,
+    sql: String,
+) -> (TabMeta, TabEditorState, TabResultState, TabPendingState) {
+    let page_size = APP_UI_SETTINGS().default_page_size;
+    (
+        tab_meta(id, session_id, title, WorkspaceTabKind::Query, false),
+        tab_editor(sql),
+        tab_result(page_size),
+        tab_pending(),
+    )
 }
 
-pub fn ensure_tab_for_session(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    mut active_tab_id: Signal<u64>,
-    mut next_tab_id: Signal<u64>,
-    session_id: u64,
-) -> u64 {
+pub fn ensure_tab_for_session(mut store: TabStore, session_id: u64) -> u64 {
     activate_session(session_id);
+    let mut active_tab_id = store.active_tab_id;
+    let mut next_tab_id = store.next_tab_id;
 
-    if let Some(existing_tab_id) = tabs
+    if let Some(existing_id) = store
+        .meta
         .read()
         .iter()
-        .find(|tab| tab.session_id == session_id && tab.tab_kind == WorkspaceTabKind::Query)
-        .map(|tab| tab.id)
+        .find(|(_, t)| t.session_id == session_id && t.tab_kind == WorkspaceTabKind::Query)
+        .map(|(id, _)| *id)
     {
-        active_tab_id.set(existing_tab_id);
-        return existing_tab_id;
+        active_tab_id.set(existing_id);
+        return existing_id;
     }
 
     let tab_id = next_tab_id();
     next_tab_id += 1;
-    tabs.with_mut(|all_tabs| {
-        all_tabs.push(new_query_tab(
-            tab_id,
-            session_id,
-            format!("Query {tab_id}"),
-            "select 1 as id;".to_string(),
-        ));
+    let (meta, editor, result, pending) = new_query_tab(
+        tab_id,
+        session_id,
+        format!("Query {tab_id}"),
+        "select 1 as id;".to_string(),
+    );
+    store.meta.with_mut(|m| {
+        m.insert(tab_id, meta);
+    });
+    store.editor.with_mut(|m| {
+        m.insert(tab_id, editor);
+    });
+    store.result.with_mut(|m| {
+        m.insert(tab_id, result);
+    });
+    store.pending.with_mut(|m| {
+        m.insert(tab_id, pending);
     });
     active_tab_id.set(tab_id);
     tab_id
 }
 
-pub fn update_active_tab_sql(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: u64,
-    sql: String,
-    status: String,
-) {
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == active_tab_id) {
-            if tab.sql != sql {
-                tab.show_execution_plan = false;
+pub fn update_active_tab_sql(mut store: TabStore, active_tab_id: u64, sql: String, status: String) {
+    store.editor.with_mut(|m| {
+        if let Some(ed) = m.get_mut(&active_tab_id) {
+            if ed.sql != sql {
+                store.result.with_mut(|r| {
+                    if let Some(res) = r.get_mut(&active_tab_id) {
+                        res.show_execution_plan = false;
+                    }
+                });
             }
-            tab.sql = sql;
-            tab.status = status.clone();
-            tab.result = None;
-            tab.current_offset = 0;
-            tab.last_run_sql = None;
-            tab.preview_source = None;
-            tab.filter = None;
-            tab.sort = None;
-            tab.tab_kind = WorkspaceTabKind::Query;
-            tab.is_loading_more = false;
-            tab.pending_table_changes = PendingTableChanges::default();
+            ed.sql = sql;
+        }
+    });
+    store.result.with_mut(|r| {
+        if let Some(res) = r.get_mut(&active_tab_id) {
+            res.status = status;
+            res.result = None;
+            res.current_offset = 0;
+            res.last_run_sql = None;
+            res.preview_source = None;
+            res.filter = None;
+            res.sort = None;
+            res.is_loading_more = false;
+        }
+    });
+    store.meta.with_mut(|m| {
+        if let Some(meta) = m.get_mut(&active_tab_id) {
+            meta.tab_kind = WorkspaceTabKind::Query;
+        }
+    });
+    store.pending.with_mut(|m| {
+        if let Some(p) = m.get_mut(&active_tab_id) {
+            p.pending_table_changes = PendingTableChanges::default();
         }
     });
 }
@@ -192,68 +225,75 @@ fn sync_tab_sql_draft(tab: &mut QueryTabState, sql: &str) {
     tab.show_execution_plan = false;
 }
 
-pub fn sync_active_tab_sql_draft(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: u64,
-    sql: String,
-) {
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == active_tab_id) {
-            sync_tab_sql_draft(tab, &sql);
-        }
-    });
-}
-
-pub fn set_active_tab_sql(
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: u64,
-    sql: String,
-    status: String,
-) {
-    update_active_tab_sql(tabs, active_tab_id, sql, status);
-}
-
-pub fn append_to_tab_sql(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    tab_id: u64,
-    sql_fragment: String,
-    status: String,
-) {
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == tab_id) {
-            if tab.sql.trim().is_empty() {
-                tab.sql = sql_fragment;
-            } else if sql_fragment.trim().is_empty() {
+pub fn sync_active_tab_sql_draft(mut store: TabStore, active_tab_id: u64, sql: String) {
+    store.editor.with_mut(|m| {
+        if let Some(ed) = m.get_mut(&active_tab_id) {
+            if ed.sql == sql {
                 return;
-            } else if tab.sql.ends_with('\n') {
-                tab.sql.push_str(&sql_fragment);
-            } else {
-                tab.sql.push_str("\n\n");
-                tab.sql.push_str(&sql_fragment);
             }
-
-            tab.status = status.clone();
-            tab.result = None;
-            tab.current_offset = 0;
-            tab.last_run_sql = None;
-            tab.preview_source = None;
-            tab.filter = None;
-            tab.sort = None;
-            tab.tab_kind = WorkspaceTabKind::Query;
-            tab.is_loading_more = false;
-            tab.pending_table_changes = PendingTableChanges::default();
+            ed.sql = sql;
+            store.result.with_mut(|r| {
+                if let Some(res) = r.get_mut(&active_tab_id) {
+                    res.show_execution_plan = false;
+                }
+            });
         }
     });
 }
 
-pub fn set_active_tab_status(
-    mut tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: u64,
-    status: String,
-) {
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == active_tab_id) {
-            tab.status = status.clone();
+pub fn set_active_tab_sql(store: TabStore, active_tab_id: u64, sql: String, status: String) {
+    update_active_tab_sql(store, active_tab_id, sql, status);
+}
+
+pub fn append_to_tab_sql(mut store: TabStore, tab_id: u64, sql_fragment: String, status: String) {
+    let current_sql = store.editor.read().get(&tab_id).map(|ed| ed.sql.clone());
+    let Some(current_sql) = current_sql else {
+        return;
+    };
+
+    let new_sql = if current_sql.trim().is_empty() {
+        sql_fragment
+    } else if sql_fragment.trim().is_empty() {
+        return;
+    } else if current_sql.ends_with('\n') {
+        format!("{current_sql}{sql_fragment}")
+    } else {
+        format!("{current_sql}\n\n{sql_fragment}")
+    };
+
+    store.editor.with_mut(|m| {
+        if let Some(ed) = m.get_mut(&tab_id) {
+            ed.sql = new_sql;
+        }
+    });
+    store.result.with_mut(|r| {
+        if let Some(res) = r.get_mut(&tab_id) {
+            res.status = status;
+            res.result = None;
+            res.current_offset = 0;
+            res.last_run_sql = None;
+            res.preview_source = None;
+            res.filter = None;
+            res.sort = None;
+            res.is_loading_more = false;
+        }
+    });
+    store.meta.with_mut(|m| {
+        if let Some(meta) = m.get_mut(&tab_id) {
+            meta.tab_kind = WorkspaceTabKind::Query;
+        }
+    });
+    store.pending.with_mut(|m| {
+        if let Some(p) = m.get_mut(&tab_id) {
+            p.pending_table_changes = PendingTableChanges::default();
+        }
+    });
+}
+
+pub fn set_active_tab_status(mut store: TabStore, active_tab_id: u64, status: String) {
+    store.result.with_mut(|r| {
+        if let Some(res) = r.get_mut(&active_tab_id) {
+            res.status = status;
         }
     });
 }
@@ -291,18 +331,26 @@ pub fn toggle_execution_plan_for_tab(
 }
 
 pub fn replace_active_tab_sql(
-    mut tabs: Signal<Vec<QueryTabState>>,
+    mut store: TabStore,
     active_tab_id: u64,
     sql: String,
     status: String,
 ) {
-    tabs.with_mut(|all_tabs| {
-        if let Some(tab) = all_tabs.iter_mut().find(|tab| tab.id == active_tab_id) {
-            if tab.sql != sql {
-                tab.show_execution_plan = false;
+    store.editor.with_mut(|m| {
+        if let Some(ed) = m.get_mut(&active_tab_id) {
+            if ed.sql != sql {
+                store.result.with_mut(|r| {
+                    if let Some(res) = r.get_mut(&active_tab_id) {
+                        res.show_execution_plan = false;
+                    }
+                });
             }
-            tab.sql = sql;
-            tab.status = status.clone();
+            ed.sql = sql;
+        }
+    });
+    store.result.with_mut(|r| {
+        if let Some(res) = r.get_mut(&active_tab_id) {
+            res.status = status;
         }
     });
 }
@@ -1747,8 +1795,8 @@ pub fn save_active_tab_as_saved_query(
 }
 
 /// Clear the active tab's SQL (without deleting the tab itself).
-pub fn clear_active_tab_sql(tabs: Signal<Vec<QueryTabState>>, active_tab_id: u64) {
-    replace_active_tab_sql(tabs, active_tab_id, String::new(), "Cleared".to_string());
+pub fn clear_active_tab_sql(store: TabStore, active_tab_id: u64) {
+    replace_active_tab_sql(store, active_tab_id, String::new(), "Cleared".to_string());
 }
 
 /// Indent / outdent every line in the active tab's selection by
