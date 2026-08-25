@@ -332,6 +332,27 @@
   color: var(--color-text-muted);
 }
 
+.settings-modal__config-path {
+  padding: $spacing-sm;
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  border-radius: $radius-sm;
+  background: color-mix(
+    in srgb,
+    var(--color-surface-contrast, var(--color-panel-2)) 60%,
+    transparent
+  );
+  font-family: $font-family-mono;
+  font-size: $font-size-sm;
+  word-break: break-all;
+  color: var(--color-text);
+}
+
+.settings-modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-xs;
+}
+
 .settings-modal__group + .settings-modal__group {
   padding-top: $spacing-sm;
   border-top: 1px solid color-mix(in srgb, var(--glass-border) 36%, transparent);

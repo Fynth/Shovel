@@ -26,7 +26,7 @@ This project is governed by the [Contributor Covenant](CODE_OF_CONDUCT.md). By p
 
 Shovel is a Rust workspace. To set up your development environment:
 
-1. **Install Rust** — Use [rustup](https://rustup.rs/) to install the latest stable Rust toolchain.
+1. **Install Rust** — Use [rustup](https://rustup.rs/). The project pins a **nightly** toolchain in [`rust-toolchain.toml`](rust-toolchain.toml); `rustup` will install the pinned channel automatically when you build.
 
 2. **Install system dependencies** — On Linux, you'll need the following packages (names may vary by distribution):
 
@@ -43,8 +43,8 @@ Shovel is a Rust workspace. To set up your development environment:
 3. **Clone the repository**:
 
    ```bash
-   git clone https://github.com/rasul/shovel.git
-   cd shovel
+   git clone https://github.com/Fynth/Shovel.git
+   cd Shovel
    ```
 
 4. **Verify the setup** by running the project (see below).
@@ -110,6 +110,8 @@ If you're adding new functionality, please add corresponding tests. For bug fixe
 ## Architecture Overview
 
 Shovel is a modular Rust workspace. For a detailed understanding of the codebase, including crate responsibilities, state management patterns, and important design decisions, read [`AGENTS.md`](AGENTS.md).
+
+For a complete walkthrough of the user interface — screens, panels, global state, and data flows — read [`docs/ui-description.md`](docs/ui-description.md). Read it before touching anything under `ui/`.
 
 Key crates at a glance:
 

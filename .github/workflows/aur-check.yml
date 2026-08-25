@@ -36,6 +36,9 @@ concurrency:
   group: aur-check-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   validate-aur:
     runs-on: ubuntu-latest

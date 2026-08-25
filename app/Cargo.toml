@@ -3,6 +3,8 @@ name = "app"
 version = "0.1.0"
 description = "Desktop application entrypoint for Shovel database client"
 edition = "2024"
+license = "MIT"
+publish = false
 build = "build.rs"
 
 [dependencies]

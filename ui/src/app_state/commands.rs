@@ -33,6 +33,7 @@ pub use crate::app_state::actions::{
     // unchanged against the shared registry.
     ACTION_ABOUT as CMD_ABOUT,
     ACTION_CLOSE_TAB as CMD_CLOSE_TAB,
+    ACTION_ER_DIAGRAM as CMD_ER_DIAGRAM,
     ACTION_EXPLAIN_QUERY as CMD_EXPLAIN_QUERY,
     ACTION_FORMAT_SQL as CMD_FORMAT_SQL,
     ACTION_NEW_CONNECTION as CMD_NEW_CONNECTION,
@@ -133,6 +134,9 @@ pub fn command_list() -> &'static [Command] {
         });
         register_runner(CMD_REFRESH_EXPLORER, || {
             app::request_command(CMD_REFRESH_EXPLORER);
+        });
+        register_runner(CMD_ER_DIAGRAM, || {
+            app::request_command(CMD_ER_DIAGRAM);
         });
 
         register_runner(CMD_RUN_QUERY, || app::request_command(CMD_RUN_QUERY));

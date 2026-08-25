@@ -671,8 +671,6 @@ pub fn ResultTable(
                                             label: "More actions".to_string(),
                                             small: true,
                                             onclick: {
-                                                let details_visible = details_visible;
-                                                let has_selected_row = has_selected_row;
                                                 let mut show_chart = show_chart;
                                                 let mut pinned_result = pinned_result;
                                                 let page = page.clone();

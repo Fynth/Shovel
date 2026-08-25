@@ -369,33 +369,6 @@ pub(super) fn active_editor_sql(
         .filter(|sql| !sql.is_empty())
 }
 
-pub(super) fn active_editor_error(
-    tabs: Signal<Vec<QueryTabState>>,
-    active_tab_id: u64,
-) -> Option<String> {
-    let status = tabs
-        .read()
-        .iter()
-        .find(|tab| tab.id == active_tab_id)
-        .map(|tab| tab.status.trim().to_string())?;
-
-    extract_status_error(&status)
-}
-
-fn extract_status_error(status: &str) -> Option<String> {
-    [
-        "Error: ",
-        "Preview error: ",
-        "Structure error: ",
-        "Load more error: ",
-    ]
-    .iter()
-    .find_map(|prefix| status.strip_prefix(prefix))
-    .map(str::trim)
-    .filter(|message| !message.is_empty())
-    .map(ToOwned::to_owned)
-}
-
 fn build_active_tab_context(tab: &QueryTabState) -> Option<String> {
     let mut sections = Vec::new();
     if let Some(source) = tab.preview_source.as_ref() {
@@ -514,7 +487,6 @@ mod tests {
         build_sql_generation_prompt,
         build_sql_plan_prompt,
         describe_query_output,
-        extract_status_error,
         preferred_sql_target_tab_id_from_tabs,
     };
     use models::{QueryOutput, QueryPage, QueryTabState, WorkspaceTabKind};
@@ -633,14 +605,6 @@ mod tests {
         assert!(context.contains("Loaded rows 1-10 from products"));
         assert!(context.contains("More rows exist beyond this preview."));
         assert!(context.contains("result row: id=1, name=Product 1"));
-    }
-
-    #[test]
-    fn extracts_active_tab_error_from_status() {
-        assert_eq!(
-            extract_status_error("Error: SQLite error: no such table: missing"),
-            Some("SQLite error: no such table: missing".to_string())
-        );
     }
 
     #[test]

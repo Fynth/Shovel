@@ -3,8 +3,8 @@ pkgver=0.1.0.r0.g0000000
 pkgrel=2
 pkgdesc="Fast native desktop database client built with Rust and Dioxus"
 arch=('x86_64')
-url="https://github.com/Fynth/shovel"
-license=('unknown')
+url="https://github.com/Fynth/Shovel"
+license=('MIT')
 depends=(
   'gtk3'
   'webkit2gtk-4.1'

@@ -15,8 +15,8 @@
 .workspace__resize-handle::after {
   content: "";
   position: absolute;
-  top: $spacing-md;
-  bottom: $spacing-md;
+  top: $spacing-sm;
+  bottom: $spacing-sm;
   left: 50%;
   width: 3px;
   transform: translateX(-50%);

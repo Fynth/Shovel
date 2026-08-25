@@ -1,8 +1,9 @@
 @use "../base/tokens" as *;
+@use "../base/states" as *;
 
 .saved-queries {
+  flex: 1 1 auto;
   min-height: 0;
-  height: 100%;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -17,6 +18,7 @@
 }
 
 .saved-queries__body {
+  flex: 1 1 0;
   min-height: 0;
   overflow: auto;
   display: flex;
@@ -57,13 +59,19 @@
 }
 
 .saved-queries__item {
-  padding: 7px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-md;
-  background: var(--color-panel);
+  padding: 5px 6px;
+  border: 1px solid transparent;
+  border-radius: $radius-sm;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+  cursor: pointer;
+  @include interactive;
+
+  &:hover {
+    background: color-mix(in srgb, var(--color-primary) 7%, transparent);
+    border-color: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  }
 }
 
 .saved-queries__item-top {

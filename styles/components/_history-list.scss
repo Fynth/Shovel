@@ -2,8 +2,8 @@
 @use "../base/states" as *;
 
 .history {
+  flex: 1 1 auto;
   min-height: 0;
-  height: 100%;
   display: flex;
   flex-direction: column;
   gap: $spacing-xs;
@@ -15,29 +15,86 @@
   padding-top: 2px;
 }
 
+.history__header-row {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
+.history__header-row .workspace__section-title {
+  flex: 1;
+  min-width: 0;
+}
+
+// ── Search + filters ───────────────────────────────────────────────
+// A single compact row: search field on the left, the three filter
+// selects on the right. No borders on the container — just a thin
+// divider so the list below reads as the primary content.
+.history__search {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  padding: 0 2px 2px;
+}
+
+.history__search-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 9px;
+  border-radius: $radius-sm;
+  font-size: $font-size-sm;
+}
+
+.history__search-clear {
+  flex-shrink: 0;
+}
+
+.history__filters {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  padding: 0 2px 4px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
+}
+
+.history__filter-select {
+  flex: 1;
+  min-width: 0;
+  min-height: 26px;
+  padding: 0 6px;
+  border-radius: $radius-sm;
+  font-size: $font-size-xs;
+}
+
+// ── List ─────────────────────────────────────────────────────────
+// Flat, tree-like rows: no card borders, no per-row buttons. Each row
+// is a single hoverable line that opens the action menu on right-click.
 .history__list {
   flex: 1 1 0;
-  min-height: 120px;
-  overflow: auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  padding-right: 2px;
+  gap: 1px;
+  padding: 2px 2px 4px;
 }
 
 .history__item {
-  margin-bottom: $spacing-xs;
-  padding: 7px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-md;
-  background: var(--color-panel);
   display: flex;
   flex-direction: column;
-  gap: 6px;
-}
+  gap: 2px;
+  padding: 4px 6px;
+  border-radius: $radius-sm;
+  border: 1px solid transparent;
+  cursor: pointer;
+  @include interactive;
 
-.history__topline {
-  min-height: var(--ui-row-height);
+  &:hover {
+    background: color-mix(in srgb, var(--color-primary) 7%, transparent);
+    border-color: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  }
 }
 
 .history__meta {
@@ -45,24 +102,19 @@
   font-size: 10px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-}
-
-.history__connection {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
+  gap: 2px;
 }
 
 .history__topline {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: $spacing-xs;
+  gap: $spacing-sm;
+  min-width: 0;
 }
 
 .history__title {
+  flex: 1;
   min-width: 0;
   font-size: $font-size-sm;
   font-weight: 600;
@@ -72,12 +124,31 @@
   white-space: nowrap;
 }
 
+.history__metrics {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  color: var(--color-text-dim);
+  font-size: $font-size-xs;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.history__duration--fast {
+  color: var(--color-success);
+}
+
+.history__duration--medium {
+  color: var(--color-warning);
+}
+
+.history__duration--slow {
+  color: var(--color-danger);
+}
+
 .history__outcome {
   flex-shrink: 0;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--color-border);
-  background: var(--color-panel-2);
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -92,12 +163,15 @@
   color: var(--color-danger);
 }
 
+.history__connection {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .history__connection-kind {
   flex-shrink: 0;
-  padding: 2px 6px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: var(--color-panel-2);
   color: var(--color-primary);
   font-size: 9px;
   font-weight: 700;
@@ -114,25 +188,101 @@
   font-size: 10px;
 }
 
-.history__sql {
+.history__error-message {
   margin: 0;
-  padding: $spacing-xs;
-  border-radius: $radius-sm;
-  background: var(--editor-bg);
+  color: var(--color-danger);
+  font-size: $font-size-xs;
   overflow: hidden;
-  color: var(--color-text);
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 72px;
-  font-size: 10px;
-  line-height: 1.45;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.history__actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+// ── SQL preview ──────────────────────────────────────────────────
+// Each row shows a clamped 2-line preview of the SQL. Clicking the
+// preview (or the "Expand" affordance) reveals the full text in place,
+// like a code preview. Only one item is expanded at a time.
+.history__sql-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.history__sql {
+  margin: 0;
+  color: var(--color-text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 40px;
+  font-size: 10px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: pointer;
+  border-radius: $radius-sm;
+  padding: 2px 4px;
+  transition:
+    color $motion-fast ease,
+    background $motion-fast ease;
+
+  &:hover {
+    color: var(--color-text);
+    background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+  }
+}
+
+.history__sql--expanded {
+  max-height: none;
+  -webkit-line-clamp: unset;
+  display: block;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 16%, transparent);
+  padding: 6px 8px;
+  cursor: default;
+}
+
+// "Expand" affordance shown on the preview when the SQL is long enough
+// to be clamped. Sits at the bottom-right of the preview, over a soft
+// fade so it reads as a hint rather than a button.
+.history__expand {
+  position: absolute;
+  right: 4px;
+  bottom: 2px;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 88%, transparent);
+  color: var(--color-text-muted);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition:
+    color $motion-fast ease,
+    background $motion-fast ease,
+    border-color $motion-fast ease;
+
+  &:hover {
+    color: var(--color-text);
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+    border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
+  }
+}
+
+// ── Pagination ────────────────────────────────────────────────────
+.history__pagination {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-sm;
+  padding: 4px 2px 0;
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
+}
+
+.history__pagination-info {
+  color: var(--color-text-dim);
+  font-size: $font-size-xs;
+  white-space: nowrap;
 }

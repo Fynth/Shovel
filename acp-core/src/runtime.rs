@@ -1013,6 +1013,11 @@ async fn run_acp_worker(
         }
     }
 
+    // Ensure the child process is fully terminated before the worker
+    // returns. `kill_on_drop` alone can leave the process alive long
+    // enough for a subsequent `connect_acp_agent` to race it, which
+    // makes reconnecting to the same agent (e.g. Ollama) fail.
+    let _ = child.kill().await;
     drop(child);
     let _ = event_tx.send(AcpEvent::Disconnected);
 }

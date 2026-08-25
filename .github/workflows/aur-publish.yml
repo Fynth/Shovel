@@ -15,6 +15,9 @@ concurrency:
   group: aur-publish-${{ github.event.release.tag_name || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   publish-aur:
     runs-on: ubuntu-latest

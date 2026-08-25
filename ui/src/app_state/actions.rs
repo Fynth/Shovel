@@ -55,6 +55,7 @@ pub const ACTION_EXPLAIN_QUERY: ActionId = ActionId::new(15);
 pub const ACTION_SAVE_QUERY: ActionId = ActionId::new(16);
 pub const ACTION_OPEN_COMMAND_PALETTE: ActionId = ActionId::new(17);
 pub const ACTION_ABOUT: ActionId = ActionId::new(18);
+pub const ACTION_ER_DIAGRAM: ActionId = ActionId::new(19);
 
 // ── Explorer context actions (metadata-only, id range 100+). These
 //    have no palette runner: the composable context-menu builder
@@ -316,6 +317,15 @@ pub fn action_catalog() -> &'static [Action] {
                 shortcut: None,
                 keywords: &["version", "info"],
                 category: "Help",
+                icon: Some(ActionIcon::Details),
+                children: &[],
+            },
+            Action {
+                id: ACTION_ER_DIAGRAM,
+                label: "ER Diagram",
+                shortcut: None,
+                keywords: &["diagram", "er", "schema", "visual"],
+                category: "View",
                 icon: Some(ActionIcon::Details),
                 children: &[],
             },

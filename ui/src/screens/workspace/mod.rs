@@ -21,8 +21,6 @@ use crate::{
         APP_SHOW_EXPLORER,
         APP_SHOW_HISTORY,
         APP_SHOW_SAVED_QUERIES,
-        APP_SHOW_SQL_EDITOR,
-        APP_SPLIT_MODE,
         APP_SQL_FORMAT_SETTINGS,
         APP_STATE,
         APP_THEME,
@@ -32,6 +30,7 @@ use crate::{
         close_global_search,
         commands::{
             CMD_CLOSE_TAB,
+            CMD_ER_DIAGRAM,
             CMD_EXPLAIN_QUERY,
             CMD_FORMAT_SQL,
             CMD_NEW_TAB,
@@ -41,7 +40,6 @@ use crate::{
             CMD_SAVE_QUERY,
         },
         context_menu,
-        context_menu::{ContextMenuItem, open_context_menu},
         global_search::{
             GLOBAL_SEARCH_OPEN_OBJECT,
             GLOBAL_SEARCH_OPEN_TAB,
@@ -49,23 +47,19 @@ use crate::{
             GlobalSearchObjectItem,
             GlobalSearchTabItem,
         },
-        keyboard::{ShortcutAction, match_key_combination},
-        open_connection_screen,
+        is_panel_collapsed,
+        keyboard::{
+            ShortcutAction,
+            action_from_id,
+            match_custom_keybinding,
+            match_key_combination,
+        },
         open_global_search_with_snapshots,
         request_focus_agent_composer,
         request_focus_editor,
         request_focus_filter_panel,
         set_bottom_panel_height,
-        set_show_agent_panel,
-        set_show_bottom_panel,
-        set_show_connections,
-        set_show_explorer,
-        set_show_history,
-        set_show_saved_queries,
-        set_show_sql_editor,
-        set_split_mode,
         show_toast,
-        is_panel_collapsed,
         toggle_panel_collapsed,
         update_ui_settings,
     },
@@ -80,7 +74,6 @@ use models::{
     QueryTabState,
     SavedQuery,
     TablePreviewSource,
-    WorkspaceSplitMode,
     WorkspaceToolDock,
     WorkspaceToolPanel,
 };
@@ -91,6 +84,7 @@ use self::{
         AcpAgentPanel,
         BottomPanelDock,
         BottomPanelTab,
+        Chevron,
         IconButton,
         QueryHistoryPanel,
         SavedQueriesPanel,
@@ -203,14 +197,7 @@ fn ExplorerToolPanel(
                         },
                         "aria-expanded": "{!collapsed}",
                         onclick: move |_| toggle_panel_collapsed(WorkspaceToolPanel::Explorer),
-                        span {
-                            class: if collapsed {
-                                "workspace__panel-chevron"
-                            } else {
-                                "workspace__panel-chevron workspace__panel-chevron--open"
-                            },
-                            ">"
-                        }
+                        Chevron { open: !collapsed }
                     }
                     h2 { class: "workspace__section-title", "Explorer" }
                     IconButton {
@@ -681,165 +668,6 @@ fn WorkspaceBody(
         }
         section {
             class: "workspace__main",
-            header {
-                class: "workspace__header",
-                div {
-                    class: "workspace__toolbar",
-                    IconButton {
-                        icon: ActionIcon::ViewMenu,
-                        label: "View panels".to_string(),
-                        // Stay "active" while any panel addressed by
-                        // the menu is visible, so the button doubles
-                        // as a status indicator.
-                        active: show_saved_queries
-                            || show_connections
-                            || show_explorer
-                            || show_history
-                            || APP_SHOW_SQL_EDITOR()
-                            || (ai_features_enabled && show_agent_panel)
-                            || APP_SHOW_BOTTOM_PANEL()
-                            || !matches!(APP_SPLIT_MODE(), WorkspaceSplitMode::Off),
-                        small: true,
-                        onclick: move |event: MouseEvent| {
-                            // Menu items are snapshotted into the
-                            // global signal as plain data; rebuild
-                            // every open so labels reflect the live
-                            // signals.
-                            let mut items: Vec<ContextMenuItem> = vec![
-                                ContextMenuItem::new(
-                                    if APP_SHOW_SAVED_QUERIES() {
-                                        "Hide saved queries"
-                                    } else {
-                                        "Show saved queries"
-                                    },
-                                    move || set_show_saved_queries(!APP_SHOW_SAVED_QUERIES()),
-                                )
-                                .with_icon(ActionIcon::SavedQueries)
-                                .active(APP_SHOW_SAVED_QUERIES()),
-                                ContextMenuItem::new(
-                                    if APP_SHOW_CONNECTIONS() {
-                                        "Hide connections"
-                                    } else {
-                                        "Show connections"
-                                    },
-                                    move || set_show_connections(!APP_SHOW_CONNECTIONS()),
-                                )
-                                .with_icon(ActionIcon::Connections)
-                                .active(APP_SHOW_CONNECTIONS()),
-                                ContextMenuItem::new(
-                                    if APP_SHOW_EXPLORER() {
-                                        "Hide explorer"
-                                    } else {
-                                        "Show explorer"
-                                    },
-                                    move || set_show_explorer(!APP_SHOW_EXPLORER()),
-                                )
-                                .with_icon(ActionIcon::Explorer)
-                                .active(APP_SHOW_EXPLORER()),
-                                ContextMenuItem::new(
-                                    if APP_SHOW_HISTORY() {
-                                        "Hide history"
-                                    } else {
-                                        "Show history"
-                                    },
-                                    move || set_show_history(!APP_SHOW_HISTORY()),
-                                )
-                                .with_icon(ActionIcon::History)
-                                .active(APP_SHOW_HISTORY()),
-                                ContextMenuItem::new(
-                                    if APP_SHOW_SQL_EDITOR() {
-                                        "Hide SQL editor"
-                                    } else {
-                                        "Show SQL editor"
-                                    },
-                                    move || set_show_sql_editor(!APP_SHOW_SQL_EDITOR()),
-                                )
-                                .with_icon(ActionIcon::SqlEditor)
-                                .active(APP_SHOW_SQL_EDITOR()),
-                            ];
-                            if ai_features_enabled {
-                                items.push(
-                                    ContextMenuItem::new(
-                                        if APP_SHOW_AGENT_PANEL() {
-                                            "Hide agent panel"
-                                        } else {
-                                            "Show agent panel"
-                                        },
-                                        move || {
-                                            set_show_agent_panel(!APP_SHOW_AGENT_PANEL())
-                                        },
-                                    )
-                                    .with_icon(ActionIcon::Agent)
-                                    .active(APP_SHOW_AGENT_PANEL()),
-                                );
-                            }
-                            items.push(
-                                ContextMenuItem::new(
-                                    if APP_SHOW_BOTTOM_PANEL() {
-                                        "Hide bottom dock"
-                                    } else {
-                                        "Show bottom dock"
-                                    },
-                                    move || {
-                                        set_show_bottom_panel(!APP_SHOW_BOTTOM_PANEL())
-                                    },
-                                )
-                                .with_icon(ActionIcon::Output)
-                                .active(APP_SHOW_BOTTOM_PANEL())
-                                .separator(),
-                            );
-                            items.push(
-                                ContextMenuItem::new(
-                                    format!("Editor layout: {}", APP_SPLIT_MODE().label()),
-                                    move || set_split_mode(APP_SPLIT_MODE().next()),
-                                )
-                                .with_icon(ActionIcon::Split)
-                                .active(!matches!(APP_SPLIT_MODE(), WorkspaceSplitMode::Off)),
-                            );
-
-                            let coords = event.client_coordinates();
-                            open_context_menu(coords.x, coords.y, items);
-                        },
-                    }
-                    IconButton {
-                        icon: ActionIcon::Refresh,
-                        label: "Refresh explorer".to_string(),
-                        small: true,
-                        onclick: move |_| tree_reload += 1,
-                    }
-                    IconButton {
-                        icon: ActionIcon::Details,
-                        label: "ER diagram".to_string(),
-                        small: true,
-                        onclick: move |_| {
-                            let sections = tree_sections();
-                            let connection =
-                                APP_STATE.read().active_session().map(|s| s.connection.clone());
-                            let Some(connection) = connection else {
-                                return;
-                            };
-                            // Load foreign keys first so the window opens with
-                            // the full diagram (tables + relationship lines).
-                            // Each click opens a brand new OS window.
-                            spawn(async move {
-                                let fks = services::load_foreign_keys(connection)
-                                    .await
-                                    .unwrap_or_default();
-                                if let Some(diagram) = helpers::build_er_diagram(&sections, &fks) {
-                                    windows::open_er_diagram_window(diagram, APP_THEME());
-                                }
-                            });
-                        },
-                    }
-                    IconButton {
-                        icon: ActionIcon::NewConnection,
-                        label: "New connection".to_string(),
-                        primary: true,
-                        small: true,
-                        onclick: move |_| open_connection_screen(),
-                    }
-                }
-            }
             div {
                 class: if show_inspector {
                     "workspace__content workspace__content--with-inspector"
@@ -1130,6 +958,24 @@ pub fn Workspace() -> Element {
             x if x == CMD_REFRESH_EXPLORER.0 => {
                 tree_reload += 1;
             }
+            x if x == CMD_ER_DIAGRAM.0 => {
+                let sections = tree_sections();
+                let connection = APP_STATE
+                    .read()
+                    .active_session()
+                    .map(|s| s.connection.clone());
+                let Some(connection) = connection else {
+                    return;
+                };
+                spawn(async move {
+                    let fks = services::load_foreign_keys(connection)
+                        .await
+                        .unwrap_or_default();
+                    if let Some(diagram) = helpers::build_er_diagram(&sections, &fks) {
+                        windows::open_er_diagram_window(diagram, APP_THEME());
+                    }
+                });
+            }
             x if x == CMD_RUN_QUERY.0 => {
                 actions::run_active_tab(tabs, active_tab_id(), (history, next_history_id));
             }
@@ -1255,11 +1101,91 @@ pub fn Workspace() -> Element {
                 }
             },
             onkeydown: move |event: dioxus::prelude::KeyboardEvent| {
-                use dioxus::prelude::Modifiers;
                 let key = event.key();
                 let mods = event.modifiers();
-                let ctrl = mods.contains(Modifiers::CONTROL)
-                    || mods.contains(Modifiers::META);
+
+                // Local-only actions are realised against local signals
+                // (editor focus, filter focus, overlay dismissal) or the
+                // selected explorer node, not the global catalog.
+                let dispatch_local_shortcut = |action: ShortcutAction| {
+                    match action {
+                        ShortcutAction::FocusFilterPanel => {
+                            request_focus_filter_panel();
+                        }
+                        ShortcutAction::FocusEditor => {
+                            request_focus_editor();
+                        }
+                        ShortcutAction::FocusAgentComposer => {
+                            request_focus_agent_composer();
+                        }
+                        // Ctrl+K — global search overlay. We snapshot
+                        // tabs + tree into the overlay's globals so the
+                        // overlay can filter without reaching into the
+                        // workspace's local signals.
+                        ShortcutAction::GlobalSearch => {
+                            let tab_snapshot: Vec<GlobalSearchTabItem> = tabs
+                                .read()
+                                .iter()
+                                .map(|tab| GlobalSearchTabItem {
+                                    tab_id: tab.id,
+                                    session_id: tab.session_id,
+                                    title: tab.title.clone(),
+                                })
+                                .collect();
+                            let object_snapshot: Vec<GlobalSearchObjectItem> = tree_sections
+                                .read()
+                                .iter()
+                                .flat_map(|section| {
+                                    let session_id = section.session_id;
+                                    let session_name = section.name.clone();
+                                    section.nodes.iter().map(move |node| ExplorerObjectNode {
+                                        session_id,
+                                        session_name: session_name.clone(),
+                                        node,
+                                    })
+                                })
+                                .flat_map(|item| flatten_explorer_node(&item))
+                                .collect();
+                            open_global_search_with_snapshots(tab_snapshot, object_snapshot);
+                        }
+                        // F2 rename / Delete drop act on the selected explorer
+                        // object. The global [`APP_EXPLORER_SELECTED_NODE`]
+                        // signal mirrors the tree's local selection and names
+                        // the target; the loaded `tree_sections` supplies the
+                        // metadata needed to build the rename/drop target.
+                        ShortcutAction::RenameSelected => {
+                            crate::screens::workspace::components::explorer::open_selected_rename(
+                                tree_sections.read().to_vec(),
+                                tree_reload,
+                            );
+                        }
+                        ShortcutAction::DeleteSelected => {
+                            let sections = tree_sections.read().to_vec();
+                            crate::screens::workspace::components::explorer::confirm_drop_selected_table(
+                                &sections,
+                                tabs,
+                                tree_reload,
+                            );
+                        }
+                        ShortcutAction::CloseOverlay => {
+                            close_topmost_overlay();
+                        }
+                        _ => {}
+                    }
+                };
+
+                // User-defined keybindings from config.toml take priority.
+                if let Some(action_id) = match_custom_keybinding(&key, mods)
+                    && let Some(action) = action_from_id(&action_id)
+                {
+                    event.prevent_default();
+                    if let Some(action_id) = action.to_action_id() {
+                        crate::app_state::actions::dispatch_action(action_id);
+                    } else {
+                        dispatch_local_shortcut(action);
+                    }
+                    return;
+                }
 
                 let Some(action) = match_key_combination(&key, mods) else {
                     return;
@@ -1275,71 +1201,7 @@ pub fn Workspace() -> Element {
                     return;
                 }
 
-                match action {
-                    ShortcutAction::FocusFilterPanel => {
-                        request_focus_filter_panel();
-                    }
-                    ShortcutAction::FocusEditor => {
-                        request_focus_editor();
-                    }
-                    ShortcutAction::FocusAgentComposer => {
-                        request_focus_agent_composer();
-                    }
-                    // Ctrl+K — global search overlay. We snapshot
-                    // tabs + tree into the overlay's globals so the
-                    // overlay can filter without reaching into the
-                    // workspace's local signals.
-                    ShortcutAction::GlobalSearch => {
-                        let tab_snapshot: Vec<GlobalSearchTabItem> = tabs
-                            .read()
-                            .iter()
-                            .map(|tab| GlobalSearchTabItem {
-                                tab_id: tab.id,
-                                session_id: tab.session_id,
-                                title: tab.title.clone(),
-                            })
-                            .collect();
-                        let object_snapshot: Vec<GlobalSearchObjectItem> = tree_sections
-                            .read()
-                            .iter()
-                            .flat_map(|section| {
-                                let session_id = section.session_id;
-                                let session_name = section.name.clone();
-                                section.nodes.iter().map(move |node| ExplorerObjectNode {
-                                    session_id,
-                                    session_name: session_name.clone(),
-                                    node,
-                                })
-                            })
-                            .flat_map(|item| flatten_explorer_node(&item))
-                            .collect();
-                        open_global_search_with_snapshots(tab_snapshot, object_snapshot);
-                    }
-                    // F2 rename / Delete drop act on the selected explorer
-                    // object. The global [`APP_EXPLORER_SELECTED_NODE`]
-                    // signal mirrors the tree's local selection and names
-                    // the target; the loaded `tree_sections` supplies the
-                    // metadata needed to build the rename/drop target.
-                    ShortcutAction::RenameSelected => {
-                        crate::screens::workspace::components::explorer::open_selected_rename(
-                            tree_sections.read().to_vec(),
-                            tree_reload,
-                        );
-                    }
-                    ShortcutAction::DeleteSelected => {
-                        let sections = tree_sections.read().to_vec();
-                        crate::screens::workspace::components::explorer::confirm_drop_selected_table(
-                            &sections,
-                            tabs,
-                            tree_reload,
-                        );
-                    }
-                    ShortcutAction::CloseOverlay => {
-                        close_topmost_overlay();
-                    }
-                    _ => {}
-                }
-                let _ = ctrl;
+                dispatch_local_shortcut(action);
             },
             WorkspaceBody {
                 show_sidebar,

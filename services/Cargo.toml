@@ -3,10 +3,13 @@ name = "services"
 version = "0.1.0"
 description = "Facade crate re-exporting major Shovel operations"
 edition = "2024"
+license = "MIT"
+publish = false
 
 [dependencies]
 acp.workspace = true
 connection.workspace = true
+dirs.workspace = true
 explorer.workspace = true
 futures-util.workspace = true
 models.workspace = true

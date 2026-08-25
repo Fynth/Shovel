@@ -7,7 +7,7 @@
   // compact/normal/comfortable presets actually affect this surface.
   // min-height lets the bar grow past the token when items wrap on
   // narrow viewports (see the <=760px block below) instead of clipping.
-  min-height: var(--ui-statusbar-height, 20px);
+  min-height: var(--ui-statusbar-height, 18px);
   gap: $spacing-sm;
   padding: 0 $spacing-sm;
   border-top: 1px solid var(--color-border);

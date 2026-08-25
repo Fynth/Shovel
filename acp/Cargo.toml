@@ -3,6 +3,8 @@ name = "acp"
 version = "0.1.0"
 description = "ACP agent runtime, stdio bridge, permissions, terminals, and embedded Ollama support"
 edition = "2024"
+license = "MIT"
+publish = false
 
 [features]
 default = []

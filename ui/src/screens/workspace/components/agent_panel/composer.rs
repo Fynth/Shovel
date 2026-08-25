@@ -56,7 +56,7 @@ pub(super) fn AgentComposer(
                 key: "{prompt_textarea_key}",
                 class: "input agent-panel__prompt",
                 rows: 1,
-                initial_value: "{prompt_draft}",
+                value: "{prompt_draft}",
                 placeholder: "Ask the agent…",
                 oninput: move |event| prompt_draft.set(event.value()),
                 onkeydown: move |event| {

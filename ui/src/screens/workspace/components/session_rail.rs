@@ -7,7 +7,7 @@ use crate::{
         remove_session,
         toggle_panel_collapsed,
     },
-    screens::workspace::components::{ActionIcon, IconButton},
+    screens::workspace::components::{ActionIcon, Chevron, IconButton},
 };
 use dioxus::prelude::*;
 use models::{ConnectionRequest, QueryTabState, WorkspaceToolPanel};
@@ -61,14 +61,7 @@ pub fn SessionRail(
                     },
                     "aria-expanded": "{!collapsed}",
                     onclick: move |_| toggle_panel_collapsed(WorkspaceToolPanel::Connections),
-                    span {
-                        class: if collapsed {
-                            "workspace__panel-chevron"
-                        } else {
-                            "workspace__panel-chevron workspace__panel-chevron--open"
-                        },
-                        ">"
-                    }
+                    Chevron { open: !collapsed }
                 }
                 h2 { class: "workspace__section-title", "Connections" }
                 button {

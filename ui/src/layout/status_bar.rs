@@ -30,8 +30,8 @@ pub fn status_bar_session_count(count: usize) -> String {
 pub fn status_bar_last_query(summary: Option<&LastQuerySummary>) -> Option<String> {
     let summary = summary?;
     let label = match summary.duration_ms {
-        Some(ms) => format!("Last: {} · {}", summary.label, format_duration(ms)),
-        None => format!("Last: {}", summary.label),
+        Some(ms) => format!("{} · {}", summary.label, format_duration(ms)),
+        None => summary.label.clone(),
     };
     Some(label)
 }
@@ -53,7 +53,7 @@ pub fn is_allowed_status_bar_item(text: &str) -> bool {
 
 #[component]
 pub fn StatusBar() -> Element {
-    let (connection_label, session_count, last_query) = {
+    let (connection_label, last_query) = {
         let app_state = APP_STATE.read();
         let label = status_bar_connection_label(
             app_state
@@ -61,7 +61,7 @@ pub fn StatusBar() -> Element {
                 .map(|session| session.name.as_str()),
             app_state.active_session().map(|session| session.kind),
         );
-        (label, app_state.sessions.len(), APP_LAST_QUERY())
+        (label, APP_LAST_QUERY())
     };
     let last_query_text = status_bar_last_query(last_query.as_ref());
     let last_query_class = match last_query.as_ref().map(|summary| summary.failed) {
@@ -73,7 +73,6 @@ pub fn StatusBar() -> Element {
         footer {
             class: "statusbar",
             span { class: "statusbar__item", {connection_label.to_string()} }
-            span { class: "statusbar__item", "Sessions {session_count}" }
             if let Some(text) = last_query_text {
                 span { class: last_query_class.to_string(), {text.to_string()} }
             }
@@ -126,7 +125,7 @@ mod tests {
         };
         assert_eq!(
             status_bar_last_query(Some(&summary)).as_deref(),
-            Some("Last: Loaded rows 1-50 · 12ms")
+            Some("Loaded rows 1-50 · 12ms")
         );
     }
 
@@ -139,7 +138,7 @@ mod tests {
         };
         assert_eq!(
             status_bar_last_query(Some(&summary)).as_deref(),
-            Some("Last: Rows affected: 3")
+            Some("Rows affected: 3")
         );
     }
 

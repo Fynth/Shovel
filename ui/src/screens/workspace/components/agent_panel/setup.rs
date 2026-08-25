@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use models::{AcpMessageKind, AcpPanelState, DeepSeekSettings};
+use models::{AcpMessageKind, AcpPanelState, DeepSeekSettings, OllamaSettings};
 
 use super::{
     messages::acp_registry_preparing_text,
@@ -91,6 +91,7 @@ pub(crate) async fn ensure_default_sql_agent_connected(
     panel_state: Signal<AcpPanelState>,
     chat_revision: Signal<u64>,
     deepseek: DeepSeekSettings,
+    ollama: OllamaSettings,
 ) -> Result<(), String> {
     if panel_state().connected {
         return Ok(());
@@ -107,8 +108,69 @@ pub(crate) async fn ensure_default_sql_agent_connected(
 
     if deepseek.enabled && !deepseek.api_key.trim().is_empty() {
         connect_embedded_deepseek(panel_state, chat_revision, deepseek).await
+    } else if ollama.enabled && !ollama.model.trim().is_empty() {
+        connect_embedded_ollama(panel_state, chat_revision, ollama).await
     } else {
         ensure_opencode_connected(panel_state, chat_revision).await
+    }
+}
+
+pub(crate) async fn connect_embedded_ollama(
+    mut panel_state: Signal<AcpPanelState>,
+    mut chat_revision: Signal<u64>,
+    ollama: OllamaSettings,
+) -> Result<(), String> {
+    let cwd = panel_state().launch.cwd.clone();
+    panel_state.with_mut(|state| {
+        state.busy = true;
+        state.status = format!("Connecting to Ollama model {}...", ollama.model.trim());
+    });
+
+    let config = models::AcpOllamaConfig {
+        base_url: ollama.base_url.clone(),
+        model: ollama.model.clone(),
+        api_key: ollama.api_key.clone(),
+    };
+    let launch = match services::build_embedded_ollama_launch(cwd, config) {
+        Ok(launch) => launch,
+        Err(err) => {
+            panel_state.with_mut(|state| {
+                state.busy = false;
+                state.status = err.clone();
+                push_message(state, AcpMessageKind::Error, err.clone());
+            });
+            chat_revision += 1;
+            return Err(err);
+        }
+    };
+
+    panel_state.with_mut(|state| {
+        state.launch = launch.clone();
+        state.busy = true;
+        state.status = format!(
+            "Launching embedded Ollama ACP bridge for {}...",
+            ollama.model.trim()
+        );
+    });
+
+    match services::connect_acp_agent(launch).await {
+        Ok(connection) => {
+            panel_state.with_mut(|state| {
+                apply_connected(state, connection);
+            });
+            Ok(())
+        }
+        Err(err) => {
+            panel_state.with_mut(|state| {
+                state.busy = false;
+                state.connected = false;
+                state.connection = None;
+                state.status = err.clone();
+                push_message(state, AcpMessageKind::Error, err.clone());
+            });
+            chat_revision += 1;
+            Err(err)
+        }
     }
 }
 

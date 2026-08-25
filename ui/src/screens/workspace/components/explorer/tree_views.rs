@@ -23,7 +23,7 @@ use crate::{
             run_table_preview_for_tab,
             tab_connection_or_error,
         },
-        components::{IconButton, ObjectIcon, send_describe_object_request},
+        components::{Chevron, IconButton, ObjectIcon, send_describe_object_request},
         context::WorkspaceAcpContext,
     },
 };
@@ -87,14 +87,7 @@ pub(super) fn ExplorerConnectionView(
                             expanded.toggle();
                         }
                     },
-                    span {
-                        class: if expanded() {
-                            "tree__chevron tree__chevron--open"
-                        } else {
-                            "tree__chevron"
-                        },
-                        ">"
-                    }
+                    Chevron { open: expanded() }
                     div {
                         class: "tree__connection-copy",
                         div {
@@ -193,14 +186,7 @@ fn ExplorerSchemaView(
             button {
                 class: "tree__schema-toggle",
                 onclick: move |_| expanded.toggle(),
-                span {
-                    class: if expanded() {
-                        "tree__chevron tree__chevron--open"
-                    } else {
-                        "tree__chevron"
-                    },
-                    ">"
-                }
+                Chevron { open: expanded() }
                 div {
                     class: "tree__schema-copy",
                     span { class: "tree__schema-title", "{node.name}" }

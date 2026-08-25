@@ -8,7 +8,11 @@ use crate::app_state::{
 use dioxus::prelude::*;
 use models::{QueryHistoryItem, QueryTabState, WorkspaceToolPanel};
 
-use crate::screens::workspace::{actions::set_active_tab_sql, helpers::format_duration};
+use crate::screens::workspace::{
+    actions::set_active_tab_sql,
+    components::Chevron,
+    helpers::format_duration,
+};
 
 const PAGE_SIZE: usize = 50;
 
@@ -220,6 +224,10 @@ pub fn QueryHistoryPanel(
     let mut connection_filter = use_signal(String::new);
     let mut outcome_filter = use_signal(|| OutcomeFilter::All);
     let mut current_page = use_signal(|| 0usize);
+    // Which history item currently shows its full SQL text. Only one item
+    // is expanded at a time (like a code preview), so a single `Option<u64>`
+    // is enough. Clicking the SQL preview toggles it.
+    let mut expanded_id = use_signal(|| None::<u64>);
 
     let search_results = use_resource(move || {
         let query = search_query();
@@ -304,14 +312,7 @@ pub fn QueryHistoryPanel(
                         },
                         "aria-expanded": "{!collapsed}",
                         onclick: move |_| toggle_panel_collapsed(WorkspaceToolPanel::History),
-                        span {
-                            class: if collapsed {
-                                "workspace__panel-chevron"
-                            } else {
-                                "workspace__panel-chevron workspace__panel-chevron--open"
-                            },
-                            ">"
-                        }
+                        Chevron { open: !collapsed }
                     }
                     h2 { class: "workspace__section-title", "History" }
                     button {
@@ -347,6 +348,7 @@ pub fn QueryHistoryPanel(
                     oninput: move |e| {
                         search_query.set(e.value());
                         current_page.set(0);
+                        expanded_id.set(None);
                     },
                 }
                 if searching {
@@ -370,6 +372,7 @@ pub fn QueryHistoryPanel(
                             _ => DateFilter::All,
                         });
                         current_page.set(0);
+                        expanded_id.set(None);
                     },
                     for variant in DateFilter::all() {
                         option {
@@ -390,6 +393,7 @@ pub fn QueryHistoryPanel(
                         let val = e.value();
                         connection_filter.set(if val == "all" { String::new() } else { val });
                         current_page.set(0);
+                        expanded_id.set(None);
                     },
                     option {
                         value: "all",
@@ -413,6 +417,7 @@ pub fn QueryHistoryPanel(
                             _ => OutcomeFilter::All,
                         });
                         current_page.set(0);
+                        expanded_id.set(None);
                     },
                     for variant in OutcomeFilter::all() {
                         option {
@@ -470,6 +475,13 @@ pub fn QueryHistoryPanel(
                                 active_tab_id,
                                 history,
                             );
+
+                            let is_expanded = expanded_id() == Some(item.id);
+                            let sql_class = if is_expanded {
+                                "history__sql history__sql--expanded"
+                            } else {
+                                "history__sql"
+                            };
 
                             rsx! {
                                 div {
@@ -536,49 +548,24 @@ pub fn QueryHistoryPanel(
                                             }
                                         }
                                     }
-                                    pre {
-                                        class: "history__sql",
-                                        title: {display_sql.to_string()},
-                                        {display_sql.to_string()}
-                                    }
                                     div {
-                                        class: "history__actions",
-                                        if let Some(session_id) = source_session_id {
-                                            button {
-                                                class: "button button--ghost button--small",
-                                                onclick: move |_| activate_session(session_id),
-                                                "Activate"
-                                            }
-                                        },
-                                        button {
-                                            class: "button button--ghost button--small",
-                                            onclick: {
-                                                let sql = item.sql.clone();
-                                                move |_| {
-                                                    set_active_tab_sql(
-                                                        tabs,
-                                                        active_tab_id(),
-                                                        sql.clone(),
-                                                        "Loaded query from history".to_string(),
-                                                    );
-                                                }
+                                        class: "history__sql-wrap",
+                                        pre {
+                                            class: sql_class,
+                                            title: {display_sql.to_string()},
+                                            onclick: move |_| {
+                                                expanded_id.set(if is_expanded { None } else { Some(item.id) });
                                             },
-                                            "Load in tab"
+                                            {display_sql.to_string()}
                                         }
-                                        button {
-                                            class: "button button--ghost button--small",
-                                            onclick: {
-                                                let sql = item.sql.clone();
-                                                move |_| {
-                                                    set_active_tab_sql(
-                                                        tabs,
-                                                        active_tab_id(),
-                                                        sql.clone(),
-                                                        "Copied query to editor".to_string(),
-                                                    );
-                                                }
-                                            },
-                                            "Copy to editor"
+                                        if !is_expanded {
+                                            button {
+                                                class: "history__expand",
+                                                onclick: move |_| {
+                                                    expanded_id.set(Some(item.id));
+                                                },
+                                                "Expand"
+                                            }
                                         }
                                     }
                                 }
@@ -594,7 +581,10 @@ pub fn QueryHistoryPanel(
                     button {
                         class: "button button--ghost button--small",
                         disabled: page == 0,
-                        onclick: move |_| current_page.set(page.saturating_sub(1)),
+                        onclick: move |_| {
+                            current_page.set(page.saturating_sub(1));
+                            expanded_id.set(None);
+                        },
                         "Prev"
                     }
                     span {
@@ -604,7 +594,10 @@ pub fn QueryHistoryPanel(
                     button {
                         class: "button button--ghost button--small",
                         disabled: page + 1 >= total_pages,
-                        onclick: move |_| current_page.set(page + 1),
+                        onclick: move |_| {
+                            current_page.set(page + 1);
+                            expanded_id.set(None);
+                        },
                         "Next"
                     }
                 }

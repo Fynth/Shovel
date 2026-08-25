@@ -3,6 +3,8 @@ name = "query"
 version = "0.1.0"
 description = "Query execution, formatting, and import/export"
 edition = "2024"
+license = "MIT"
+publish = false
 
 [dependencies]
 bigdecimal = "0.4.7"

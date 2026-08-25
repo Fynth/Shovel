@@ -7,59 +7,35 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: clamp(3px, 0.8vw, 6px);
-  border: 1px solid var(--color-border);
-  border-radius: $radius-lg;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 92%, white 2%),
-      var(--color-surface-elevated, var(--color-panel))
-    );
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.025),
-    0 14px 28px rgba(0, 0, 0, 0.18);
+  gap: 4px;
+  padding: 6px 8px;
+  background: color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 46%, transparent);
   overflow: hidden;
 }
 
 .agent-panel__header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, 1fr);
-  align-items: flex-start;
-  gap: 6px;
-}
-
-.agent-panel__header::before {
-  content: "";
-  min-width: 0;
-}
-
-.agent-panel__header-copy,
-.agent-panel__header-actions {
   display: flex;
-  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 24px;
+  padding: 0 2px;
 }
 
 .agent-panel__header-copy {
-  grid-column: 2;
   min-width: 0;
-  width: min(100%, 240px);
-  max-width: 100%;
+  flex: 1 1 auto;
+  display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: $spacing-2xs;
-  text-align: center;
+  gap: 0;
   overflow: hidden;
 }
 
 .agent-panel__header-actions {
-  grid-column: 3;
-  justify-self: end;
+  flex: 0 0 auto;
+  display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: $spacing-xs;
-  flex-wrap: wrap;
+  gap: 2px;
 }
 
 .agent-panel__dialogs-popover {
@@ -180,9 +156,9 @@
   width: 100%;
   max-width: 100%;
   margin: 0;
-  font-size: $font-size-lg;
+  font-size: $font-size-md;
   font-weight: 600;
-  text-align: center;
+  text-align: left;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -204,15 +180,6 @@
   text-overflow: ellipsis;
 }
 
-.agent-panel__badge {
-  padding: 3px 6px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-md;
-  background: var(--color-surface-contrast, var(--color-panel-2));
-  font-size: $font-size-sm;
-  white-space: nowrap;
-}
-
 .agent-panel__connect,
 .agent-panel__composer {
   display: flex;
@@ -220,54 +187,34 @@
   gap: $spacing-sm;
 }
 
-.agent-panel__permissions {
-  display: flex;
-  flex-direction: column;
-  gap: $spacing-xs;
-}
-
-.agent-panel__permission-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--color-text-muted);
-  font-size: $font-size-sm;
-}
-
 .agent-panel__session {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: $spacing-sm;
+  gap: 4px;
 }
 
 .agent-panel__connect {
   min-height: 0;
   overflow: auto;
-  padding: $spacing-xs $spacing-2xs $spacing-sm;
-  align-items: center;
+  padding: 2px 0 4px;
+  align-items: stretch;
 }
 
 .agent-panel__mode-switch {
-  width: fit-content;
-  max-width: 100%;
-  margin: 0 auto;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(124px, 138px));
-  gap: $spacing-xs;
-  justify-content: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-bottom: 4px;
 }
 
 .agent-panel__mode-button {
-  width: 100%;
-  height: auto;
-  min-height: 44px;
-  padding: 2px $spacing-sm;
+  min-height: 26px;
+  padding: 2px 10px;
   align-items: center;
   justify-content: center;
-  flex-direction: column;
-  gap: 1px;
+  gap: 4px;
   text-align: center;
 }
 
@@ -286,18 +233,11 @@
 
 .agent-panel__section,
 .agent-panel__registry-card {
-  width: min(100%, 430px);
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: $spacing-sm;
-  padding: $spacing-sm;
-  border: 1px solid color-mix(in srgb, var(--color-border) 84%, transparent);
-  border-radius: $radius-md;
-  background: color-mix(
-    in srgb,
-    var(--color-surface-contrast, var(--color-panel-2)) 78%,
-    transparent
-  );
+  padding: 4px 0;
 }
 
 .agent-panel__section {
@@ -308,18 +248,18 @@
 .agent-panel__registry-row {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   gap: 6px;
   flex-wrap: wrap;
-  text-align: center;
+  text-align: left;
 }
 
 .agent-panel__section-copy {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 2px;
-  text-align: center;
+  text-align: left;
 }
 
 .agent-panel__field-grid {
@@ -385,8 +325,9 @@
   overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: $spacing-xs;
-  padding: 2px $spacing-2xs 0 0;
+  gap: 6px;
+  padding: 4px 2px 4px 0;
+  scrollbar-gutter: stable;
 }
 
 .agent-panel__message-meta {
@@ -401,63 +342,45 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: $spacing-sm $spacing-md;
-  border: 1px solid color-mix(in srgb, var(--color-border) 84%, transparent);
-  border-radius: $radius-md;
-  background: color-mix(
-    in srgb,
-    var(--color-surface-main, var(--color-panel-2)) 68%,
-    var(--color-surface-elevated, var(--color-panel))
-  );
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018);
-  transition:
-    border-color $motion-fast ease,
-    box-shadow $motion-fast ease,
-    transform $motion-fast ease;
+  padding: 4px 6px;
+  border-radius: $radius-sm;
+  transition: background $motion-fast ease;
+  animation: agent-message-in 200ms ease;
 }
 
 .agent-panel__message:hover {
-  border-color: color-mix(in srgb, var(--color-border-strong) 88%, var(--color-border));
+  background: color-mix(
+    in srgb,
+    var(--color-surface-contrast, var(--color-panel-2)) 40%,
+    transparent
+  );
 }
 
 .agent-panel__message--user {
-  border-color: color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
-  background: color-mix(
-    in srgb,
-    var(--color-primary) 7%,
-    var(--color-surface-main, var(--color-panel))
-  );
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
 }
 
 .agent-panel__message--agent {
-  border-color: color-mix(in srgb, var(--color-info) 22%, var(--color-border));
-  background: color-mix(
-    in srgb,
-    var(--color-info) 6%,
-    var(--color-surface-elevated, var(--color-panel))
-  );
   position: relative;
 }
 
 .agent-panel__message--agent::before {
   content: "";
   position: absolute;
-  inset: 0 auto 0 0;
+  inset: 4px auto 4px 0;
   width: 2px;
-  border-radius: $radius-sm 0 0 $radius-sm;
+  border-radius: 2px;
   background: linear-gradient(
     180deg,
     var(--color-info),
     color-mix(in srgb, var(--color-info) 40%, transparent)
   );
-  opacity: 0;
+  opacity: 0.5;
   transition: opacity $motion-normal ease;
 }
 
 .agent-panel__message--in-progress {
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.018),
-    0 0 0 1px color-mix(in srgb, var(--color-info) 18%, transparent);
+  background: color-mix(in srgb, var(--color-info) 5%, transparent);
 }
 
 .agent-panel__message--in-progress::before {
@@ -466,31 +389,32 @@
 }
 
 .agent-panel__message--thought {
-  border-color: color-mix(in srgb, var(--color-warning) 22%, var(--color-border));
-  background: color-mix(
-    in srgb,
-    var(--color-warning) 7%,
-    var(--color-surface-elevated, var(--color-panel))
-  );
+  background: color-mix(in srgb, var(--color-warning) 5%, transparent);
 }
 
 .agent-panel__message--tool,
 .agent-panel__message--system {
-  border-color: color-mix(in srgb, var(--color-border-strong) 70%, var(--color-border));
   background: color-mix(
     in srgb,
-    var(--color-surface-contrast, var(--color-panel-2)) 72%,
-    var(--color-surface-main, var(--color-panel))
+    var(--color-surface-contrast, var(--color-panel-2)) 40%,
+    transparent
   );
 }
 
 .agent-panel__message--error {
-  border-color: color-mix(in srgb, var(--color-danger) 30%, var(--color-border));
-  background: color-mix(
-    in srgb,
-    var(--color-danger) 8%,
-    var(--color-surface-main, var(--color-panel))
-  );
+  background: color-mix(in srgb, var(--color-danger) 6%, transparent);
+}
+
+@keyframes agent-message-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes agent-thinking-bar {
@@ -510,25 +434,21 @@
   .agent-panel__message--in-progress::before {
     animation: none;
   }
+
+  .agent-panel__message {
+    animation: none;
+  }
 }
 
 .agent-panel__message-role {
   display: inline-flex;
   align-items: center;
   width: fit-content;
-  padding: 2px 6px;
-  border: 1px solid color-mix(in srgb, var(--color-border-strong) 72%, transparent);
-  border-radius: 999px;
-  background: color-mix(
-    in srgb,
-    var(--color-surface-contrast, var(--color-panel-2)) 74%,
-    transparent
-  );
   font-size: $font-size-xs;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--color-text-muted);
+  color: var(--color-text-dim);
 }
 
 .agent-panel__message-body {
@@ -544,8 +464,8 @@
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: $font-size-sm;
-  line-height: 1.55;
+  font-size: $font-size-md;
+  line-height: 1.6;
   color: var(--color-text);
 }
 
@@ -691,25 +611,8 @@
 .agent-panel__code-card {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 18%, var(--color-border));
-  border-radius: $radius-md;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(
-        in srgb,
-        var(--color-primary) 7%,
-        var(--color-surface-contrast, var(--color-panel-2))
-      ) 0%,
-      color-mix(
-        in srgb,
-        var(--color-surface-elevated, var(--color-panel)) 92%,
-        black 8%
-      ) 100%
-    );
-  box-shadow: inset 0 1px 0 color-mix(in srgb, white 5%, transparent);
+  gap: 4px;
+  padding: 4px 0;
 }
 
 .agent-panel__code-header {
@@ -724,18 +627,10 @@
   display: inline-flex;
   align-items: center;
   width: fit-content;
-  padding: 3px 8px;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, var(--color-border));
-  border-radius: 999px;
-  background: color-mix(
-    in srgb,
-    var(--color-surface-main, var(--color-panel)) 74%,
-    transparent
-  );
-  color: var(--color-text-muted);
+  color: var(--color-text-dim);
   font-size: $font-size-xs;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
@@ -768,14 +663,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 6px;
-  border: 1px solid color-mix(in srgb, var(--color-border-strong) 64%, transparent);
-  border-radius: $radius-sm;
-  background: color-mix(
-    in srgb,
-    var(--color-surface-main, var(--color-panel)) 74%,
-    transparent
-  );
+  padding: 4px 0;
 }
 
 .agent-panel__artifact-header {
@@ -794,7 +682,7 @@
 }
 
 .agent-panel__artifact-label {
-  color: var(--color-text-muted);
+  color: var(--color-text-dim);
   font-size: $font-size-xs;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -818,16 +706,8 @@
   display: inline-flex;
   align-items: center;
   gap: $spacing-sm;
-  min-height: 22px;
-  padding: 3px 8px 3px 4px;
-  border-radius: 999px;
-  background: color-mix(
-    in srgb,
-    var(--color-primary) 8%,
-    var(--color-surface-elevated, var(--color-panel))
-  );
-  border: 1px solid color-mix(in srgb, var(--color-primary) 22%, var(--color-border));
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  min-height: 20px;
+  padding: 2px 0;
 }
 
 .agent-panel__thinking-orb {
@@ -996,44 +876,23 @@
 .agent-panel__composer {
   margin-top: auto;
   display: flex;
-  flex-direction: column;
-  gap: $spacing-sm;
-  padding: $spacing-sm;
-  border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
-  border-radius: $radius-md;
-  background: color-mix(
-    in srgb,
-    var(--color-surface-contrast, var(--color-panel-2)) 78%,
-    var(--color-surface-elevated, var(--color-panel))
-  );
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018);
-}
-
-.agent-panel__composer:focus-within {
-  border-color: color-mix(in srgb, var(--color-primary) 36%, var(--color-border));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.025),
-    0 0 0 3px color-mix(in srgb, var(--color-primary) 14%, transparent);
-}
-
-.agent-panel__composer-divider {
-  height: 1px;
-  margin: 0 (-$spacing-sm);
-  background: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in srgb, var(--color-border) 84%, transparent),
-    transparent
-  );
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 4px 0 0;
 }
 
 .agent-panel__prompt {
-  min-height: 96px;
-  padding: $spacing-sm $spacing-md;
-  resize: vertical;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  max-height: 160px;
+  padding: 10px 12px;
+  resize: none;
   font-family: $font-family-mono;
+  font-size: $font-size-md;
   line-height: 1.5;
-  border-radius: $radius-sm;
+  border-radius: $radius-md;
   background: color-mix(
     in srgb,
     var(--color-surface-main, var(--color-panel-2)) 72%,
@@ -1052,35 +911,29 @@
 .agent-panel__prompt:focus {
   outline: none;
   border-color: color-mix(in srgb, var(--color-primary) 56%, var(--color-border));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 16%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 16%, transparent);
 }
 
 .agent-panel__composer-actions {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
-  gap: $spacing-xs;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
 }
 
 .agent-panel__composer-actions .button {
-  min-height: 28px;
-  padding-inline: $spacing-sm;
-  font-size: $font-size-xs;
-  letter-spacing: 0.02em;
+  min-height: 44px;
+  height: auto;
+  padding-inline: 16px;
+  font-size: $font-size-md;
   white-space: nowrap;
-}
-
-.agent-panel__composer-actions .button--primary {
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--color-primary) 30%, transparent);
+  // Match the prompt field's corner radius so the input and the send
+  // button read as one consistent control instead of a pill next to a
+  // rounded rectangle.
+  border-radius: $radius-md;
 }
 
 .agent-panel__composer-actions .button:disabled {
   opacity: 0.45;
-}
-
-@media (max-width: 760px) {
-  .agent-panel__composer-actions {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (min-width: 1500px) {

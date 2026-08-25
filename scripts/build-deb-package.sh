@@ -32,7 +32,7 @@ Priority: optional
 Architecture: amd64
 Depends: libgtk-3-0, libwebkit2gtk-4.1-0, libjavascriptcoregtk-4.1-0, libsoup-3.0-0, libxdo3
 Maintainer: Shovel Maintainers <opensource@shovel.app>
-Homepage: https://github.com/Fynth/shovel
+Homepage: https://github.com/Fynth/Shovel
 Description: Fast native desktop database client built with Rust and Dioxus
  Shovel is a native desktop database client for SQLite, PostgreSQL, MySQL, and ClickHouse.
  It includes an explorer, SQL editor, result grid, and ACP-powered assistant workflows.

@@ -23,6 +23,7 @@ use crate::app_state::{
     APP_AI_FEATURES_ENABLED,
     APP_SHOW_AGENT_PANEL,
     APP_STATE,
+    APP_UI_SETTINGS,
     set_show_sql_editor,
     toast_error,
 };
@@ -124,6 +125,33 @@ pub fn use_acp_state(inputs: AcpStateInputs) -> AcpState {
             handled_agent_sql_message_id.set(last_message_id);
             acp_panel_state
                 .with_mut(|state| reset_panel_for_thread(state, &thread_title, messages));
+        });
+    });
+
+    // ── Effect: auto-connect the configured embedded agent ─────────
+    // When Ollama (or DeepSeek) is enabled in settings, connect it once
+    // on launch so the panel is ready without manual setup each time.
+    use_effect(move || {
+        if !APP_AI_FEATURES_ENABLED() {
+            return;
+        }
+        if acp_panel_state().connected || acp_panel_state().busy {
+            return;
+        }
+        let settings = APP_UI_SETTINGS();
+        let deepseek = settings.deepseek;
+        let ollama = settings.ollama;
+        if !deepseek.enabled && !ollama.enabled {
+            return;
+        }
+        spawn(async move {
+            let _ = super::super::components::ensure_default_sql_agent_connected(
+                acp_panel_state,
+                chat_revision,
+                deepseek,
+                ollama,
+            )
+            .await;
         });
     });
 

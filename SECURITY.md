@@ -4,7 +4,7 @@
 
 We take the security of Shovel seriously. If you discover a security vulnerability, please report it privately through **GitHub Security Advisories**:
 
-1. Go to the [Security Advisories](https://github.com/rasul/shovel/security/advisories) page of this repository.
+1. Go to the [Security Advisories](https://github.com/Fynth/Shovel/security/advisories) page of this repository.
 2. Click **"New draft security advisory"**.
 3. Fill out the form with details about the vulnerability.
 

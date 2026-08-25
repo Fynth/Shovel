@@ -3,10 +3,13 @@ name = "models"
 version = "0.1.0"
 description = "Shared domain models and persisted settings types for Shovel"
 edition = "2024"
+license = "MIT"
+publish = false
 
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+toml.workspace = true
 sqlx = { workspace = true, features = ["sqlite", "postgres", "mysql"] }
 url = "2.5.7"
 

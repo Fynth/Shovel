@@ -25,12 +25,8 @@ pub fn Toolbar() -> Element {
     let (connection_label, has_sessions, show_connect_screen) = {
         let app_state = APP_STATE.read();
         let label = match app_state.active_session() {
-            Some(session) => format!(
-                "{} active · {} open",
-                session.name,
-                app_state.sessions.len()
-            ),
-            None => "No active connection".to_string(),
+            Some(session) => session.name.clone(),
+            None => "No connection".to_string(),
         };
 
         (
@@ -59,7 +55,6 @@ pub fn Toolbar() -> Element {
                     }
                     div {
                         class: "toolbar__brand-copy",
-                        span { class: "toolbar__eyebrow", "Database Client" }
                         strong { class: "toolbar__title", "Shovel" }
                     }
                 }
@@ -74,6 +69,157 @@ pub fn Toolbar() -> Element {
                 class: "toolbar__actions",
                 onmousedown: move |event| event.stop_propagation(),
                 if has_sessions {
+                    TooltipTarget {
+                        label: "Toggle workspace panels".to_string(),
+                        button {
+                            class: "button button--ghost button--small",
+                            onclick: move |event: MouseEvent| {
+                                use crate::app_state::{
+                                    APP_AI_FEATURES_ENABLED,
+                                    APP_SHOW_AGENT_PANEL,
+                                    APP_SHOW_BOTTOM_PANEL,
+                                    APP_SHOW_CONNECTIONS,
+                                    APP_SHOW_EXPLORER,
+                                    APP_SHOW_HISTORY,
+                                    APP_SHOW_SAVED_QUERIES,
+                                    APP_SHOW_SQL_EDITOR,
+                                    APP_SPLIT_MODE,
+                                    context_menu::{ContextMenuItem, open_context_menu},
+                                    set_show_agent_panel,
+                                    set_show_bottom_panel,
+                                    set_show_connections,
+                                    set_show_explorer,
+                                    set_show_history,
+                                    set_show_saved_queries,
+                                    set_show_sql_editor,
+                                    set_split_mode,
+                                };
+                                use crate::screens::workspace::ActionIcon;
+                                use models::WorkspaceSplitMode;
+
+                                let ai_features_enabled = APP_AI_FEATURES_ENABLED();
+                                let mut items: Vec<ContextMenuItem> = vec![
+                                    ContextMenuItem::new(
+                                        if APP_SHOW_SAVED_QUERIES() {
+                                            "Hide saved queries"
+                                        } else {
+                                            "Show saved queries"
+                                        },
+                                        move || set_show_saved_queries(!APP_SHOW_SAVED_QUERIES()),
+                                    )
+                                    .with_icon(ActionIcon::SavedQueries)
+                                    .active(APP_SHOW_SAVED_QUERIES()),
+                                    ContextMenuItem::new(
+                                        if APP_SHOW_CONNECTIONS() {
+                                            "Hide connections"
+                                        } else {
+                                            "Show connections"
+                                        },
+                                        move || set_show_connections(!APP_SHOW_CONNECTIONS()),
+                                    )
+                                    .with_icon(ActionIcon::Connections)
+                                    .active(APP_SHOW_CONNECTIONS()),
+                                    ContextMenuItem::new(
+                                        if APP_SHOW_EXPLORER() {
+                                            "Hide explorer"
+                                        } else {
+                                            "Show explorer"
+                                        },
+                                        move || set_show_explorer(!APP_SHOW_EXPLORER()),
+                                    )
+                                    .with_icon(ActionIcon::Explorer)
+                                    .active(APP_SHOW_EXPLORER()),
+                                    ContextMenuItem::new(
+                                        if APP_SHOW_HISTORY() {
+                                            "Hide history"
+                                        } else {
+                                            "Show history"
+                                        },
+                                        move || set_show_history(!APP_SHOW_HISTORY()),
+                                    )
+                                    .with_icon(ActionIcon::History)
+                                    .active(APP_SHOW_HISTORY()),
+                                    ContextMenuItem::new(
+                                        if APP_SHOW_SQL_EDITOR() {
+                                            "Hide SQL editor"
+                                        } else {
+                                            "Show SQL editor"
+                                        },
+                                        move || set_show_sql_editor(!APP_SHOW_SQL_EDITOR()),
+                                    )
+                                    .with_icon(ActionIcon::SqlEditor)
+                                    .active(APP_SHOW_SQL_EDITOR()),
+                                ];
+                                if ai_features_enabled {
+                                    items.push(
+                                        ContextMenuItem::new(
+                                            if APP_SHOW_AGENT_PANEL() {
+                                                "Hide agent panel"
+                                            } else {
+                                                "Show agent panel"
+                                            },
+                                            move || {
+                                                set_show_agent_panel(!APP_SHOW_AGENT_PANEL())
+                                            },
+                                        )
+                                        .with_icon(ActionIcon::Agent)
+                                        .active(APP_SHOW_AGENT_PANEL()),
+                                    );
+                                }
+                                items.push(
+                                    ContextMenuItem::new(
+                                        if APP_SHOW_BOTTOM_PANEL() {
+                                            "Hide bottom dock"
+                                        } else {
+                                            "Show bottom dock"
+                                        },
+                                        move || {
+                                            set_show_bottom_panel(!APP_SHOW_BOTTOM_PANEL())
+                                        },
+                                    )
+                                    .with_icon(ActionIcon::Output)
+                                    .active(APP_SHOW_BOTTOM_PANEL())
+                                    .separator(),
+                                );
+                                items.push(
+                                    ContextMenuItem::new(
+                                        format!("Editor layout: {}", APP_SPLIT_MODE().label()),
+                                        move || set_split_mode(APP_SPLIT_MODE().next()),
+                                    )
+                                    .with_icon(ActionIcon::Split)
+                                    .active(!matches!(APP_SPLIT_MODE(), WorkspaceSplitMode::Off)),
+                                );
+
+                                let coords = event.client_coordinates();
+                                open_context_menu(coords.x, coords.y, items);
+                            },
+                            "Panels"
+                        }
+                    }
+                    TooltipTarget {
+                        label: "Refresh explorer".to_string(),
+                        button {
+                            class: "button button--ghost button--small",
+                            onclick: move |_| {
+                                crate::app_state::actions::dispatch_action(
+                                    crate::app_state::actions::ACTION_REFRESH_EXPLORER,
+                                );
+                            },
+                            "Refresh"
+                        }
+                    }
+                    TooltipTarget {
+                        label: "Open ER diagram".to_string(),
+                        button {
+                            class: "button button--ghost button--small",
+                            onclick: move |_| {
+                                crate::app_state::actions::dispatch_action(
+                                    crate::app_state::actions::ACTION_ER_DIAGRAM,
+                                );
+                            },
+                            "ER Diagram"
+                        }
+                    }
                     TooltipTarget {
                         label: if show_connect_screen {
                             "Return to the open workspace".to_string()

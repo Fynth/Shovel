@@ -6,6 +6,7 @@ use crate::app_state::{
     activate_session,
     session_connection,
     set_last_query,
+    set_show_sql_editor,
 };
 use dioxus::prelude::*;
 use models::{
@@ -877,6 +878,12 @@ pub fn run_table_preview_for_tab(
     offset: u64,
     page_size: u32,
 ) {
+    // Opening a table preview should surface the table editor as the
+    // primary view. If the SQL editor is currently shown (e.g. the user
+    // left it open), hide it so the table's Data/Structure/DDL tabs are
+    // not pushed below the editor.
+    set_show_sql_editor(false);
+
     // Dev-only: short-circuit to the mock repo so the empty
     // :memory: pool never has to answer a SQL statement.
     #[cfg(debug_assertions)]

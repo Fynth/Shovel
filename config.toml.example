@@ -1,0 +1,175 @@
+# Shovel configuration file.
+#
+# This file is optional. When present, it is merged over the settings you
+# change in the UI, so you can customize the app declaratively. It is read
+# from the app data dir (`~/.local/share/shovel/config.toml`) or from the
+# current working directory.
+#
+# Every key is optional — omit what you do not want to override. A partial
+# config only changes the settings it mentions; everything else keeps its
+# current value.
+
+# ════════════════════════════════════════════════════════════════════
+# Appearance
+# ════════════════════════════════════════════════════════════════════
+theme = "Dark"            # "Dark" | "Light" | "System"
+density = "Compact"       # "Compact" | "Normal" | "Comfortable"
+split_mode = "Off"        # "Off" | "Horizontal" | "Vertical"
+
+# ════════════════════════════════════════════════════════════════════
+# Workspace & panels
+# ════════════════════════════════════════════════════════════════════
+default_page_size = 100
+restore_session_on_launch = true
+read_only_mode = false
+ai_features_enabled = true
+ai_auto_apply_completions = true
+
+# Panel visibility on launch
+show_saved_queries = true
+show_connections = false
+show_explorer = true
+show_history = false
+show_sql_editor = false
+show_agent_panel = false
+show_bottom_panel = true
+bottom_panel_height = 120.0
+
+# ════════════════════════════════════════════════════════════════════
+# AI & language
+# ════════════════════════════════════════════════════════════════════
+ai_response_language = "English"
+
+# [codestral]
+# enabled = true
+# model = "codestral-latest"
+
+# [deepseek]
+# enabled = true
+# base_url = "https://api.deepseek.com"
+# model = "deepseek-chat"
+# thinking_enabled = false
+# reasoning_effort = "medium"
+
+# [ollama]
+# enabled = true
+# base_url = "http://localhost:11434/api"
+# model = "qwen3:latest"
+
+# ════════════════════════════════════════════════════════════════════
+# Explorer (schema tree)
+# ════════════════════════════════════════════════════════════════════
+# [explorer]
+# show_schemas = true
+# show_tables = true
+# show_views = true
+# show_columns = false
+# show_system_objects = false
+# show_row_counts = true
+# sort_alphabetical = false
+
+# ════════════════════════════════════════════════════════════════════
+# Deep customization — theme (CSS variables)
+# ════════════════════════════════════════════════════════════════════
+# Override the app's design tokens. Any CSS color is accepted (hex, rgb,
+# hsl, named). These are rendered into `:root { --color-*: ... }` variables
+# that restyle the whole app without touching individual components.
+# [theme_overrides]
+# primary = "#5eb1ff"
+# primary_hover = "#8fccff"
+# primary_active = "#2f8ff7"
+# danger = "#ff6f91"
+# success = "#5ce1a5"
+# warning = "#ffd166"
+# info = "#65d7ff"
+# text = "#f3f7ff"
+# text_muted = "#b8c2d9"
+# text_dim = "#78859f"
+# border = "rgba(116,130,160,0.24)"
+# border_strong = "rgba(158,176,214,0.34)"
+# background = "#121620"
+# panel = "#121620"
+# panel_2 = "#1f2432"
+# panel_3 = "#39435c"
+# font_family = "SF Pro Text, Segoe UI, sans-serif"
+# font_family_mono = "JetBrains Mono, monospace"
+# font_size = 12
+# font_size_small = 11
+# font_size_large = 13
+# radius_small = 7
+# radius_medium = 11
+# radius_large = 18
+# spacing = 6
+
+# ════════════════════════════════════════════════════════════════════
+# Deep customization — keybindings
+# ════════════════════════════════════════════════════════════════════
+# Remap any shortcut. Combo format: "Ctrl+Shift+F", "Ctrl+T", "F5", etc.
+# [keybindings]
+# format_sql = "Ctrl+Shift+F"
+# new_tab = "Ctrl+T"
+# close_tab = "Ctrl+W"
+# next_tab = "Ctrl+Tab"
+# refresh_explorer = "F5"
+# save_query = "Ctrl+S"
+# command_palette = "Ctrl+Shift+P"
+# focus_editor = "Ctrl+E"
+# focus_filter_panel = "Ctrl+F"
+# global_search = "Ctrl+K"
+# rename_selected = "F2"
+# delete_selected = "Delete"
+# focus_agent_composer = "Ctrl+Shift+M"
+# new_connection = "Ctrl+Shift+N"
+# open_settings = "Ctrl+,"
+
+# ════════════════════════════════════════════════════════════════════
+# Deep customization — editor behavior
+# ════════════════════════════════════════════════════════════════════
+# [editor]
+# font_size = 14
+# tab_size = 4
+# auto_format_on_run = true
+# auto_complete = true
+# word_wrap = false
+# show_line_numbers = true
+
+# ════════════════════════════════════════════════════════════════════
+# Deep customization — panels
+# ════════════════════════════════════════════════════════════════════
+# [panels]
+# auto_open_explorer = true
+# auto_open_agent = false
+# default_sidebar_width = 260
+# default_bottom_panel_height = 120
+
+# ════════════════════════════════════════════════════════════════════
+# Deep customization — app behavior
+# ════════════════════════════════════════════════════════════════════
+# [behavior]
+# auto_connect_on_launch = true
+# auto_save_queries = false
+# confirm_before_drop = true
+# confirm_before_truncate = true
+
+# ════════════════════════════════════════════════════════════════════
+# Connections
+# ════════════════════════════════════════════════════════════════════
+# Declare connections that auto-connect on launch. `kind` is one of
+# "sqlite", "postgres", "mysql", "clickhouse".
+#
+# [[connections]]
+# name = "Local SQLite"
+# kind = "sqlite"
+# file = "/home/me/data.db"
+# auto_connect = true
+#
+# [[connections]]
+# name = "Dev Postgres"
+# kind = "postgres"
+# host = "localhost"
+# port = 5432
+# database = "app"
+# username = "postgres"
+# password = "secret"
+# ssl = false
+# auto_connect = true

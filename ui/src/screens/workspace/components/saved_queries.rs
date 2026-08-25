@@ -5,7 +5,10 @@ use crate::{
         is_panel_collapsed,
         toggle_panel_collapsed,
     },
-    screens::workspace::actions::{append_to_tab_sql, ensure_tab_for_session, set_active_tab_sql},
+    screens::workspace::{
+        actions::{append_to_tab_sql, ensure_tab_for_session, set_active_tab_sql},
+        components::Chevron,
+    },
 };
 use dioxus::prelude::*;
 use models::{QueryTabState, SavedQuery, SavedQueryKind, WorkspaceToolPanel};
@@ -66,14 +69,7 @@ pub fn SavedQueriesPanel(
                     },
                     "aria-expanded": "{!collapsed}",
                     onclick: move |_| toggle_panel_collapsed(WorkspaceToolPanel::SavedQueries),
-                    span {
-                        class: if collapsed {
-                            "workspace__panel-chevron"
-                        } else {
-                            "workspace__panel-chevron workspace__panel-chevron--open"
-                        },
-                        ">"
-                    }
+                    Chevron { open: !collapsed }
                 }
                 h2 { class: "workspace__section-title", "Saved Queries" }
                 p {

@@ -12,24 +12,17 @@
 // (6px) and is intentional — it gives the dock panels a slightly tighter
 // rhythm than the surrounding sidebar/inspector chrome. Kept raw with
 // justification rather than introducing a new token.
+//
+// Panels are separated from each other by a subtle color shift and a thin
+// divider line rather than by borders + padding, so the sidebar reads as
+// one continuous surface instead of a stack of framed cards.
 .workspace__panel {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 5px;
-  border: 1px solid color-mix(in srgb, var(--glass-border) 82%, var(--color-border));
-  border-radius: 17px;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 88%, var(--glass-tint)),
-      color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 90%, transparent)
-    );
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    0 14px 34px rgba(8, 10, 22, 0.14);
-  backdrop-filter: blur(22px) saturate(145%);
+  gap: 4px;
+  padding: 4px 6px;
+  background: color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 46%, transparent);
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -41,12 +34,12 @@
       180deg,
       color-mix(
         in srgb,
-        var(--color-primary) 9%,
+        var(--color-primary) 7%,
         transparent
       ),
-      transparent 170px
+      transparent 120px
     ),
-    color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 90%, var(--glass-tint));
+    color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 46%, transparent);
 }
 
 .workspace__tool-panel {
@@ -56,8 +49,13 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: $spacing-sm;
+  gap: $spacing-xs;
   overflow: hidden;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 55%, transparent);
+}
+
+.workspace__tool-panel:last-child {
+  border-bottom: 0;
 }
 
 .workspace__tool-panel--connections {
@@ -91,12 +89,13 @@
 
 .workspace__tool-panel--drop-target .workspace__panel,
 .workspace__tool-panel--drop-target .agent-panel {
-  border-color: color-mix(in srgb, var(--color-primary) 64%, white 8%);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 26%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface-elevated, var(--color-panel)));
 }
 
 .workspace__tool-panel-grip {
-  min-height: 10px;
+  min-height: 0;
+  height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -105,6 +104,12 @@
   border-radius: 999px;
   background: transparent;
   cursor: grab;
+  overflow: hidden;
+  transition: height $motion-fast ease;
+}
+
+.workspace__tool-panel:hover .workspace__tool-panel-grip {
+  height: 10px;
 }
 
 .workspace__tool-panel-grip:active {
@@ -188,6 +193,97 @@
   gap: $spacing-md;
 }
 
+// ── Collapsible tool panels ────────────────────────────────────────
+//
+// Each sidebar / inspector panel can be collapsed to just its header
+// row so the panels that are open get more vertical space. The chevron
+// button sits at the start of the header row and rotates when open.
+.workspace__panel-collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  border-radius: $radius-sm;
+  background: color-mix(
+    in srgb,
+    var(--color-surface-contrast, var(--color-panel-2)) 55%,
+    transparent
+  );
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition:
+    color $motion-fast ease,
+    background $motion-fast ease,
+    border-color $motion-fast ease,
+    transform $motion-fast ease;
+
+  &:hover,
+  &:focus-visible {
+    color: var(--color-text);
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+    border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
+    outline: none;
+  }
+
+  &:active {
+    transform: scale(0.94);
+  }
+}
+
+.workspace__panel-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  transform: rotate(0deg);
+  transition: transform $motion-fast ease;
+}
+
+.workspace__panel-chevron--open {
+  transform: rotate(90deg);
+}
+
+// Reusable chevron glyph used by panel headers and tree toggles. The
+// SVG is sized here so it renders crisply at small sizes; rotation is
+// applied by the `--open` modifier.
+.chevron {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--color-text-dim);
+  transform: rotate(0deg);
+  transition: transform $motion-fast ease;
+}
+
+.chevron--open {
+  transform: rotate(90deg);
+}
+
+.workspace__panel--collapsed {
+  // Keep the header visible; hide everything below it so the panel
+  // collapses to just its title row.
+  .workspace__panel-header {
+    margin-bottom: 0;
+  }
+}
+
+// The Connections / History panels use their own header classes rather
+// than `.workspace__panel-header`, so the collapsed state must also
+// hide their body. The body is gated in Rust (`if !collapsed`), so this
+// rule is a belt-and-suspenders that keeps the panel from stretching.
+.session-list--collapsed .session-list__body,
+.history--collapsed .history__search,
+.history--collapsed .history__list,
+.history--collapsed .history__pagination {
+  display: none;
+}
+
 // ── Bottom dock ───────────────────────────────────────────────────
 //
 // Sits below the sidebar + main row, spanning the full workspace width.
@@ -221,7 +317,7 @@
   align-items: center;
   justify-content: space-between;
   gap: $spacing-sm;
-  padding: 4px 8px 4px $spacing-sm;
+  padding: 3px 8px 3px $spacing-sm;
   border-bottom: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
   background:
     linear-gradient(
@@ -283,7 +379,7 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: $spacing-sm;
+  padding: $spacing-xs;
 }
 
 .bottom-panel__view {

@@ -4,7 +4,7 @@ pkgrel=__PKGREL__
 pkgdesc="Fast native desktop database client built with Rust and Dioxus"
 arch=('x86_64')
 url="https://github.com/__OWNER__/__REPO__"
-license=('unknown')
+license=('MIT')
 depends=(
   'gtk3'
   'webkit2gtk-4.1'

@@ -45,9 +45,6 @@ pub enum ActionIcon {
     QueryLog,
     Transactions,
     Problems,
-    /// Toolbar overflow entry point — opens the consolidated "View"
-    /// menu that lists the panel-visibility toggles.
-    ViewMenu,
     /// Toolbar overflow entry point — opens a dropdown of secondary
     /// actions for the current toolbar (result grid / SQL editor).
     More,
@@ -373,15 +370,6 @@ pub fn IconGlyph(icon: ActionIcon) -> Element {
                     path { d: "M12 10v4" }
                     path { d: "M12 17h.01" }
                 },
-                ActionIcon::ViewMenu => rsx! {
-                    // Three stacked panes representing the consolidated
-                    // "View" overflow menu — visually echoes the
-                    // sidebar / inspector / editor arrangement so the
-                    // affordance reads as a layout control.
-                    rect { x: "4", y: "5", width: "16", height: "4", rx: "1" }
-                    rect { x: "4", y: "11", width: "10", height: "8", rx: "1" }
-                    rect { x: "16", y: "11", width: "4", height: "8", rx: "1" }
-                },
                 ActionIcon::More => rsx! {
                     // Horizontal ellipsis — the standard "more actions"
                     // affordance for a toolbar overflow menu.
@@ -390,6 +378,30 @@ pub fn IconGlyph(icon: ActionIcon) -> Element {
                     circle { cx: "19", cy: "12", r: "1.6", fill: "currentColor", stroke: "none" }
                 },
             }
+        }
+    }
+}
+
+/// A small chevron glyph used for expand/collapse toggles (panel headers,
+/// connection/schema rows). Renders a right-pointing chevron that rotates
+/// 90° when `open` is true, so it reads as a disclosure triangle without
+/// relying on a text `>` character.
+#[component]
+pub fn Chevron(open: bool) -> Element {
+    rsx! {
+        svg {
+            class: if open {
+                "chevron chevron--open"
+            } else {
+                "chevron"
+            },
+            view_box: "0 0 24 24",
+            fill: "none",
+            stroke: "currentColor",
+            stroke_width: "2.2",
+            stroke_linecap: "round",
+            stroke_linejoin: "round",
+            path { d: "m9 6 6 6-6 6" }
         }
     }
 }

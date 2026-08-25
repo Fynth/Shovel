@@ -546,9 +546,7 @@ pub fn TabsManager(
                         label: "More actions".to_string(),
                         onclick: {
                             let current_tab = tab.clone();
-                            let generate_sql_busy = generate_sql_busy;
                             let active_actionable_source = active_actionable_source.clone();
-                            let read_only_mode = read_only_mode;
                             let mut show_generate_sql_window = show_generate_sql_window;
                             let mut generate_sql_prompt = generate_sql_prompt;
                             let mut generate_sql_input_revision = generate_sql_input_revision;
@@ -1040,9 +1038,12 @@ fn submit_generated_sql_request(
     );
 
     spawn(async move {
-        let deepseek = crate::app_state::APP_UI_SETTINGS().deepseek;
+        let settings = crate::app_state::APP_UI_SETTINGS();
+        let deepseek = settings.deepseek;
+        let ollama = settings.ollama;
         if let Err(err) =
-            ensure_default_sql_agent_connected(acp_panel_state, chat_revision, deepseek).await
+            ensure_default_sql_agent_connected(acp_panel_state, chat_revision, deepseek, ollama)
+                .await
         {
             set_active_tab_status(tabs, current_tab.id, format!("Generate SQL error: {err}"));
             return;

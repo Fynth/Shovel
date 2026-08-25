@@ -312,6 +312,30 @@ impl Default for DeepSeekSettings {
     }
 }
 
+/// Persisted configuration for the embedded Ollama ACP bridge. Stored in
+/// `AppUiSettings` so the user configures Ollama once and it can be
+/// auto-connected on launch, mirroring `DeepSeekSettings`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OllamaSettings {
+    pub enabled: bool,
+    #[serde(skip_serializing)]
+    pub api_key: String,
+    pub base_url: String,
+    pub model: String,
+}
+
+impl Default for OllamaSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            api_key: String::new(),
+            base_url: "http://localhost:11434/api".to_string(),
+            model: String::new(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppUiSettings {
@@ -331,6 +355,7 @@ pub struct AppUiSettings {
 
     pub codestral: CodeStralSettings,
     pub deepseek: DeepSeekSettings,
+    pub ollama: OllamaSettings,
     pub ai_response_language: String,
     /// When `true`, inline AI completions are inserted automatically
     /// after the user stops typing for a short idle pause; otherwise
@@ -373,6 +398,7 @@ impl Default for AppUiSettings {
             tool_panel_layout: WorkspaceToolLayout::default(),
             codestral: CodeStralSettings::default(),
             deepseek: DeepSeekSettings::default(),
+            ollama: OllamaSettings::default(),
             ai_response_language: "English".to_string(),
             ai_auto_apply_completions: true,
             explorer: ExplorerViewSettings::default(),

@@ -14,6 +14,9 @@ concurrency:
   group: supply-chain-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   cargo-deny:
     name: cargo deny
@@ -35,7 +38,7 @@ jobs:
             ${{ runner.os }}-cargo-deny-
 
       - name: Install cargo-deny
-        run: cargo install --locked cargo-deny --version "^0.16"
+        run: cargo install --locked cargo-deny --version "^0.20"
 
       - name: Run cargo deny check
         run: cargo deny check
@@ -60,7 +63,7 @@ jobs:
             ${{ runner.os }}-cargo-audit-
 
       - name: Install cargo-audit
-        run: cargo install --locked cargo-audit --version "^0.21"
+        run: cargo install --locked cargo-audit --version "^0.22"
 
       - name: Run cargo audit
         run: cargo audit

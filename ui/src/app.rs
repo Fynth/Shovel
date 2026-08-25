@@ -1,8 +1,13 @@
 use crate::{
     app_state::{
+        APP_APP_BEHAVIOR,
+        APP_EDITOR_BEHAVIOR,
+        APP_KEYBINDINGS,
+        APP_PANEL_BEHAVIOR,
         APP_SQL_FORMAT_SETTINGS,
         APP_STATE,
         APP_THEME,
+        APP_THEME_OVERRIDES,
         APP_TOOLTIP,
         APP_UI_DENSITY,
         APP_UI_SETTINGS,
@@ -56,6 +61,12 @@ pub fn App() -> Element {
 
         replace_ui_settings(startup.ui_settings.clone());
         *APP_SQL_FORMAT_SETTINGS.write() = startup.sql_format_settings.clone();
+        // Apply deep-customization overrides from config.toml.
+        *APP_THEME_OVERRIDES.write() = startup.theme_overrides.clone().unwrap_or_default();
+        *APP_KEYBINDINGS.write() = startup.keybindings.clone().unwrap_or_default();
+        *APP_EDITOR_BEHAVIOR.write() = startup.editor.clone().unwrap_or_default();
+        *APP_PANEL_BEHAVIOR.write() = startup.panels.clone().unwrap_or_default();
+        *APP_APP_BEHAVIOR.write() = startup.behavior.clone().unwrap_or_default();
         last_saved_ui_settings.set(Some(startup.ui_settings.clone()));
         last_saved_sql_settings.set(Some(startup.sql_format_settings.clone()));
         startup_loaded.set(true);
@@ -66,6 +77,7 @@ pub fn App() -> Element {
         }
 
         restored_once.set(true);
+        let config_connections = startup.config_connections.clone();
         spawn(async move {
             let Ok(result) = services::restore_saved_sessions().await else {
                 toast_error("Failed to restore saved sessions.");
@@ -103,6 +115,21 @@ pub fn App() -> Element {
                 result.active_connection_name,
                 result.tab_drafts,
             );
+
+            // Auto-connect any connections declared in `config.toml`.
+            for connection in config_connections {
+                let Some(request) = connection.to_request() else {
+                    continue;
+                };
+                match services::connect_and_save_request(request.clone()).await {
+                    Ok(saved) => {
+                        crate::app_state::add_connection_session(request, saved.connection);
+                    }
+                    Err(err) => {
+                        toast_error(format!("Failed to connect {}: {err}", connection.name));
+                    }
+                }
+            }
         });
     });
 
@@ -146,6 +173,7 @@ pub fn App() -> Element {
 
     let theme_name = APP_THEME();
     let density_class = APP_UI_DENSITY().css_class();
+    let theme_css = APP_THEME_OVERRIDES().to_css();
     let (has_sessions, should_show_connect) = {
         let app_state = APP_STATE.read();
         (
@@ -155,6 +183,9 @@ pub fn App() -> Element {
     };
 
     rsx! {
+            if !theme_css.is_empty() {
+                style { {theme_css.to_string()} }
+            }
             div {
                 class: "app {theme_name} {density_class}",
                 Toolbar {}

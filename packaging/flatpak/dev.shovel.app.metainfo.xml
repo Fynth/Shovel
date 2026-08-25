@@ -4,12 +4,12 @@
   <name>Shovel</name>
   <summary>Fast native desktop database client</summary>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>LicenseRef-proprietary</project_license>
+  <project_license>MIT</project_license>
   <developer_name>Shovel</developer_name>
   <launchable type="desktop-id">dev.shovel.app.desktop</launchable>
-  <url type="homepage">https://github.com/Fynth/shovel</url>
-  <url type="bugtracker">https://github.com/Fynth/shovel/issues</url>
-  <url type="vcs-browser">https://github.com/Fynth/shovel</url>
+  <url type="homepage">https://github.com/Fynth/Shovel</url>
+  <url type="bugtracker">https://github.com/Fynth/Shovel/issues</url>
+  <url type="vcs-browser">https://github.com/Fynth/Shovel</url>
   <description>
     <p>
       Shovel is a native desktop database client for SQLite, PostgreSQL, MySQL, and ClickHouse.

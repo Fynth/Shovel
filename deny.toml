@@ -2,19 +2,36 @@
 # https://embarkstudios.github.io/cargo-deny/
 
 [graph]
-# Multiple versions of the same crate are tolerated for now;
-# we are tracking this list and pruning it gradually.
-multiple-versions = "warn"
+# The `[graph]` section only accepts target/exclude/feature keys.
+# Multiple-version policy lives in `[bans]` below.
 
 [output]
 feature-depth = 1
 
 [advisories]
 version = 2
-# Unmaintained advisories are still useful — warn, don't fail.
-unmaintained = "warn"
+# In cargo-deny 0.20+, `unmaintained` is a Scope (which crates to check),
+# not a severity. Severity for unmaintained advisories is fixed at `deny`.
+unmaintained = "all"
 # Ignore yanked crates (we still pin specific versions in Cargo.lock).
 yanked = "warn"
+# These unmaintained advisories come from unavoidable transitive deps
+# (gtk-rs GTK3 bindings via Dioxus, fxhash, proc-macro-error). They are
+# informational — the crates still work — so we ignore them rather than
+# failing the build. Revisit when the parent crates move off GTK3.
+ignore = [
+    "RUSTSEC-2024-0370", # proc-macro-error
+    "RUSTSEC-2024-0411", # gtk-rs GTK3 (gdkwayland-sys)
+    "RUSTSEC-2024-0412", # gtk-rs GTK3 (gdk)
+    "RUSTSEC-2024-0413", # gtk-rs GTK3 (atk)
+    "RUSTSEC-2024-0414", # gtk-rs GTK3 (gdkx11-sys)
+    "RUSTSEC-2024-0415", # gtk-rs GTK3 (gtk)
+    "RUSTSEC-2024-0416", # gtk-rs GTK3 (atk-sys)
+    "RUSTSEC-2024-0418", # gtk-rs GTK3 (gdk-sys)
+    "RUSTSEC-2024-0419", # gtk-rs GTK3 (gtk3-macros)
+    "RUSTSEC-2024-0420", # gtk-rs GTK3 (gtk-sys)
+    "RUSTSEC-2025-0057", # fxhash
+]
 
 [licenses]
 version = 2
@@ -34,6 +51,7 @@ allow = [
     "MPL-2.0",
     "0BSD",
     "BSL-1.0",
+    "CDLA-Permissive-2.0",
 ]
 # Clarify non-standard SPDX identifiers used in our dependency tree.
 exceptions = [
@@ -46,6 +64,9 @@ exceptions = [
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Workspace crates use `*.workspace = true` path deps; these are private
+# crates, so path/git deps are allowed and not treated as wildcards.
+allow-wildcard-paths = true
 highlight = "all"
 deny = []
 # Skip checking workspace-internal duplicate versions.

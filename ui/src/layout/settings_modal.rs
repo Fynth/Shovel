@@ -33,6 +33,7 @@ pub enum SettingsCategory {
     Grid,
     Navigation,
     Advanced,
+    Config,
 }
 
 impl SettingsCategory {
@@ -46,6 +47,7 @@ impl SettingsCategory {
             Self::Grid => "grid",
             Self::Navigation => "navigation",
             Self::Advanced => "advanced",
+            Self::Config => "config",
         }
     }
 
@@ -58,6 +60,7 @@ impl SettingsCategory {
             Self::Grid => "Grid",
             Self::Navigation => "Navigation",
             Self::Advanced => "Advanced",
+            Self::Config => "Config",
         }
     }
 
@@ -71,6 +74,7 @@ impl SettingsCategory {
             Self::Grid => "Result-grid and row-rendering options",
             Self::Navigation => "Explorer, sidebar, and panel layout",
             Self::Advanced => "Agent API keys, workspace defaults, and resets",
+            Self::Config => "config.toml file location and reload",
         }
     }
 
@@ -82,6 +86,7 @@ impl SettingsCategory {
         Self::Grid,
         Self::Navigation,
         Self::Advanced,
+        Self::Config,
     ];
 }
 
@@ -231,6 +236,9 @@ pub fn SettingsModal(props: SettingsModalProps) -> Element {
                             SettingsCategory::Advanced => rsx! {
                                 DeepSeekAgentSection { ..section_props.clone() }
                                 WorkspaceSection { ..section_props }
+                            },
+                            SettingsCategory::Config => rsx! {
+                                ConfigSection {}
                             },
                         }
                     }
@@ -1044,6 +1052,111 @@ fn SqlFormatFieldsAdapter(
     }
 }
 
+/// Shows where `config.toml` lives and lets the user open it in the OS file
+/// manager or reload it. The config file is the declarative customization
+/// surface — every setting in this modal can also be set there.
+#[component]
+fn ConfigSection() -> Element {
+    let config_path = use_memo(|| {
+        dirs::data_local_dir()
+            .unwrap_or_else(|| {
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+            })
+            .join("shovel")
+            .join("config.toml")
+    });
+    let config_path = config_path();
+    let path_display = config_path.display().to_string();
+
+    rsx! {
+        section {
+            class: "settings-modal__section",
+            div {
+                class: "settings-modal__section-header",
+                div {
+                    h3 { class: "settings-modal__section-title", "Config file" }
+                    p {
+                        class: "settings-modal__section-hint",
+                        "Every setting in this modal can also be set declaratively in config.toml. Edit the file and reload to apply."
+                    }
+                }
+            }
+            div {
+                class: "settings-modal__group",
+                span { class: "settings-modal__group-title", "Location" }
+                div {
+                    class: "settings-modal__config-path",
+                    code { {path_display.to_string()} }
+                }
+                p {
+                    class: "settings-modal__section-hint",
+                    "On first launch Shovel writes a default config.toml here. On Linux it lives under ~/.local/share/shovel; on Windows under %LOCALAPPDATA%\\shovel."
+                }
+            }
+            div {
+                class: "settings-modal__group",
+                span { class: "settings-modal__group-title", "Actions" }
+                div {
+                    class: "settings-modal__actions",
+                    button {
+                        class: "button button--ghost button--small",
+                        onclick: move |_| {
+                            let _ = open_config_file(&config_path);
+                        },
+                        "Open config folder"
+                    }
+                    button {
+                        class: "button button--ghost button--small",
+                        onclick: move |_| {
+                            let _ = reload_config();
+                        },
+                        "Reload config"
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Open the config file's parent folder in the OS file manager.
+fn open_config_file(path: &std::path::Path) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "config path has no parent".to_string())?;
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(parent)
+            .spawn()
+            .map_err(|err| format!("failed to open config folder: {err}"))?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(parent)
+            .spawn()
+            .map_err(|err| format!("failed to open config folder: {err}"))?;
+    }
+    Ok(())
+}
+
+/// Reload the config file and re-apply it to the current UI settings.
+fn reload_config() -> Result<(), String> {
+    let data_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| {
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+        })
+        .join("shovel");
+    let path = data_dir.join("config.toml");
+    let Some(config) = models::ShovelConfig::load(&path)? else {
+        return Ok(());
+    };
+    let mut settings = crate::app_state::APP_UI_SETTINGS();
+    config.apply_to(&mut settings);
+    crate::app_state::replace_ui_settings(settings);
+    Ok(())
+}
+
 fn parse_u32_in_range(value: &str, fallback: u32, min: u32, max: u32) -> u32 {
     value
         .parse::<u32>()
@@ -1154,7 +1267,8 @@ mod tests {
                 "Editor",
                 "Grid",
                 "Navigation",
-                "Advanced"
+                "Advanced",
+                "Config"
             ]
         );
     }

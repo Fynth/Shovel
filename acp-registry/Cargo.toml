@@ -3,6 +3,8 @@ name = "acp-registry"
 version = "0.1.0"
 description = "ACP registry fetch, install, and merge logic"
 edition = "2024"
+license = "MIT"
+publish = false
 
 [dependencies]
 dirs = "6.0.0"
@@ -11,7 +13,7 @@ models.workspace = true
 reqwest = { workspace = true, features = ["brotli", "deflate", "gzip", "zstd"] }
 serde.workspace = true
 serde_json.workspace = true
-tar = "0.4.44"
+tar = "0.4.46"
 tokio.workspace = true
 walkdir = "2.5.0"
 zip = { version = "2.2.2", default-features = false, features = ["deflate"] }

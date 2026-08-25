@@ -46,7 +46,7 @@ pub(crate) use er_diagram::{ErDiagramState, ErDiagramViewer, ErRelationship, ErT
 pub use execution_plan::ExecutionPlanView;
 pub use explorer::{ExplorerConnectionSection, SidebarConnectionTree};
 pub use history::QueryHistoryPanel;
-pub use icon_button::{ActionIcon, IconButton, IconGlyph};
+pub use icon_button::{ActionIcon, Chevron, IconButton, IconGlyph};
 pub(crate) use object_icon::ObjectIcon;
 pub use result_table::ResultTable;
 pub use saved_queries::SavedQueriesPanel;

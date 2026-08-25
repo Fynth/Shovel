@@ -3,8 +3,15 @@
 </p>
 
 <h1 align="center">Shovel</h1>
-<img width="1890" height="1137" alt="image" src="https://github.com/user-attachments/assets/2584a85c-1d82-4a8c-ab61-d4a477a32e11" />
 
+<p align="center">
+  <a href="https://github.com/Fynth/Shovel/actions/workflows/test.yml"><img src="https://github.com/Fynth/Shovel/actions/workflows/test.yml/badge.svg" alt="Test"></a>
+  <a href="https://github.com/Fynth/Shovel/actions/workflows/supply-chain.yml"><img src="https://github.com/Fynth/Shovel/actions/workflows/supply-chain.yml/badge.svg" alt="Supply Chain"></a>
+  <a href="https://github.com/Fynth/Shovel/releases"><img src="https://img.shields.io/github/v/release/Fynth/Shovel?sort=semver" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Fynth/Shovel" alt="License: MIT"></a>
+</p>
+
+<img width="1890" height="1137" alt="Shovel workspace screenshot" src="https://github.com/user-attachments/assets/2584a85c-1d82-4a8c-ab61-d4a477a32e11" />
 
 <p align="center">
   A native desktop database client built with Rust and Dioxus.
@@ -13,12 +20,29 @@
 </p>
 
 <p align="center">
-  SQLite • PostgreSQL • MySQL • ClickHouse • Rust • Dioxus • ACP • Ollama
+  <strong>SQLite</strong> • <strong>PostgreSQL</strong> • <strong>MySQL</strong> • <strong>ClickHouse</strong> • Rust • Dioxus • ACP • Ollama
 </p>
 
 <p align="center">
-  If Shovel saves you time, give the repo a star.
+  If Shovel saves you time, give the repo a star. ⭐
 </p>
+
+---
+
+## Table of Contents
+
+- [Why Shovel](#why-shovel)
+- [What It Can Do](#what-it-can-do)
+- [Database Support](#database-support)
+- [AI / ACP Support](#ai--acp-support)
+- [Quick Start](#quick-start)
+- [Installation](#installation)
+- [Project Layout](#project-layout)
+- [What Makes It Different](#what-makes-it-different)
+- [Current Status](#current-status)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
@@ -83,7 +107,7 @@ This is opt-in. If you do not care about AI features, Shovel still works as a re
 
 ### Requirements
 
-- Rust stable
+- **Rust nightly** (pinned in [`rust-toolchain.toml`](rust-toolchain.toml))
 - for desktop builds: system dependencies required by Dioxus Desktop/WebView on your platform
 - on Windows for raw `.exe`: Microsoft Edge WebView2 Runtime
 
@@ -120,7 +144,7 @@ dx bundle --release --platform desktop --package app --features bundle --package
 
 Release artifacts are published here:
 
-- [GitHub Releases](https://github.com/Fynth/shovel/releases)
+- [GitHub Releases](https://github.com/Fynth/Shovel/releases)
 
 ### Ubuntu / Debian via APT repository
 
@@ -134,7 +158,7 @@ sudo apt install shovel
 To add the repository first:
 
 ```bash
-echo "deb [arch=amd64 trusted=yes] https://fynth.github.io/shovel/apt stable main" | sudo tee /etc/apt/sources.list.d/shovel.list
+echo "deb [arch=amd64 trusted=yes] https://fynth.github.io/Shovel/apt stable main" | sudo tee /etc/apt/sources.list.d/shovel.list
 sudo apt update
 sudo apt install shovel
 ```
@@ -148,7 +172,7 @@ Notes:
 
 Download the latest Debian package from:
 
-- [Latest Releases](https://github.com/Fynth/shovel/releases/latest)
+- [Latest Releases](https://github.com/Fynth/Shovel/releases/latest)
 
 Then install it with:
 
@@ -193,7 +217,7 @@ yay -S shovel-git
 
 Download the Flatpak bundle from:
 
-- [Latest Releases](https://github.com/Fynth/shovel/releases/latest)
+- [Latest Releases](https://github.com/Fynth/Shovel/releases/latest)
 
 Then install and run it with:
 
@@ -206,7 +230,7 @@ flatpak run dev.shovel.app
 
 Download the Linux archive from:
 
-- [Latest Releases](https://github.com/Fynth/shovel/releases/latest)
+- [Latest Releases](https://github.com/Fynth/Shovel/releases/latest)
 
 Then unpack and run:
 
@@ -226,7 +250,7 @@ The archive contains:
 
 Download from:
 
-- [Latest Releases](https://github.com/Fynth/shovel/releases/latest)
+- [Latest Releases](https://github.com/Fynth/Shovel/releases/latest)
 
 Available artifacts:
 
@@ -242,7 +266,7 @@ Notes:
 
 Requirements:
 
-- Rust stable
+- Rust nightly
 - platform desktop dependencies required by Dioxus Desktop/WebView
 
 Run directly:
@@ -256,110 +280,6 @@ Build release binary:
 ```bash
 cargo build -p app --release --features desktop
 ```
-
-## AUR
-
-This repo includes two AUR packaging paths:
-
-- `packaging/aur/shovel-git/` for a VCS package that tracks the repository head
-- `packaging/aur/shovel/PKGBUILD.in` plus `scripts/render-aur-release-package.sh` for a stable `shovel` package generated from release tags
-- `packaging/aur/shovel-bin/PKGBUILD.in` plus `scripts/render-aur-binary-package.sh` for a binary `shovel-bin` package generated from GitHub release assets
-
-Once the packages are published to AUR, install with:
-
-```bash
-yay -S shovel
-yay -S shovel-bin
-yay -S shovel-git
-```
-
-Update with:
-
-```bash
-yay -Syu
-```
-
-### Automatic AUR updates on each release
-
-The workflow `.github/workflows/aur-publish.yml` pushes fresh `PKGBUILD` and `.SRCINFO` metadata to the AUR repositories `shovel.git` and `shovel-bin.git` every time a GitHub release is published.
-
-One-time setup:
-
-1. Create an AUR account.
-2. Generate an SSH key dedicated to AUR publishing.
-3. Add the public key to your AUR account.
-4. Add the private key to this GitHub repository as the Actions secret `AUR_SSH_PRIVATE_KEY`.
-5. Publish a GitHub release like `v0.1.5`, or run the workflow manually with the version input.
-
-After that, each new published release updates the AUR package automatically.
-
-Notes:
-
-- `shovel` is the stable source package built from the tagged source tarball
-- `shovel-bin` installs the prebuilt Linux release artifact and is the fastest option on AUR
-- `shovel-git` is still useful if you want AUR users to track the latest commit instead of tagged releases
-- `.github/workflows/aur-check.yml` verifies the tracked `shovel-git` metadata and smoke-tests the generated stable and binary package metadata
-
-## Windows CI
-
-GitHub Actions includes a Windows packaging workflow:
-
-- `.github/workflows/main.yml`
-
-It can build:
-
-- raw Windows `.exe` artifact
-- `.msi` installer artifact
-
-Linux and Arch workflows:
-
-- `.github/workflows/linux.yml`
-- `.github/workflows/arch-repo.yml`
-- `.github/workflows/apt-repo.yml`
-- `.github/workflows/aur-check.yml`
-
-Notes:
-
-- the raw `.exe` build is the fastest path for testing
-- the `.msi` bundle uses Dioxus bundling and is the better option for end-user distribution
-
-## APT Repository
-
-This repo now includes Debian packaging and a GitHub Pages-backed APT repository workflow:
-
-- `.github/workflows/apt-repo.yml`
-- `scripts/build-deb-package.sh`
-- `scripts/build-apt-repo.sh`
-
-The workflow builds a `shovel` package and publishes an `amd64` APT repository under:
-
-```bash
-https://<owner>.github.io/<repo>/apt
-```
-
-To install from the published repository:
-
-```bash
-echo "deb [arch=amd64 trusted=yes] https://<owner>.github.io/<repo>/apt stable main" | sudo tee /etc/apt/sources.list.d/shovel.list
-sudo apt update
-sudo apt install shovel
-```
-
-Notes:
-
-- the initial repository is unsigned, so the source line uses `trusted=yes`
-- runtime dependencies target Ubuntu 24.04 / Debian-family systems with `webkit2gtk-4.1`
-- each `v*` release publishes both the `.deb` asset and refreshed APT metadata
-
-## Flatpak Bundle
-
-This repo also includes a Flatpak release workflow:
-
-- `.github/workflows/flatpak.yml`
-- `packaging/flatpak/dev.shovel.app.yml`
-- `scripts/build-flatpak-bundle.sh`
-
-Each `v*` release publishes a `shovel-linux-x86_64.flatpak` bundle to GitHub Releases.
 
 ## Project Layout
 
@@ -406,6 +326,15 @@ Areas that still need expansion:
 - broader packaging polish across platforms
 - more agent presets and richer ACP UX
 
+## Documentation
+
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — layered architecture and dependency rules
+- [`AGENTS.md`](AGENTS.md) — repo operating manual and conventions
+- [`docs/ui-description.md`](docs/ui-description.md) — full description of the UI, screens, panels, and data flows
+- [`CHANGELOG.md`](CHANGELOG.md) — release history
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute
+- [`SECURITY.md`](SECURITY.md) — how to report vulnerabilities
+
 ## Contributing
 
 Issues, UX feedback, database-specific bugs, and performance reports are useful.
@@ -418,10 +347,8 @@ If you open a bug report, include:
 - actual behavior
 - platform (`Linux`, `macOS`, `Windows`)
 
-## Vision
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full contribution guide.
 
-The long-term goal is straightforward:
+## License
 
-> make a database client that feels fast, local, hackable, and AI-native without turning into a bloated IDE.
-
-If that direction matches what you want from a desktop database tool, star the repo and follow the project.
+Shovel is released under the [MIT License](LICENSE).

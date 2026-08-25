@@ -179,6 +179,20 @@ pub static APP_BOTTOM_PANEL_HEIGHT: GlobalSignal<f64> =
 /// unrelated settings toggles do not invalidate the tab body.
 pub static APP_SPLIT_MODE: GlobalSignal<WorkspaceSplitMode> =
     Signal::global(|| AppUiSettings::default().split_mode);
+/// Deep-customization overrides loaded from `config.toml`. The theme
+/// overrides are rendered into CSS variables; the keybinding map overrides
+/// the default shortcuts; editor/panel/behavior overrides adjust runtime
+/// defaults.
+pub static APP_THEME_OVERRIDES: GlobalSignal<models::ThemeOverrides> =
+    Signal::global(models::ThemeOverrides::default);
+pub static APP_KEYBINDINGS: GlobalSignal<models::KeybindingMap> =
+    Signal::global(models::KeybindingMap::new);
+pub static APP_EDITOR_BEHAVIOR: GlobalSignal<models::EditorBehavior> =
+    Signal::global(models::EditorBehavior::default);
+pub static APP_PANEL_BEHAVIOR: GlobalSignal<models::PanelBehavior> =
+    Signal::global(models::PanelBehavior::default);
+pub static APP_APP_BEHAVIOR: GlobalSignal<models::AppBehavior> =
+    Signal::global(models::AppBehavior::default);
 pub static APP_TOOLTIP: GlobalSignal<Option<AppTooltip>> = Signal::global(|| None);
 pub static APP_TOAST: GlobalSignal<Vec<AppToast>> = Signal::global(Vec::new);
 pub static APP_TAB_DRAFTS: GlobalSignal<Vec<models::TabDraft>> = Signal::global(Vec::new);
@@ -423,6 +437,30 @@ pub fn set_deepseek_thinking_enabled(enabled: bool) {
 pub fn set_deepseek_reasoning_effort(reasoning_effort: String) {
     update_ui_settings(|current| {
         current.deepseek.reasoning_effort = reasoning_effort;
+    });
+}
+
+pub fn set_ollama_enabled(enabled: bool) {
+    update_ui_settings(|current| {
+        current.ollama.enabled = enabled;
+    });
+}
+
+pub fn set_ollama_api_key(api_key: String) {
+    update_ui_settings(|current| {
+        current.ollama.api_key = api_key;
+    });
+}
+
+pub fn set_ollama_base_url(base_url: String) {
+    update_ui_settings(|current| {
+        current.ollama.base_url = base_url;
+    });
+}
+
+pub fn set_ollama_model(model: String) {
+    update_ui_settings(|current| {
+        current.ollama.model = model;
     });
 }
 

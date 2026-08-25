@@ -3,6 +3,8 @@ name = "driver-sqlite"
 version = "0.1.0"
 description = "SQLite database driver (via sqlx with bundled libsqlite3)"
 edition = "2024"
+license = "MIT"
+publish = false
 
 [dependencies]
 database.workspace = true

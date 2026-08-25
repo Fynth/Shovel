@@ -1,10 +1,29 @@
 use futures_util::future::join_all;
-use models::{AppUiSettings, ConnectionRequest, DatabaseConnection, SqlFormatSettings};
+use models::{
+    AppBehavior,
+    AppUiSettings,
+    ConnectionRequest,
+    DatabaseConnection,
+    EditorBehavior,
+    KeybindingMap,
+    PanelBehavior,
+    ShovelConfig,
+    SqlFormatSettings,
+    ThemeOverrides,
+};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct AppStartupSettings {
     pub ui_settings: AppUiSettings,
     pub sql_format_settings: SqlFormatSettings,
+    /// Connections declared in `config.toml` with `auto_connect = true`.
+    pub config_connections: Vec<models::ConfigConnection>,
+    /// Deep-customization overrides from `config.toml`.
+    pub theme_overrides: Option<ThemeOverrides>,
+    pub keybindings: Option<KeybindingMap>,
+    pub editor: Option<EditorBehavior>,
+    pub panels: Option<PanelBehavior>,
+    pub behavior: Option<AppBehavior>,
 }
 
 #[derive(Clone, Debug)]
@@ -25,6 +44,28 @@ pub async fn load_app_startup_settings() -> Result<AppStartupSettings, String> {
     let mut ui_settings = storage::load_app_ui_settings().await?;
     let sql_format_settings = storage::load_sql_format_settings().await?;
 
+    // Apply the optional `config.toml` over the persisted settings so a
+    // user can customize the app declaratively without touching the UI.
+    let mut config_connections = Vec::new();
+    let mut theme_overrides = None;
+    let mut keybindings = None;
+    let mut editor = None;
+    let mut panels = None;
+    let mut behavior = None;
+    if let Some(config) = load_shovel_config()? {
+        config.apply_to(&mut ui_settings);
+        config_connections = config
+            .connections
+            .into_iter()
+            .filter(|connection| connection.auto_connect)
+            .collect();
+        theme_overrides = config.theme_overrides;
+        keybindings = config.keybindings;
+        editor = config.editor;
+        panels = config.panels;
+        behavior = config.behavior;
+    }
+
     hydrate_secret(
         &mut ui_settings.codestral.api_key,
         storage::load_codestral_api_key().await?,
@@ -41,7 +82,43 @@ pub async fn load_app_startup_settings() -> Result<AppStartupSettings, String> {
     Ok(AppStartupSettings {
         ui_settings,
         sql_format_settings,
+        config_connections,
+        theme_overrides,
+        keybindings,
+        editor,
+        panels,
+        behavior,
     })
+}
+
+/// Locate and parse the user's `config.toml`. Looks in the app data dir
+/// first, then the current working directory, so a repo-local config is
+/// honored when running from a checkout. On first launch (no config found
+/// anywhere) a default template is written to the app data dir so the user
+/// has a discoverable, editable file.
+fn load_shovel_config() -> Result<Option<ShovelConfig>, String> {
+    let data_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| {
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+        })
+        .join("shovel");
+    let data_config = data_dir.join("config.toml");
+    let cwd_config = std::env::current_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join("config.toml");
+
+    for path in [&data_config, &cwd_config] {
+        if let Some(config) = ShovelConfig::load(path)? {
+            return Ok(Some(config));
+        }
+    }
+
+    // No config anywhere — write a default template so the user can edit it.
+    let template = ShovelConfig::default();
+    if let Err(err) = template.save(&data_config) {
+        eprintln!("Failed to write default config.toml: {err}");
+    }
+    Ok(None)
 }
 
 pub async fn save_app_ui_settings_with_secrets(settings: AppUiSettings) -> Result<(), String> {

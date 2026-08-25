@@ -3,6 +3,8 @@ name = "driver-mysql"
 version = "0.1.0"
 description = "MySQL database driver (via sqlx)"
 edition = "2024"
+license = "MIT"
+publish = false
 
 [dependencies]
 database.workspace = true

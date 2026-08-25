@@ -26,10 +26,14 @@ use crate::app_state::{
     set_deepseek_model,
     set_deepseek_reasoning_effort,
     set_deepseek_thinking_enabled,
+    set_ollama_api_key,
+    set_ollama_base_url,
+    set_ollama_enabled,
+    set_ollama_model,
     toggle_panel_collapsed,
 };
 
-use super::{ActionIcon, IconButton};
+use super::{ActionIcon, Chevron, IconButton};
 
 use self::{
     composer::AgentComposer,
@@ -54,7 +58,12 @@ use self::{
     prompt::insert_sql_into_editor,
     registry_card::RegistryAgentCard,
     requests::can_execute_agent_sql,
-    setup::{AgentSetupMode, connect_embedded_deepseek, setup_mode_button_class},
+    setup::{
+        AgentSetupMode,
+        connect_embedded_deepseek,
+        connect_embedded_ollama,
+        setup_mode_button_class,
+    },
     state::{
         message_kind_avatar,
         message_kind_class,
@@ -126,6 +135,8 @@ pub fn AcpAgentPanel(
         });
     let deepseek_settings = use_memo(move || APP_UI_SETTINGS().deepseek);
     let deepseek_settings = deepseek_settings();
+    let ollama_settings = use_memo(move || APP_UI_SETTINGS().ollama);
+    let ollama_settings = ollama_settings();
     let visible_messages = state
         .messages
         .clone()
@@ -207,9 +218,9 @@ pub fn AcpAgentPanel(
         aside { class: "agent-panel",
             div { class: "agent-panel__header",
                 div { class: "agent-panel__header-copy",
-                    h3 { class: "agent-panel__title", "{thread_title}" }
+                    h3 { class: "agent-panel__title", {thread_title} }
                     if !thread_meta.is_empty() {
-                        p { class: "agent-panel__meta", "{thread_meta}" }
+                        p { class: "agent-panel__meta", {thread_meta} }
                     }
                 }
                 div { class: "agent-panel__header-actions",
@@ -222,14 +233,7 @@ pub fn AcpAgentPanel(
                         },
                         "aria-expanded": "{!collapsed}",
                         onclick: move |_| toggle_panel_collapsed(WorkspaceToolPanel::Agent),
-                        span {
-                            class: if collapsed {
-                                "workspace__panel-chevron"
-                            } else {
-                                "workspace__panel-chevron workspace__panel-chevron--open"
-                            },
-                            ">"
-                        }
+                        Chevron { open: !collapsed }
                     }
                     button {
                         class: if show_dialogs() {
@@ -800,21 +804,32 @@ pub fn AcpAgentPanel(
                             div { class: "agent-panel__section",
                                 div { class: "agent-panel__section-header",
                                     div { class: "agent-panel__section-copy",
-                                        h4 { class: "agent-panel__section-title", "Built-in Ollama ACP" }
+                                        h4 { class: "agent-panel__section-title", "Ollama" }
                                         p { class: "agent-panel__hint", "Local or remote `/api` endpoint." }
                                     }
                                     span { class: "agent-panel__badge", "Embedded" }
+                                }
+                                label {
+                                    class: "settings-modal__toggle",
+                                    input {
+                                        r#type: "checkbox",
+                                        checked: ollama_settings.enabled,
+                                        disabled: ollama_settings.model.trim().is_empty(),
+                                        oninput: move |event| {
+                                            set_ollama_enabled(event.checked());
+                                        },
+                                    }
+                                    span { "Auto-connect Ollama on launch" }
                                 }
                                 div { class: "agent-panel__field-grid",
                                     div { class: "field",
                                         label { class: "field__label", "Base URL" }
                                         input {
                                             class: "input",
-                                            value: "{state.ollama.base_url}",
+                                            value: "{ollama_settings.base_url}",
                                             placeholder: "http://localhost:11434/api",
                                             oninput: move |event| {
-                                                let value = event.value();
-                                                panel_state.with_mut(|state| state.ollama.base_url = value);
+                                                set_ollama_base_url(event.value());
                                             }
                                         }
                                     }
@@ -822,11 +837,10 @@ pub fn AcpAgentPanel(
                                         label { class: "field__label", "Model" }
                                         input {
                                             class: "input",
-                                            value: "{state.ollama.model}",
+                                            value: "{ollama_settings.model}",
                                             placeholder: "qwen3:latest",
                                             oninput: move |event| {
-                                                let value = event.value();
-                                                panel_state.with_mut(|state| state.ollama.model = value);
+                                                set_ollama_model(event.value());
                                             }
                                         }
                                     }
@@ -836,64 +850,27 @@ pub fn AcpAgentPanel(
                                     input {
                                         class: "input",
                                         r#type: "password",
-                                        value: "{state.ollama.api_key}",
+                                        value: "{ollama_settings.api_key}",
                                         placeholder: "Optional bearer token",
                                         oninput: move |event| {
-                                            let value = event.value();
-                                            panel_state.with_mut(|state| state.ollama.api_key = value);
+                                            set_ollama_api_key(event.value());
                                         }
                                     }
                                 }
                                 button {
                                     class: "button button--primary button--small",
-                                    disabled: state.busy || state.ollama.model.trim().is_empty(),
+                                    disabled: state.busy || ollama_settings.model.trim().is_empty(),
                                     onclick: move |_| {
-                                        let cwd = panel_state().launch.cwd.clone();
-                                        let ollama = panel_state().ollama.clone();
-                                        panel_state.with_mut(|state| {
-                                            state.busy = true;
-                                            state.status = format!(
-                                                "Connecting to Ollama model {}...",
-                                                ollama.model.trim()
-                                            );
-                                        });
+                                        let ollama = APP_UI_SETTINGS().ollama;
                                         spawn(async move {
-                                            match services::build_embedded_ollama_launch(cwd, ollama.clone()) {
-                                                Ok(launch) => {
-                                                    panel_state.with_mut(|state| {
-                                                        state.launch = launch.clone();
-                                                        state.status = format!(
-                                                            "Launching embedded Ollama ACP bridge for {}...",
-                                                            ollama.model.trim()
-                                                        );
-                                                    });
-
-                                                    match services::connect_acp_agent(launch).await {
-                                                        Ok(connection) => {
-                                                            panel_state.with_mut(|state| {
-                                                                state::apply_connected(state, connection);
-                                                            });
-                                                        }
-                                                        Err(err) => {
-                                                            panel_state.with_mut(|state| {
-                                                                state.busy = false;
-                                                                state.connected = false;
-                                                                state.connection = None;
-                                                                state.status = err.clone();
-                                                                push_message(state, AcpMessageKind::Error, err);
-                                                            });
-                                                            chat_revision += 1;
-                                                        }
-                                                    }
-                                                }
-                                                Err(err) => {
-                                                    panel_state.with_mut(|state| {
-                                                        state.busy = false;
-                                                        state.status = err.clone();
-                                                        push_message(state, AcpMessageKind::Error, err);
-                                                    });
-                                                    chat_revision += 1;
-                                                }
+                                            if let Err(err) = connect_embedded_ollama(
+                                                panel_state,
+                                                chat_revision,
+                                                ollama,
+                                            ).await {
+                                                panel_state.with_mut(|state| {
+                                                    state.status = err;
+                                                });
                                             }
                                         });
                                     },

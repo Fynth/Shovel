@@ -167,6 +167,87 @@ pub fn match_key_combination(key: &Key, modifiers: Modifiers) -> Option<Shortcut
     None
 }
 
+/// Parse a user-defined combo string like `"Ctrl+Shift+F"` into a
+/// `(Key, Modifiers)` pair. Returns `None` when the string is not a
+/// recognized combination.
+pub fn parse_combo(combo: &str) -> Option<(Key, Modifiers)> {
+    let mut modifiers = Modifiers::empty();
+    let mut key_part = None;
+    for part in combo.split('+') {
+        let part = part.trim();
+        match part.to_ascii_lowercase().as_str() {
+            "ctrl" | "cmd" | "meta" => modifiers |= Modifiers::CONTROL,
+            "shift" => modifiers |= Modifiers::SHIFT,
+            "alt" | "option" => modifiers |= Modifiers::ALT,
+            other => key_part = Some(other.to_string()),
+        }
+    }
+    let key_part = key_part?;
+    let key = match key_part.to_ascii_lowercase().as_str() {
+        "tab" => Key::Tab,
+        "escape" | "esc" => Key::Escape,
+        "enter" | "return" => Key::Enter,
+        "f1" => Key::F1,
+        "f2" => Key::F2,
+        "f3" => Key::F3,
+        "f4" => Key::F4,
+        "f5" => Key::F5,
+        "f6" => Key::F6,
+        "f7" => Key::F7,
+        "f8" => Key::F8,
+        "f9" => Key::F9,
+        "f10" => Key::F10,
+        "f11" => Key::F11,
+        "f12" => Key::F12,
+        "delete" | "del" => Key::Delete,
+        "backspace" => Key::Backspace,
+        single if single.chars().count() == 1 => Key::Character(single.to_uppercase()),
+        _ => return None,
+    };
+    Some((key, modifiers))
+}
+
+/// Match a key/modifier pair against the user's overridden keybindings
+/// first, then fall back to the built-in defaults. Returns the action id
+/// string (e.g. `"format_sql"`) when a custom binding matches.
+pub fn match_custom_keybinding(key: &Key, modifiers: Modifiers) -> Option<String> {
+    let map = crate::app_state::APP_KEYBINDINGS();
+    for (action, combo) in map.iter() {
+        if let Some((combo_key, combo_mods)) = parse_combo(combo)
+            && &combo_key == key
+            && combo_mods == modifiers
+        {
+            return Some(action.clone());
+        }
+    }
+    None
+}
+
+/// Map a custom action id string back to a [`ShortcutAction`], if it is a
+/// known action.
+pub fn action_from_id(id: &str) -> Option<ShortcutAction> {
+    use ShortcutAction::*;
+    Some(match id {
+        "focus_editor" => FocusEditor,
+        "format_sql" => FormatSql,
+        "new_tab" => NewTab,
+        "close_tab" => CloseTab,
+        "next_tab" => NextTab,
+        "refresh_explorer" => RefreshExplorer,
+        "focus_filter_panel" => FocusFilterPanel,
+        "save_query" => SaveQuery,
+        "close_overlay" => CloseOverlay,
+        "command_palette" => CommandPalette,
+        "global_search" => GlobalSearch,
+        "rename_selected" => RenameSelected,
+        "delete_selected" => DeleteSelected,
+        "focus_agent_composer" => FocusAgentComposer,
+        "new_connection" => NewConnection,
+        "open_settings" => OpenSettings,
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -479,5 +560,41 @@ mod tests {
             ShortcutAction::OpenSettings.to_action_id(),
             Some(acts::ACTION_OPEN_SETTINGS)
         );
+    }
+
+    #[test]
+    fn parse_combo_handles_modifiers_and_keys() {
+        let (key, mods) = parse_combo("Ctrl+Shift+F").expect("parse");
+        assert_eq!(key, Key::Character("F".into()));
+        assert!(mods.contains(Modifiers::CONTROL));
+        assert!(mods.contains(Modifiers::SHIFT));
+
+        let (key, mods) = parse_combo("Ctrl+T").expect("parse");
+        assert_eq!(key, Key::Character("T".into()));
+        assert!(mods.contains(Modifiers::CONTROL));
+        assert!(!mods.contains(Modifiers::SHIFT));
+
+        let (key, _) = parse_combo("F5").expect("parse");
+        assert_eq!(key, Key::F5);
+
+        let (key, _) = parse_combo("Escape").expect("parse");
+        assert_eq!(key, Key::Escape);
+
+        assert!(parse_combo("not-a-combo").is_none());
+        assert!(parse_combo("").is_none());
+    }
+
+    #[test]
+    fn action_from_id_maps_known_actions() {
+        assert_eq!(
+            action_from_id("format_sql"),
+            Some(ShortcutAction::FormatSql)
+        );
+        assert_eq!(action_from_id("new_tab"), Some(ShortcutAction::NewTab));
+        assert_eq!(
+            action_from_id("open_settings"),
+            Some(ShortcutAction::OpenSettings)
+        );
+        assert_eq!(action_from_id("bogus"), None);
     }
 }

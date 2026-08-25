@@ -3,6 +3,8 @@ name = "explorer"
 version = "0.1.0"
 description = "Schema and database tree loading, table metadata exploration"
 edition = "2024"
+license = "MIT"
+publish = false
 
 [dependencies]
 database.workspace = true

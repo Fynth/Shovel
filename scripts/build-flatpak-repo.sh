@@ -52,8 +52,8 @@ cat > "${repo_dir}/shovel.flatpakrepo" <<EOF
 Title=Shovel Flatpak Repository
 Comment=Flatpak repository for Shovel ${version}
 Url=${repo_url}
-Homepage=https://github.com/Fynth/shovel
-Icon=https://raw.githubusercontent.com/Fynth/shovel/refs/heads/main/app/assets/icon.png
+Homepage=https://github.com/Fynth/Shovel
+Icon=https://raw.githubusercontent.com/Fynth/Shovel/refs/heads/main/app/assets/icon.png
 DefaultBranch=stable
 GPGVerify=false
 EOF
