@@ -34,6 +34,8 @@ use crate::{
                 create_table_modal::{CreateTableModal, CreateTableTarget},
                 duplicate_table_modal,
                 duplicate_table_modal::{DuplicateTableModal, DuplicateTableTarget},
+                rename_table_modal,
+                rename_table_modal::{RenameTableModal, RenameTableTarget},
             },
         },
     },
@@ -511,6 +513,109 @@ pub fn DuplicateTableWindowRoot(props: DuplicateTableWindowRootProps) -> Element
                 read_only,
                 on_saved: move |new_qualified_name: String| {
                     bridge.send(DuplicateTableResult { new_qualified_name });
+                    window().close();
+                },
+                on_close: move |_| {
+                    window().close();
+                },
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Rename-table window
+// ---------------------------------------------------------------------------
+
+/// Snapshot the rename-table dialog streams back to the main window on save.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RenameTableResult {
+    pub new_qualified_name: String,
+}
+
+/// Build a fresh `(DialogBridge<RenameTableResult>, Receiver)` pair for one
+/// rename-table window session.
+pub fn create_rename_table_bridge() -> (
+    DialogBridge<RenameTableResult>,
+    tokio::sync::mpsc::UnboundedReceiver<RenameTableResult>,
+) {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    (DialogBridge { sender: tx }, rx)
+}
+
+/// Props for [`RenameTableWindowRoot`].
+#[derive(Props, Clone)]
+pub struct RenameTableWindowRootProps {
+    pub bridge: DialogBridge<RenameTableResult>,
+    pub target: RenameTableTarget,
+    /// Live connection resolved by the main window before opening the dialog.
+    pub session: Option<models::DatabaseConnection>,
+    pub read_only: bool,
+    pub theme_class: String,
+}
+
+impl PartialEq for RenameTableWindowRootProps {
+    fn eq(&self, other: &Self) -> bool {
+        self.bridge == other.bridge
+            && self.target == other.target
+            && self.session.is_some() == other.session.is_some()
+            && self.read_only == other.read_only
+            && self.theme_class == other.theme_class
+    }
+}
+
+/// Open the rename-table dialog as a separate native OS window.
+pub fn open_rename_table_window(
+    bridge: DialogBridge<RenameTableResult>,
+    target: RenameTableTarget,
+    session: Option<models::DatabaseConnection>,
+    read_only: bool,
+    theme_class: String,
+) {
+    spawn(async move {
+        let dom = VirtualDom::new_with_props(
+            RenameTableWindowRoot,
+            RenameTableWindowRootProps {
+                bridge,
+                target,
+                session,
+                read_only,
+                theme_class,
+            },
+        );
+        let config = rename_table_window_config();
+        let _pending = window().new_window(dom, config).await;
+    });
+}
+
+fn rename_table_window_config() -> Config {
+    let window_builder = WindowBuilder::new()
+        .with_title("Rename Table")
+        .with_inner_size(LogicalSize::new(640.0, 480.0))
+        .with_resizable(true)
+        .with_decorations(should_use_native_decorations());
+
+    Config::new().with_window(window_builder)
+}
+
+/// Root component for the rename-table dialog window.
+#[component]
+pub fn RenameTableWindowRoot(props: RenameTableWindowRootProps) -> Element {
+    let bridge = props.bridge;
+    let target = props.target;
+    let session = props.session;
+    let read_only = props.read_only;
+    let theme_class = props.theme_class;
+
+    rsx! {
+        document::Style { "{APP_CSS}" }
+        div { class: "table-window-shell {theme_class}",
+            RenameTableModal {
+                target,
+                session: rename_table_modal::ModalConnection(session),
+                read_only,
+                on_saved: move |new_qualified_name: String| {
+                    bridge.send(RenameTableResult { new_qualified_name });
                     window().close();
                 },
                 on_close: move |_| {

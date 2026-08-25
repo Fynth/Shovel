@@ -9,6 +9,7 @@ use super::{
     qualified_mysql_table_name,
     qualified_postgres_table_name,
     qualified_sqlite_table_name,
+    quote_identifier,
     rewrite_create_table_statement,
 };
 
@@ -158,6 +159,71 @@ pub async fn truncate_table(
         }
         DatabaseConnection::ClickHouse(config) => {
             let sql = format!("truncate table {qualified_name}");
+            ClickHouseDriver.execute_text_query(&config, &sql).await?;
+            Ok(())
+        }
+    }
+}
+
+pub async fn rename_table(
+    connection: DatabaseConnection,
+    source: TablePreviewSource,
+    new_table_name: String,
+) -> Result<(), DatabaseError> {
+    let new_table_name = new_table_name.trim();
+    if new_table_name.is_empty() {
+        return Err(DatabaseError::UnsupportedDriver(
+            "New table name is empty".to_string(),
+        ));
+    }
+    if new_table_name == source.table_name.trim() {
+        return Err(DatabaseError::UnsupportedDriver(
+            "New table name must be different from the source table".to_string(),
+        ));
+    }
+
+    let source_qualified_name = source.qualified_name.trim().trim_end_matches(';');
+
+    match connection {
+        DatabaseConnection::Sqlite(pool) => {
+            let sql = format!(
+                "alter table {source_qualified_name} rename to {}",
+                quote_identifier(new_table_name)
+            );
+            sqlx::query(&sql)
+                .execute(&pool)
+                .await
+                .map_err(DatabaseError::Sqlite)?;
+            Ok(())
+        }
+        DatabaseConnection::Postgres(pool) => {
+            let sql = format!(
+                "alter table {source_qualified_name} rename to {}",
+                quote_identifier(new_table_name)
+            );
+            sqlx::query(&sql)
+                .execute(&pool)
+                .await
+                .map_err(DatabaseError::Postgres)?;
+            Ok(())
+        }
+        DatabaseConnection::MySql(pool) => {
+            let target_qualified_name =
+                qualified_mysql_table_name(source.schema.as_deref(), new_table_name);
+            let sql = format!("rename table {source_qualified_name} to {target_qualified_name}");
+            sqlx::query(&sql)
+                .execute(&pool)
+                .await
+                .map_err(DatabaseError::MySql)?;
+            Ok(())
+        }
+        DatabaseConnection::ClickHouse(config) => {
+            let target_qualified_name = qualified_clickhouse_table_name(
+                source.schema.as_deref(),
+                new_table_name,
+                config.effective_database(),
+            );
+            let sql = format!("rename table {source_qualified_name} to {target_qualified_name}");
             ClickHouseDriver.execute_text_query(&config, &sql).await?;
             Ok(())
         }

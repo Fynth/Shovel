@@ -68,6 +68,7 @@ pub use query::{
     next_table_primary_key_id,
     plan_batch,
     preview_source_for_sql,
+    rename_table,
     split_sql,
     truncate_table,
     update_table_cell,

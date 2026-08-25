@@ -20,7 +20,7 @@ use models::{
 };
 use sqlx::Row;
 
-pub use ddl::{create_table, drop_table, duplicate_table, truncate_table};
+pub use ddl::{create_table, drop_table, duplicate_table, rename_table, truncate_table};
 pub use execution_plan::execute_explain;
 pub use mutations::{
     delete_table_row,
@@ -723,6 +723,7 @@ mod tests {
         parse_clickhouse_primary_key_expression,
         parse_mysql_locator,
         preview_source_for_sql,
+        rename_table,
         reorder_clickhouse_primary_key_columns,
         truncate_table,
     };
@@ -931,6 +932,61 @@ mod tests {
 
         assert_eq!(remaining_rows, 0);
         assert_eq!(remaining_tables, 1);
+    }
+
+    #[tokio::test]
+    async fn rename_table_renames_sqlite_table() {
+        let pool = SqlitePool::connect(":memory:").await.unwrap();
+
+        sqlx::query(
+            r#"
+            create table "products" (
+                id integer primary key,
+                name text not null
+            );
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        rename_table(
+            DatabaseConnection::Sqlite(pool.clone()),
+            TablePreviewSource {
+                schema: Some("main".to_string()),
+                table_name: "products".to_string(),
+                qualified_name: r#""products""#.to_string(),
+            },
+            "inventory".to_string(),
+        )
+        .await
+        .unwrap();
+
+        let remaining = sqlx::query_scalar::<_, i64>(
+            r#"
+            select count(*)
+            from sqlite_master
+            where type = 'table'
+              and name = 'inventory'
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let old_remaining = sqlx::query_scalar::<_, i64>(
+            r#"
+            select count(*)
+            from sqlite_master
+            where type = 'table'
+              and name = 'products'
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(remaining, 1);
+        assert_eq!(old_remaining, 0);
     }
 
     #[tokio::test]

@@ -6,6 +6,7 @@ mod tree_views;
 // to be reachable across the `explorer` module boundary.
 pub mod create_table_modal;
 pub mod duplicate_table_modal;
+pub mod rename_table_modal;
 
 use crate::{
     app_state::{

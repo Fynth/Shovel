@@ -18,6 +18,7 @@ pub use crate::{
         multi::{BatchPlan, CommitKind, DatabaseFamily, StatementOutcome, plan_batch},
         next_table_primary_key_id,
         preview_source_for_sql,
+        rename_table,
         splitter::{Statement, StatementKind, split_sql},
         truncate_table,
         update_table_cell,

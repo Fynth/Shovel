@@ -3,6 +3,7 @@ use super::{
     disconnect_session,
     duplicate_table_modal::DuplicateTableTarget,
     highlight_match_segments,
+    rename_table_modal::RenameTableTarget,
     split_children,
 };
 use crate::{
@@ -808,15 +809,38 @@ fn menu_item_for_action(
             Some(item)
         }
 
-        crate::app_state::actions::ACTION_TABLE_RENAME if kind == ExplorerNodeKind::Table => Some(
-            ContextMenuItem::new("Rename table…", move || {
-                crate::app_state::show_toast(
-                    "Rename is not available yet".to_string(),
-                    crate::app_state::ToastKind::Info,
+        crate::app_state::actions::ACTION_TABLE_RENAME if kind == ExplorerNodeKind::Table => {
+            let target = RenameTableTarget {
+                session_id,
+                connection_name: connection_name.to_string(),
+                kind: connection_kind,
+                source: preview_source.clone(),
+            };
+            let mut tree_reload_signal = tree_reload;
+            let mut selected_node_signal = selected_node;
+            let mut item = ContextMenuItem::new("Rename table…", move || {
+                let connection = crate::app_state::session_connection(target.session_id);
+                let (bridge, mut rx) = crate::windows::create_rename_table_bridge();
+                spawn(async move {
+                    while let Some(result) = rx.recv().await {
+                        selected_node_signal.set(result.new_qualified_name);
+                        tree_reload_signal += 1;
+                    }
+                });
+                crate::windows::open_rename_table_window(
+                    bridge,
+                    target.clone(),
+                    connection,
+                    read_only_mode_enabled(),
+                    crate::app_state::APP_THEME(),
                 );
             })
-            .with_icon(ActionIcon::Duplicate),
-        ),
+            .with_icon(ActionIcon::Duplicate);
+            if read_only_mode {
+                item = item.disabled();
+            }
+            Some(item)
+        }
 
         crate::app_state::actions::ACTION_TABLE_TRUNCATE if kind == ExplorerNodeKind::Table => {
             let source = preview_source.clone();
