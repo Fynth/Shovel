@@ -421,6 +421,16 @@ fn ExplorerObjectRow(
     }
 }
 
+fn should_prompt_table_mutation(
+    kind: TableMutationKind,
+    behavior: &models::AppBehaviorSettings,
+) -> bool {
+    match kind {
+        TableMutationKind::Drop => behavior.confirm_before_drop,
+        TableMutationKind::Truncate => behavior.confirm_before_truncate,
+    }
+}
+
 fn table_mutation_dialog_title(action: TableMutationKind) -> &'static str {
     match action {
         TableMutationKind::Truncate => "Truncate table",
@@ -969,20 +979,25 @@ pub(super) async fn confirm_and_truncate_table(
     connection_kind: DatabaseKind,
     store: TabStore,
 ) {
-    let confirmation = AsyncMessageDialog::new()
-        .set_title(table_mutation_dialog_title(TableMutationKind::Truncate))
-        .set_description(table_mutation_confirmation_description(
-            TableMutationKind::Truncate,
-            connection_kind,
-            &source,
-        ))
-        .set_buttons(MessageButtons::YesNo)
-        .set_level(MessageLevel::Warning)
-        .show()
-        .await;
+    let behavior = crate::app_state::APP_APP_BEHAVIOR.peek().clone();
+    let prompt = should_prompt_table_mutation(TableMutationKind::Truncate, &behavior);
 
-    if confirmation != MessageDialogResult::Yes {
-        return;
+    if prompt {
+        let confirmation = AsyncMessageDialog::new()
+            .set_title(table_mutation_dialog_title(TableMutationKind::Truncate))
+            .set_description(table_mutation_confirmation_description(
+                TableMutationKind::Truncate,
+                connection_kind,
+                &source,
+            ))
+            .set_buttons(MessageButtons::YesNo)
+            .set_level(MessageLevel::Warning)
+            .show()
+            .await;
+
+        if confirmation != MessageDialogResult::Yes {
+            return;
+        }
     }
 
     let Some(connection) = session_connection(session_id) else {
@@ -1030,20 +1045,25 @@ pub(super) async fn confirm_and_drop_table(
     local_selected_node: Option<Signal<String>>,
     mut tree_reload: Signal<u64>,
 ) {
-    let confirmation = AsyncMessageDialog::new()
-        .set_title(table_mutation_dialog_title(TableMutationKind::Drop))
-        .set_description(table_mutation_confirmation_description(
-            TableMutationKind::Drop,
-            connection_kind,
-            &source,
-        ))
-        .set_buttons(MessageButtons::YesNo)
-        .set_level(MessageLevel::Warning)
-        .show()
-        .await;
+    let behavior = crate::app_state::APP_APP_BEHAVIOR.peek().clone();
+    let prompt = should_prompt_table_mutation(TableMutationKind::Drop, &behavior);
 
-    if confirmation != MessageDialogResult::Yes {
-        return;
+    if prompt {
+        let confirmation = AsyncMessageDialog::new()
+            .set_title(table_mutation_dialog_title(TableMutationKind::Drop))
+            .set_description(table_mutation_confirmation_description(
+                TableMutationKind::Drop,
+                connection_kind,
+                &source,
+            ))
+            .set_buttons(MessageButtons::YesNo)
+            .set_level(MessageLevel::Warning)
+            .show()
+            .await;
+
+        if confirmation != MessageDialogResult::Yes {
+            return;
+        }
     }
 
     let Some(connection) = session_connection(session_id) else {
@@ -1083,5 +1103,32 @@ pub(super) async fn confirm_and_drop_table(
                 .show()
                 .await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TableMutationKind, should_prompt_table_mutation};
+
+    #[test]
+    fn should_prompt_table_mutation_honors_flags() {
+        let mut behavior = models::AppBehaviorSettings::default();
+        assert!(should_prompt_table_mutation(
+            TableMutationKind::Drop,
+            &behavior
+        ));
+        assert!(should_prompt_table_mutation(
+            TableMutationKind::Truncate,
+            &behavior
+        ));
+        behavior.confirm_before_drop = false;
+        assert!(!should_prompt_table_mutation(
+            TableMutationKind::Drop,
+            &behavior
+        ));
+        assert!(should_prompt_table_mutation(
+            TableMutationKind::Truncate,
+            &behavior
+        ));
     }
 }
