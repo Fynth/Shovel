@@ -1,4 +1,4 @@
-use database::{DatabaseDriver, LiveConnection};
+use database::{DatabaseDriver, LiveConnection, SessionHandle};
 use driver_clickhouse::ClickHouseDriver;
 use models::{DatabaseError, TablePreviewSource};
 use sqlx::Row;
@@ -19,20 +19,38 @@ use super::{
     postgres_type_supports_auto_id,
     quote_identifier,
     quote_identifier_clickhouse,
+    require_live,
     sql_literal,
     sqlite_single_primary_key_column,
     sqlite_type_supports_auto_id,
 };
 
 pub async fn update_table_cell(
-    connection: LiveConnection,
+    handle: &SessionHandle,
     source: TablePreviewSource,
     locator: String,
     column_name: String,
     value: String,
 ) -> Result<(), DatabaseError> {
+    if let Some(mutate) = handle.mutate() {
+        match mutate
+            .update_table_cell(
+                source.clone(),
+                locator.clone(),
+                column_name.clone(),
+                value.clone(),
+            )
+            .await
+        {
+            Ok(()) => return Ok(()),
+            Err(DatabaseError::Unsupported(_)) => {}
+            Err(err) => return Err(err),
+        }
+    }
+
     let column = quote_identifier(&column_name);
     let value_literal = sql_literal(&value);
+    let connection = require_live(handle)?;
 
     match connection {
         LiveConnection::Sqlite(pool) => {
@@ -129,9 +147,10 @@ pub async fn update_table_cell(
 }
 
 pub async fn insert_table_row(
-    connection: LiveConnection,
+    handle: &SessionHandle,
     source: TablePreviewSource,
 ) -> Result<(), DatabaseError> {
+    let connection = require_live(handle)?;
     match connection {
         LiveConnection::Sqlite(pool) => {
             let sql = format!("insert into {} default values", source.qualified_name);
@@ -164,10 +183,11 @@ pub async fn insert_table_row(
 }
 
 pub async fn insert_table_row_with_values(
-    connection: LiveConnection,
+    handle: &SessionHandle,
     source: TablePreviewSource,
     column_values: Vec<(String, String)>,
 ) -> Result<(), DatabaseError> {
+    let connection = require_live(handle)?;
     match connection {
         LiveConnection::Sqlite(pool) => {
             let sql = build_insert_row_sql(&source, &column_values, quote_identifier);
@@ -214,9 +234,10 @@ fn build_clickhouse_insert_sql(
 }
 
 pub async fn next_table_primary_key_id(
-    connection: LiveConnection,
+    handle: &SessionHandle,
     source: TablePreviewSource,
 ) -> Result<Option<(String, i64)>, DatabaseError> {
+    let connection = require_live(handle)?;
     match connection {
         LiveConnection::Sqlite(pool) => {
             let schema_name = source.schema.clone().unwrap_or_else(|| "main".to_string());
@@ -362,10 +383,11 @@ pub async fn next_table_primary_key_id(
 }
 
 pub async fn delete_table_row(
-    connection: LiveConnection,
+    handle: &SessionHandle,
     source: TablePreviewSource,
     locator: String,
 ) -> Result<(), DatabaseError> {
+    let connection = require_live(handle)?;
     match connection {
         LiveConnection::Sqlite(pool) => {
             let rowid = locator

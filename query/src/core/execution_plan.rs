@@ -1,4 +1,4 @@
-use database::{DatabaseDriver, LiveConnection};
+use database::{DatabaseDriver, LiveConnection, SessionHandle};
 use driver_clickhouse::ClickHouseDriver;
 use models::{DatabaseError, ExecutionPlan, ExecutionPlanNode};
 use sqlx::Row;
@@ -11,11 +11,20 @@ use sqlx::Row;
 /// For MySQL, runs `EXPLAIN FORMAT=JSON {sql}`.
 /// For ClickHouse, runs `EXPLAIN {sql}`.
 pub async fn execute_explain(
-    connection: LiveConnection,
+    handle: &SessionHandle,
     sql: &str,
     analyze: bool,
 ) -> Result<ExecutionPlan, DatabaseError> {
+    if let Some(explain) = handle.explain() {
+        match explain.execute_explain(sql, analyze).await {
+            Ok(plan) => return Ok(plan),
+            Err(DatabaseError::Unsupported(_)) => {}
+            Err(err) => return Err(err),
+        }
+    }
+
     let trimmed = sql.trim().trim_end_matches(';').trim();
+    let connection = super::require_live(handle)?;
 
     match connection {
         LiveConnection::Sqlite(pool) => execute_sqlite_explain(&pool, trimmed).await,
@@ -1000,7 +1009,7 @@ mod tests {
             .unwrap();
 
         let plan = execute_explain(
-            LiveConnection::Sqlite(pool),
+            &SessionHandle::from_legacy(LiveConnection::Sqlite(pool)),
             "EXPLAIN select * from users",
             false,
         )

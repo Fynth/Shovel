@@ -1,4 +1,6 @@
-use database::LiveConnection;
+use database::{LiveConnection, SessionHandle};
+
+use crate::core::require_live;
 use driver_clickhouse::execute_text_query;
 use models::{QueryPage, TablePreviewSource};
 use rust_xlsxwriter::Workbook;
@@ -66,7 +68,7 @@ pub async fn export_query_page_sql_dump(
 }
 
 pub async fn import_csv_into_table(
-    connection: LiveConnection,
+    handle: &SessionHandle,
     source: TablePreviewSource,
     path: PathBuf,
 ) -> Result<u64, String> {
@@ -78,6 +80,7 @@ pub async fn import_csv_into_table(
         return Ok(0);
     }
 
+    let connection = require_live(handle).map_err(|err| err.to_string())?;
     match connection {
         LiveConnection::Sqlite(pool) => {
             let mut transaction = pool

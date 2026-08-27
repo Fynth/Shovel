@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use database::LiveConnection;
+use database::{LiveConnection, SessionHandle};
 use models::{
     DatabaseError,
     ExecutionPlan,
@@ -14,10 +14,12 @@ use models::{
     TablePreviewSource,
 };
 
+fn session_handle(session_id: u64) -> Result<SessionHandle, DatabaseError> {
+    connection::session(session_id).ok_or(DatabaseError::SessionNotFound(session_id))
+}
+
 fn live_connection(session_id: u64) -> Result<LiveConnection, DatabaseError> {
-    let handle =
-        connection::session(session_id).ok_or(DatabaseError::SessionNotFound(session_id))?;
-    handle
+    session_handle(session_id)?
         .legacy()
         .ok_or_else(|| DatabaseError::Unsupported("session has no live connection".into()))
 }
@@ -27,8 +29,7 @@ pub fn format_sql_for_session(
     sql: &str,
     settings: &SqlFormatSettings,
 ) -> Result<String, DatabaseError> {
-    let handle =
-        connection::session(session_id).ok_or(DatabaseError::SessionNotFound(session_id))?;
+    let handle = session_handle(session_id)?;
     Ok(query::format_sql(
         handle.dialect().format_flavor,
         sql,
@@ -37,7 +38,7 @@ pub fn format_sql_for_session(
 }
 
 pub async fn execute_query(session_id: u64, sql: String) -> Result<QueryOutput, DatabaseError> {
-    query::execute_query(live_connection(session_id)?, sql).await
+    query::execute_query(&session_handle(session_id)?, sql).await
 }
 
 pub async fn execute_query_page(
@@ -49,7 +50,7 @@ pub async fn execute_query_page(
     sort: Option<QuerySort>,
 ) -> Result<QueryOutput, DatabaseError> {
     query::execute_query_page(
-        live_connection(session_id)?,
+        &session_handle(session_id)?,
         sql,
         page_size,
         offset,
@@ -64,7 +65,7 @@ pub async fn execute_explain(
     sql: &str,
     analyze: bool,
 ) -> Result<ExecutionPlan, DatabaseError> {
-    query::execute_explain(live_connection(session_id)?, sql, analyze).await
+    query::execute_explain(&session_handle(session_id)?, sql, analyze).await
 }
 
 pub async fn load_table_preview_page(
@@ -76,7 +77,7 @@ pub async fn load_table_preview_page(
     sort: Option<QuerySort>,
 ) -> Result<QueryOutput, DatabaseError> {
     query::load_table_preview_page(
-        live_connection(session_id)?,
+        &session_handle(session_id)?,
         source,
         page_size,
         offset,
@@ -94,7 +95,7 @@ pub async fn create_table(
     clickhouse_engine: Option<String>,
 ) -> Result<(), DatabaseError> {
     query::create_table(
-        live_connection(session_id)?,
+        &session_handle(session_id)?,
         schema,
         table_name,
         columns_sql,
@@ -104,14 +105,14 @@ pub async fn create_table(
 }
 
 pub async fn drop_table(session_id: u64, source: TablePreviewSource) -> Result<(), DatabaseError> {
-    query::drop_table(live_connection(session_id)?, source).await
+    query::drop_table(&session_handle(session_id)?, source).await
 }
 
 pub async fn truncate_table(
     session_id: u64,
     source: TablePreviewSource,
 ) -> Result<(), DatabaseError> {
-    query::truncate_table(live_connection(session_id)?, source).await
+    query::truncate_table(&session_handle(session_id)?, source).await
 }
 
 pub async fn rename_table(
@@ -119,7 +120,7 @@ pub async fn rename_table(
     source: TablePreviewSource,
     new_table_name: String,
 ) -> Result<(), DatabaseError> {
-    query::rename_table(live_connection(session_id)?, source, new_table_name).await
+    query::rename_table(&session_handle(session_id)?, source, new_table_name).await
 }
 
 pub async fn duplicate_table(
@@ -129,7 +130,7 @@ pub async fn duplicate_table(
     copy_data: bool,
 ) -> Result<(), DatabaseError> {
     query::duplicate_table(
-        live_connection(session_id)?,
+        &session_handle(session_id)?,
         source,
         new_table_name,
         copy_data,
@@ -142,14 +143,14 @@ pub async fn delete_table_row(
     source: TablePreviewSource,
     locator: String,
 ) -> Result<(), DatabaseError> {
-    query::delete_table_row(live_connection(session_id)?, source, locator).await
+    query::delete_table_row(&session_handle(session_id)?, source, locator).await
 }
 
 pub async fn insert_table_row(
     session_id: u64,
     source: TablePreviewSource,
 ) -> Result<(), DatabaseError> {
-    query::insert_table_row(live_connection(session_id)?, source).await
+    query::insert_table_row(&session_handle(session_id)?, source).await
 }
 
 pub async fn insert_table_row_with_values(
@@ -157,14 +158,14 @@ pub async fn insert_table_row_with_values(
     source: TablePreviewSource,
     column_values: Vec<(String, String)>,
 ) -> Result<(), DatabaseError> {
-    query::insert_table_row_with_values(live_connection(session_id)?, source, column_values).await
+    query::insert_table_row_with_values(&session_handle(session_id)?, source, column_values).await
 }
 
 pub async fn next_table_primary_key_id(
     session_id: u64,
     source: TablePreviewSource,
 ) -> Result<Option<(String, i64)>, DatabaseError> {
-    query::next_table_primary_key_id(live_connection(session_id)?, source).await
+    query::next_table_primary_key_id(&session_handle(session_id)?, source).await
 }
 
 pub async fn update_table_cell(
@@ -175,7 +176,7 @@ pub async fn update_table_cell(
     value: String,
 ) -> Result<(), DatabaseError> {
     query::update_table_cell(
-        live_connection(session_id)?,
+        &session_handle(session_id)?,
         source,
         locator,
         column_name,
@@ -190,7 +191,7 @@ pub async fn import_csv_into_table(
     path: PathBuf,
 ) -> Result<u64, String> {
     query::import_csv_into_table(
-        live_connection(session_id).map_err(|err| err.to_string())?,
+        &session_handle(session_id).map_err(|err| err.to_string())?,
         source,
         path,
     )

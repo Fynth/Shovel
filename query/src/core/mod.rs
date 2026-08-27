@@ -8,7 +8,7 @@ mod preview;
 mod rows;
 pub mod splitter;
 
-use database::{DatabaseDriver, Dialect, FormatFlavor, LiveConnection};
+use database::{DatabaseDriver, Dialect, FormatFlavor, LiveConnection, SessionHandle};
 use driver_clickhouse::ClickHouseDriver;
 use models::{DatabaseError, QueryFilter, QueryOutput, QuerySort, TablePreviewSource};
 use sqlx::Row;
@@ -76,11 +76,17 @@ const CLICKHOUSE_DIALECT: Dialect = Dialect {
 
 pub(crate) use self::rows::{postgres_rows_to_page, sqlite_rows_to_page};
 
+pub(crate) fn require_live(handle: &SessionHandle) -> Result<LiveConnection, DatabaseError> {
+    handle
+        .legacy()
+        .ok_or_else(|| DatabaseError::Unsupported("no query exec and no live connection".into()))
+}
+
 pub async fn execute_query(
-    connection: LiveConnection,
+    handle: &SessionHandle,
     sql: String,
 ) -> Result<QueryOutput, DatabaseError> {
-    execute_query_page(connection, sql, 100, 0, None, None).await
+    execute_query_page(handle, sql, 100, 0, None, None).await
 }
 
 pub fn is_read_only_sql(sql: &str) -> bool {
@@ -99,6 +105,35 @@ pub fn preview_source_for_sql(sql: &str) -> Option<TablePreviewSource> {
 }
 
 pub async fn execute_query_page(
+    handle: &SessionHandle,
+    sql: String,
+    page_size: u32,
+    offset: u64,
+    filter: Option<QueryFilter>,
+    sort: Option<QuerySort>,
+) -> Result<QueryOutput, DatabaseError> {
+    let dialect = handle.dialect();
+    let built_sql = build_paginated_query(
+        &sql,
+        page_size,
+        offset,
+        filter.as_ref(),
+        sort.as_ref(),
+        dialect,
+    );
+    match handle.query().execute_sql(&built_sql).await {
+        Ok(out) => Ok(out),
+        Err(DatabaseError::Unsupported(_)) => {
+            let live = handle.legacy().ok_or(DatabaseError::Unsupported(
+                "no query exec and no live connection".into(),
+            ))?;
+            execute_query_page_live(live, sql, page_size, offset, filter, sort).await
+        }
+        Err(err) => Err(err),
+    }
+}
+
+pub(crate) async fn execute_query_page_live(
     connection: LiveConnection,
     sql: String,
     page_size: u32,
@@ -724,8 +759,23 @@ mod tests {
         reorder_clickhouse_primary_key_columns,
         truncate_table,
     };
+    use database::{FakeDriver, SessionHandle};
     use models::{QueryOutput, TablePreviewSource};
     use sqlx::SqlitePool;
+    use std::sync::Arc;
+
+    fn sqlite_handle(pool: SqlitePool) -> SessionHandle {
+        SessionHandle::from_legacy(LiveConnection::Sqlite(pool))
+    }
+
+    #[tokio::test]
+    async fn execute_query_page_uses_fake_query_exec() {
+        let handle = SessionHandle::wrap(Arc::new(FakeDriver::default()));
+        let out = execute_query_page(&handle, "select 1".into(), 10, 0, None, None)
+            .await
+            .unwrap();
+        assert!(matches!(out, QueryOutput::Table(_)));
+    }
 
     #[test]
     fn read_only_sql_detection_matches_supported_queries() {
@@ -787,7 +837,7 @@ mod tests {
         .unwrap();
 
         let result = execute_query_page(
-            LiveConnection::Sqlite(pool),
+            &sqlite_handle(pool),
             r#"select * from "products" limit 100;"#.to_string(),
             100,
             0,
@@ -813,7 +863,7 @@ mod tests {
         let pool = SqlitePool::connect(":memory:").await.unwrap();
 
         create_table(
-            LiveConnection::Sqlite(pool.clone()),
+            &sqlite_handle(pool.clone()),
             Some("main".to_string()),
             "products".to_string(),
             "id integer primary key,\nname text not null".to_string(),
@@ -854,7 +904,7 @@ mod tests {
         .unwrap();
 
         drop_table(
-            LiveConnection::Sqlite(pool.clone()),
+            &sqlite_handle(pool.clone()),
             TablePreviewSource {
                 schema: Some("main".to_string()),
                 table_name: "products".to_string(),
@@ -901,7 +951,7 @@ mod tests {
             .unwrap();
 
         truncate_table(
-            LiveConnection::Sqlite(pool.clone()),
+            &sqlite_handle(pool.clone()),
             TablePreviewSource {
                 schema: Some("main".to_string()),
                 table_name: "products".to_string(),
@@ -948,7 +998,7 @@ mod tests {
         .unwrap();
 
         rename_table(
-            LiveConnection::Sqlite(pool.clone()),
+            &sqlite_handle(pool.clone()),
             TablePreviewSource {
                 schema: Some("main".to_string()),
                 table_name: "products".to_string(),
@@ -1008,7 +1058,7 @@ mod tests {
             .unwrap();
 
         duplicate_table(
-            LiveConnection::Sqlite(pool.clone()),
+            &sqlite_handle(pool.clone()),
             TablePreviewSource {
                 schema: Some("main".to_string()),
                 table_name: "products".to_string(),
@@ -1063,7 +1113,7 @@ mod tests {
             .unwrap();
 
         duplicate_table(
-            LiveConnection::Sqlite(pool.clone()),
+            &sqlite_handle(pool.clone()),
             TablePreviewSource {
                 schema: Some("main".to_string()),
                 table_name: "products".to_string(),

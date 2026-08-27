@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use database::LiveConnection;
+use database::{LiveConnection, SessionHandle};
 use models::{
     DatabaseError,
     ExplorerNode,
@@ -481,7 +481,15 @@ async fn append_relation_preview_profile(
 ) {
     lines.push(relation_heading(&source, is_active_focus));
 
-    match load_table_preview_page(connection, source, MAX_CONTEXT_ROWS as u32, 0, None, None).await
+    match load_table_preview_page(
+        &SessionHandle::from_legacy(connection),
+        source,
+        MAX_CONTEXT_ROWS as u32,
+        0,
+        None,
+        None,
+    )
+    .await
     {
         Ok(QueryOutput::Table(page)) => {
             append_page_preview(lines, &page);

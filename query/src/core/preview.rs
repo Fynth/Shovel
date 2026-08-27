@@ -1,4 +1,4 @@
-use database::{DatabaseDriver, LiveConnection};
+use database::{DatabaseDriver, LiveConnection, SessionHandle};
 use driver_clickhouse::ClickHouseDriver;
 use models::{DatabaseError, QueryFilter, QueryOutput, QuerySort, TablePreviewSource};
 
@@ -16,6 +16,7 @@ use super::{
     mysql_locator_expression,
     mysql_primary_key_columns,
     quote_identifier_clickhouse,
+    require_live,
     rows::{
         mysql_preview_rows_to_paginated_page,
         mysql_rows_to_paginated_page,
@@ -25,13 +26,14 @@ use super::{
 };
 
 pub async fn load_table_preview_page(
-    connection: LiveConnection,
+    handle: &SessionHandle,
     source: TablePreviewSource,
     page_size: u32,
     offset: u64,
     filter: Option<QueryFilter>,
     sort: Option<QuerySort>,
 ) -> Result<QueryOutput, DatabaseError> {
+    let connection = require_live(handle)?;
     match connection {
         LiveConnection::Sqlite(pool) => {
             let sql = build_outer_paginated_query(

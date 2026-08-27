@@ -9,29 +9,29 @@
 #![allow(unused_imports)]
 
 use super::*;
-use database::LiveConnection;
+use database::{LiveConnection, SessionHandle};
 use sqlx::sqlite::SqlitePool;
 
 /// Connects to a fresh `:memory:` SQLite database and returns it as a
-/// `LiveConnection` that the public `query` API can consume.
-async fn fresh_sqlite() -> LiveConnection {
+/// `SessionHandle` that the public `query` API can consume.
+async fn fresh_sqlite() -> SessionHandle {
     let pool = SqlitePool::connect(":memory:")
         .await
         .expect("connect to in-memory sqlite");
-    LiveConnection::Sqlite(pool)
+    SessionHandle::from_legacy(LiveConnection::Sqlite(pool))
 }
 
 /// Creates a small test schema used by the round-trip tests.
-async fn seed_two_rows(conn: &LiveConnection) {
+async fn seed_two_rows(handle: &SessionHandle) {
     execute_query(
-        conn.clone(),
+        handle,
         "create table widgets (id integer primary key, name text not null, qty integer not null)"
             .to_string(),
     )
     .await
     .expect("create table");
     execute_query(
-        conn.clone(),
+        handle,
         "insert into widgets (id, name, qty) values (1, 'alpha', 10), (2, 'beta', 20)".to_string(),
     )
     .await
@@ -43,7 +43,7 @@ async fn select_returns_seeded_rows_in_order() {
     let conn = fresh_sqlite().await;
     seed_two_rows(&conn).await;
 
-    let output = execute_query(conn, "select id, name, qty from widgets".to_string())
+    let output = execute_query(&conn, "select id, name, qty from widgets".to_string())
         .await
         .expect("select");
 
@@ -67,7 +67,7 @@ async fn pagination_returns_offset_slice() {
     seed_two_rows(&conn).await;
 
     let output = execute_query_page(
-        conn,
+        &conn,
         "select id from widgets order by id".to_string(),
         1,    // page_size
         1,    // offset (skip first row)
@@ -93,13 +93,13 @@ async fn insert_then_update_then_delete_round_trip() {
 
     // Insert a new row through the public `execute_query` API.
     execute_query(
-        conn.clone(),
+        &conn,
         "insert into widgets (id, name, qty) values (3, 'gamma', 30)".to_string(),
     )
     .await
     .expect("insert third row");
 
-    let output = execute_query(conn.clone(), "select count(*) from widgets".to_string())
+    let output = execute_query(&conn, "select count(*) from widgets".to_string())
         .await
         .expect("count after insert");
     match output {
@@ -109,29 +109,26 @@ async fn insert_then_update_then_delete_round_trip() {
 
     // Update the newly inserted row.
     execute_query(
-        conn.clone(),
+        &conn,
         "update widgets set qty = 99 where id = 3".to_string(),
     )
     .await
     .expect("update third row");
 
-    let output = execute_query(
-        conn.clone(),
-        "select qty from widgets where id = 3".to_string(),
-    )
-    .await
-    .expect("select after update");
+    let output = execute_query(&conn, "select qty from widgets where id = 3".to_string())
+        .await
+        .expect("select after update");
     match output {
         models::QueryOutput::Table(page) => assert_eq!(page.rows[0][0], "99"),
         other => panic!("expected table result, got {other:?}"),
     }
 
     // Delete the row through plain SQL.
-    execute_query(conn.clone(), "delete from widgets where id = 3".to_string())
+    execute_query(&conn, "delete from widgets where id = 3".to_string())
         .await
         .expect("delete third row");
 
-    let output = execute_query(conn, "select count(*) from widgets".to_string())
+    let output = execute_query(&conn, "select count(*) from widgets".to_string())
         .await
         .expect("count after delete");
     match output {
@@ -145,7 +142,7 @@ async fn create_then_drop_table_lifecycle() {
     let conn = fresh_sqlite().await;
 
     create_table(
-        conn.clone(),
+        &conn,
         Some("main".to_string()),
         "ephemeral".to_string(),
         "id integer primary key".to_string(),
@@ -154,7 +151,7 @@ async fn create_then_drop_table_lifecycle() {
     .await
     .expect("create ephemeral table");
 
-    let output = execute_query(conn.clone(), "select count(*) from ephemeral".to_string())
+    let output = execute_query(&conn, "select count(*) from ephemeral".to_string())
         .await
         .expect("count on empty table");
     match output {
@@ -164,11 +161,11 @@ async fn create_then_drop_table_lifecycle() {
 
     // `drop_table` consumes a `TablePreviewSource` derived from a SELECT.
     // For a freshly created table the simpler path is the underlying SQL.
-    execute_query(conn.clone(), "drop table ephemeral".to_string())
+    execute_query(&conn, "drop table ephemeral".to_string())
         .await
         .expect("drop ephemeral table");
 
-    let err = execute_query(conn, "select * from ephemeral".to_string())
+    let err = execute_query(&conn, "select * from ephemeral".to_string())
         .await
         .expect_err("query against dropped table should fail");
     let msg = format!("{err}");

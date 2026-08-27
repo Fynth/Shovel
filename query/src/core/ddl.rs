@@ -1,4 +1,4 @@
-use database::{DatabaseDriver, LiveConnection};
+use database::{DatabaseDriver, LiveConnection, SessionHandle};
 use driver_clickhouse::ClickHouseDriver;
 use models::{DatabaseError, TablePreviewSource};
 
@@ -10,11 +10,12 @@ use super::{
     qualified_postgres_table_name,
     qualified_sqlite_table_name,
     quote_identifier,
+    require_live,
     rewrite_create_table_statement,
 };
 
 pub async fn create_table(
-    connection: LiveConnection,
+    handle: &SessionHandle,
     schema: Option<String>,
     table_name: String,
     columns_sql: String,
@@ -39,6 +40,7 @@ pub async fn create_table(
         format!("(\n{columns_sql}\n)")
     };
 
+    let connection = require_live(handle)?;
     match connection {
         LiveConnection::Sqlite(pool) => {
             let qualified_name = qualified_sqlite_table_name(schema.as_deref(), table_name);
@@ -87,7 +89,7 @@ pub async fn create_table(
 }
 
 pub async fn drop_table(
-    connection: LiveConnection,
+    handle: &SessionHandle,
     source: TablePreviewSource,
 ) -> Result<(), DatabaseError> {
     let sql = format!(
@@ -95,6 +97,7 @@ pub async fn drop_table(
         source.qualified_name.trim().trim_end_matches(';')
     );
 
+    let connection = require_live(handle)?;
     match connection {
         LiveConnection::Sqlite(pool) => {
             sqlx::query(&sql)
@@ -125,11 +128,12 @@ pub async fn drop_table(
 }
 
 pub async fn truncate_table(
-    connection: LiveConnection,
+    handle: &SessionHandle,
     source: TablePreviewSource,
 ) -> Result<(), DatabaseError> {
     let qualified_name = source.qualified_name.trim().trim_end_matches(';');
 
+    let connection = require_live(handle)?;
     match connection {
         LiveConnection::Sqlite(pool) => {
             let sql = format!("delete from {qualified_name}");
@@ -164,7 +168,7 @@ pub async fn truncate_table(
 }
 
 pub async fn rename_table(
-    connection: LiveConnection,
+    handle: &SessionHandle,
     source: TablePreviewSource,
     new_table_name: String,
 ) -> Result<(), DatabaseError> {
@@ -182,6 +186,7 @@ pub async fn rename_table(
 
     let source_qualified_name = source.qualified_name.trim().trim_end_matches(';');
 
+    let connection = require_live(handle)?;
     match connection {
         LiveConnection::Sqlite(pool) => {
             let sql = format!(
@@ -229,7 +234,7 @@ pub async fn rename_table(
 }
 
 pub async fn duplicate_table(
-    connection: LiveConnection,
+    handle: &SessionHandle,
     source: TablePreviewSource,
     new_table_name: String,
     copy_data: bool,
@@ -248,6 +253,7 @@ pub async fn duplicate_table(
 
     let source_qualified_name = source.qualified_name.trim().trim_end_matches(';');
 
+    let connection = require_live(handle)?;
     match connection {
         LiveConnection::Sqlite(pool) => {
             let schema_name = source
