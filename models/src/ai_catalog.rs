@@ -361,6 +361,18 @@ pub fn is_native_http_ready(provider: &str, api_key: &str) -> bool {
     }
 }
 
+/// Remove a custom native provider. If it was the active model, clear `active`.
+pub fn delete_custom_provider(cat: &mut AiCatalogSettings, id: &str) {
+    cat.custom_native.retain(|provider| provider.id != id);
+    if cat
+        .active
+        .as_ref()
+        .is_some_and(|active| active.provider == id)
+    {
+        cat.active = None;
+    }
+}
+
 /// Trim `base`, fall back to `default_base` when empty, strip a trailing `/`.
 pub fn normalize_native_chat_url(base: &str, default_base: &str) -> String {
     let trimmed = base.trim();
@@ -375,6 +387,30 @@ pub fn normalize_native_chat_url(base: &str, default_base: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn delete_custom_resets_active_when_it_was_selected() {
+        let mut cat = AiCatalogSettings {
+            active: Some(ActiveModel {
+                provider: "custom:1".into(),
+                model: "m".into(),
+            }),
+            overrides: BTreeMap::new(),
+            custom_native: vec![CustomNativeProvider {
+                id: "custom:1".into(),
+                name: "Mine".into(),
+                base_url: "http://localhost:8080".into(),
+                models: vec![AiModelEntry {
+                    id: "m".into(),
+                    label: String::new(),
+                }],
+            }],
+        };
+        delete_custom_provider(&mut cat, "custom:1");
+        assert!(cat.custom_native.is_empty());
+        assert!(cat.active.is_none());
+    }
 
     #[test]
     fn active_model_label_falls_back_to_id() {

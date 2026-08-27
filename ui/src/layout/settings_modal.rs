@@ -16,7 +16,22 @@
 
 use crate::{components::tooltip_target::TooltipTarget, screens::SqlFormatSettingsFields};
 use dioxus::prelude::*;
-use models::{AppThemePreference, AppUiSettings, SqlFormatSettings, UiDensity, WorkspaceSplitMode};
+use models::{
+    ActiveModel,
+    AiModelEntry,
+    AiProviderKind,
+    AppThemePreference,
+    AppUiSettings,
+    BuiltinProviderSpec,
+    CustomNativeProvider,
+    SqlFormatSettings,
+    UiDensity,
+    WorkspaceSplitMode,
+    builtin_providers,
+    delete_custom_provider,
+    normalize_native_chat_url,
+};
+use std::collections::BTreeMap;
 
 /// Top-level categories shown in the left navigation sidebar.
 ///
@@ -73,7 +88,7 @@ impl SettingsCategory {
             Self::Editor => "SQL editor formatting and completions",
             Self::Grid => "Result-grid and row-rendering options",
             Self::Navigation => "Explorer, sidebar, and panel layout",
-            Self::Advanced => "Agent API keys, workspace defaults, and resets",
+            Self::Advanced => "Language models, workspace defaults, and resets",
             Self::Config => "config.toml file location and reload",
         }
     }
@@ -234,7 +249,7 @@ pub fn SettingsModal(props: SettingsModalProps) -> Element {
                                 }
                             },
                             SettingsCategory::Advanced => rsx! {
-                                DeepSeekAgentSection { ..section_props.clone() }
+                                LanguageModelsSection { ..section_props.clone() }
                                 WorkspaceSection { ..section_props }
                             },
                             SettingsCategory::Config => rsx! {
@@ -355,125 +370,110 @@ fn AppearanceSection(props: SettingsSectionProps) -> Element {
 }
 
 #[component]
-fn DeepSeekAgentSection(props: SettingsSectionProps) -> Element {
-    let settings = props.settings.clone();
+fn LanguageModelsSection(props: SettingsSectionProps) -> Element {
     let on_change = props.on_change;
-    let section_props_signal = use_signal(|| props.clone());
+    let section = use_signal(|| props.clone());
+    let extra_drafts = use_signal(BTreeMap::<String, String>::new);
+    let mut custom_name = use_signal(String::new);
+    let mut custom_url = use_signal(String::new);
+    let mut custom_key = use_signal(String::new);
+    let settings = section.read().settings.clone();
+    let native_specs: Vec<BuiltinProviderSpec> = builtin_providers()
+        .iter()
+        .copied()
+        .filter(|spec| spec.kind == AiProviderKind::NativeHttp)
+        .collect();
+    let active_label = match settings.ai_catalog.active.as_ref() {
+        Some(active) if !active.model.trim().is_empty() => {
+            format!("{} / {}", active.provider, active.model)
+        }
+        Some(active) => active.provider.clone(),
+        None => "None".to_string(),
+    };
 
     rsx! {
         section {
             class: "settings-modal__section",
             div {
                 class: "settings-modal__section-header",
-                h3 { class: "settings-modal__section-title", "DeepSeek Agent" }
-                p {
-                    class: "settings-modal__section-hint",
-                    "Primary API-key agent for database chat, SQL generation and SQL fixes."
+                h3 { class: "settings-modal__section-title", "Language models" }
+            }
+            p {
+                class: "settings-modal__section-hint",
+                "Default model: {active_label}. Keys stay in the OS keyring, not in JSON."
+            }
+            for spec in native_specs {
+                {
+                    native_http_provider_card(spec, &settings, section, on_change, extra_drafts)
                 }
             }
-            label {
-                class: "settings-modal__toggle",
-                input {
-                    r#type: "checkbox",
-                    checked: settings.deepseek.enabled,
-                    disabled: settings.deepseek.api_key.is_empty(),
-                    oninput: move |event| {
-                        let mut next = section_props_signal.read().settings.clone();
-                        next.deepseek.enabled = event.checked();
-                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
-                    },
-                }
-                span { "Use DeepSeek as the default embedded SQL agent" }
-            }
-            div {
-                class: "settings-modal__grid",
-                div {
-                    class: "field",
-                    span { class: "field__label", "API Key" }
-                    input {
-                        class: "input",
-                        r#type: "password",
-                        placeholder: "sk-...",
-                        value: "{settings.deepseek.api_key}",
-                        oninput: move |event| {
-                            let mut next = section_props_signal.read().settings.clone();
-                            let value = event.value();
-                            next.deepseek.api_key = value.clone();
-                            if value.trim().is_empty() {
-                                next.deepseek.enabled = false;
-                            }
-                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
-                        },
+            div { class: "settings-modal__group",
+                span { class: "settings-modal__group-title", "Custom providers" }
+                for custom in settings.ai_catalog.custom_native.clone() {
+                    {
+                        custom_native_provider_card(
+                            custom,
+                            &settings,
+                            section,
+                            on_change,
+                            extra_drafts,
+                        )
                     }
                 }
-                div {
-                    class: "field",
-                    span { class: "field__label", "Base URL" }
-                    input {
-                        class: "input",
-                        placeholder: "https://api.deepseek.com",
-                        value: "{settings.deepseek.base_url}",
-                        oninput: move |event| {
-                            let mut next = section_props_signal.read().settings.clone();
-                            next.deepseek.base_url = event.value();
-                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
-                        },
+                div { class: "settings-modal__grid",
+                    div { class: "field",
+                        span { class: "field__label", "Name" }
+                        input {
+                            class: "input",
+                            placeholder: "My provider",
+                            value: "{custom_name()}",
+                            oninput: move |event| custom_name.set(event.value()),
+                        }
+                    }
+                    div { class: "field",
+                        span { class: "field__label", "Base URL" }
+                        input {
+                            class: "input",
+                            placeholder: "http://localhost:8080",
+                            value: "{custom_url()}",
+                            oninput: move |event| custom_url.set(event.value()),
+                        }
+                    }
+                    div { class: "field",
+                        span { class: "field__label", "API Key" }
+                        input {
+                            class: "input",
+                            r#type: "password",
+                            placeholder: "sk-...",
+                            value: "{custom_key()}",
+                            oninput: move |event| custom_key.set(event.value()),
+                        }
                     }
                 }
-                div {
-                    class: "field",
-                    span { class: "field__label", "Model" }
-                    select {
-                        class: "input",
-                        value: "{settings.deepseek.model}",
-                        oninput: move |event| {
-                            let mut next = section_props_signal.read().settings.clone();
-                            next.deepseek.model = event.value();
-                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                div { class: "settings-modal__section-actions",
+                    button {
+                        class: "button button--ghost button--small",
+                        onclick: move |_| {
+                            let id = new_custom_native_id();
+                            let name = custom_name().trim().to_string();
+                            let base_url = custom_url().trim().to_string();
+                            let key = custom_key();
+                            emit_ui_update(section, on_change, |next| {
+                                if !key.trim().is_empty() {
+                                    next.lm_keys.insert(id.clone(), key.clone());
+                                }
+                                next.ai_catalog.custom_native.push(CustomNativeProvider {
+                                    id,
+                                    name,
+                                    base_url,
+                                    models: Vec::new(),
+                                });
+                            });
+                            custom_name.set(String::new());
+                            custom_url.set(String::new());
+                            custom_key.set(String::new());
                         },
-                        option { value: "deepseek-chat", "deepseek-chat (fast, recommended)" }
-                        option { value: "deepseek-v4-pro", "deepseek-v4-pro (reasoning)" }
-                        option { value: "deepseek-v4-flash", "deepseek-v4-flash (reasoning, fast)" }
-                    }
-                }
-                div {
-                    class: "field",
-                    span { class: "field__label", "Reasoning effort" }
-                    select {
-                        class: "input",
-                        value: "{settings.deepseek.reasoning_effort}",
-                        oninput: move |event| {
-                            let mut next = section_props_signal.read().settings.clone();
-                            next.deepseek.reasoning_effort = event.value();
-                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
-                        },
-                        option { value: "low", "low" }
-                        option { value: "medium", "medium" }
-                        option { value: "high", "high" }
-                    }
-                }
-            }
-            label {
-                class: "settings-modal__toggle",
-                input {
-                    r#type: "checkbox",
-                    checked: settings.deepseek.thinking_enabled,
-                    oninput: move |event| {
-                        let mut next = section_props_signal.read().settings.clone();
-                        next.deepseek.thinking_enabled = event.checked();
-                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
-                    },
-                }
-                span { "Enable DeepSeek thinking mode when the selected model supports it" }
-            }
-            if settings.deepseek.api_key.is_empty() {
-                p {
-                    class: "settings-modal__section-hint",
-                    "Enter a DeepSeek API key to enable the embedded DeepSeek agent. Get your key from "
-                    a {
-                        href: "https://platform.deepseek.com/api_keys",
-                        target: "_blank",
-                        "platform.deepseek.com"
+                        "Add provider"
                     }
                 }
             }
@@ -505,9 +505,13 @@ fn WorkspaceSection(props: SettingsSectionProps) -> Element {
                                 // are not part of the JSON-serialized
                                 // AppUiSettings payload).
                                 let mut next = AppUiSettings::default();
-                                next.deepseek.api_key = section_props_signal.read().settings.deepseek.api_key.clone();
-                                next.codestral.api_key = section_props_signal.read().settings.codestral.api_key.clone();
-                                on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                                let current = section_props_signal.read().settings.clone();
+                                next.lm_keys = current.lm_keys;
+                                next.codestral.api_key = current.codestral.api_key;
+                                on_change.call((
+                                    next,
+                                    section_props_signal.read().sql_settings.clone(),
+                                ));
                             },
                             "Reset UI"
                         }
@@ -1157,6 +1161,646 @@ fn reload_config() -> Result<(), String> {
     Ok(())
 }
 
+fn emit_ui_update(
+    mut section: Signal<SettingsSectionProps>,
+    on_change: Callback<(AppUiSettings, SqlFormatSettings)>,
+    update: impl FnOnce(&mut AppUiSettings),
+) {
+    let sql = section.peek().sql_settings.clone();
+    let mut next = section.peek().settings.clone();
+    update(&mut next);
+    section.write().settings = next.clone();
+    on_change.call((next, sql));
+}
+
+fn new_custom_native_id() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("custom:{nanos:032x}")
+}
+
+fn catalog_refresh_base_url(settings: &AppUiSettings, slug: &str, default_base: &str) -> String {
+    if let Some(custom) = settings
+        .ai_catalog
+        .custom_native
+        .iter()
+        .find(|custom| custom.id == slug)
+    {
+        return normalize_native_chat_url(&custom.base_url, &custom.base_url);
+    }
+    let override_url = settings
+        .ai_catalog
+        .overrides
+        .get(slug)
+        .map(|over| over.base_url.as_str())
+        .unwrap_or("");
+    normalize_native_chat_url(override_url, default_base)
+}
+
+fn merge_refreshed_models_into(
+    settings: &mut AppUiSettings,
+    slug: &str,
+    fetched: Vec<AiModelEntry>,
+) {
+    if let Some(custom) = settings
+        .ai_catalog
+        .custom_native
+        .iter_mut()
+        .find(|custom| custom.id == slug)
+    {
+        for model in fetched {
+            if custom.models.iter().any(|existing| existing.id == model.id) {
+                continue;
+            }
+            custom.models.push(model);
+        }
+        return;
+    }
+    let builtin_ids: Vec<&str> = builtin_providers()
+        .iter()
+        .find(|spec| spec.slug == slug)
+        .map(|spec| spec.builtin_models.iter().map(|(id, _)| *id).collect())
+        .unwrap_or_default();
+    let extra = &mut settings
+        .ai_catalog
+        .overrides
+        .entry(slug.to_string())
+        .or_default()
+        .extra_models;
+    for model in fetched {
+        if builtin_ids.iter().any(|id| *id == model.id) {
+            continue;
+        }
+        if extra.iter().any(|existing| existing.id == model.id) {
+            continue;
+        }
+        extra.push(model);
+    }
+}
+
+fn refresh_catalog_models(
+    mut section: Signal<SettingsSectionProps>,
+    on_change: Callback<(AppUiSettings, SqlFormatSettings)>,
+    slug: String,
+    default_base: String,
+) {
+    let settings = section.peek().settings.clone();
+    let api_key = settings.lm_api_key(&slug);
+    let base_url = catalog_refresh_base_url(&settings, &slug, &default_base);
+    spawn(async move {
+        match services::refresh_provider_models(&slug, &base_url, &api_key).await {
+            Ok(models) => {
+                let sql = section.peek().sql_settings.clone();
+                let mut next = section.peek().settings.clone();
+                merge_refreshed_models_into(&mut next, &slug, models);
+                section.write().settings = next.clone();
+                on_change.call((next, sql));
+            }
+            Err(err) => crate::app_state::toast_error(err),
+        }
+    });
+}
+
+fn extra_draft_value(drafts: Signal<BTreeMap<String, String>>, slug: &str) -> String {
+    drafts.read().get(slug).cloned().unwrap_or_default()
+}
+
+fn native_http_provider_card(
+    spec: BuiltinProviderSpec,
+    settings: &AppUiSettings,
+    section: Signal<SettingsSectionProps>,
+    on_change: Callback<(AppUiSettings, SqlFormatSettings)>,
+    mut extra_drafts: Signal<BTreeMap<String, String>>,
+) -> Element {
+    let slug = spec.slug.to_string();
+    let over = settings
+        .ai_catalog
+        .overrides
+        .get(spec.slug)
+        .cloned()
+        .unwrap_or_default();
+    let api_key = settings.lm_api_key(spec.slug);
+    let extra_draft = extra_draft_value(extra_drafts, spec.slug);
+    let enabled_slug = slug.clone();
+    let key_slug = slug.clone();
+    let url_slug = slug.clone();
+    let refresh_slug = slug.clone();
+    let add_slug = slug.clone();
+    let thinking_slug = slug.clone();
+    let reasoning_slug = slug.clone();
+    let default_base = spec.default_base_url.to_string();
+
+    rsx! {
+        div { class: "settings-modal__group",
+            span { class: "settings-modal__group-title", "{spec.label}" }
+            label { class: "settings-modal__toggle",
+                input {
+                    r#type: "checkbox",
+                    checked: over.enabled,
+                    oninput: move |event| {
+                        let checked = event.checked();
+                        let slug = enabled_slug.clone();
+                        emit_ui_update(section, on_change, move |next| {
+                            next.ai_catalog.overrides.entry(slug).or_default().enabled = checked;
+                        });
+                    },
+                }
+                span { "Enabled" }
+            }
+            div { class: "settings-modal__grid",
+                div { class: "field",
+                    span { class: "field__label", "API Key" }
+                    input {
+                        class: "input",
+                        r#type: "password",
+                        placeholder: "sk-...",
+                        value: api_key,
+                        oninput: move |event| {
+                            let value = event.value();
+                            let slug = key_slug.clone();
+                            emit_ui_update(section, on_change, move |next| {
+                                next.lm_keys.insert(slug, value);
+                            });
+                        },
+                    }
+                }
+                div { class: "field",
+                    span { class: "field__label", "Base URL" }
+                    input {
+                        class: "input",
+                        placeholder: "{spec.default_base_url}",
+                        value: "{over.base_url}",
+                        oninput: move |event| {
+                            let value = event.value();
+                            let slug = url_slug.clone();
+                            emit_ui_update(section, on_change, move |next| {
+                                next.ai_catalog.overrides.entry(slug).or_default().base_url =
+                                    value;
+                            });
+                        },
+                    }
+                }
+            }
+            if spec.slug == "deepseek" {
+                label { class: "settings-modal__toggle",
+                    input {
+                        r#type: "checkbox",
+                        checked: over.thinking_enabled,
+                        oninput: move |event| {
+                            let checked = event.checked();
+                            let slug = thinking_slug.clone();
+                            emit_ui_update(section, on_change, move |next| {
+                                next.ai_catalog
+                                    .overrides
+                                    .entry(slug)
+                                    .or_default()
+                                    .thinking_enabled = checked;
+                            });
+                        },
+                    }
+                    span { "Enable thinking mode when the selected model supports it" }
+                }
+                div { class: "field",
+                    span { class: "field__label", "Reasoning effort" }
+                    select {
+                        class: "input",
+                        value: "{over.reasoning_effort}",
+                        onchange: move |event| {
+                            let value = event.value();
+                            let slug = reasoning_slug.clone();
+                            emit_ui_update(section, on_change, move |next| {
+                                next.ai_catalog
+                                    .overrides
+                                    .entry(slug)
+                                    .or_default()
+                                    .reasoning_effort = value;
+                            });
+                        },
+                        option { value: "low", "low" }
+                        option { value: "medium", "medium" }
+                        option { value: "high", "high" }
+                    }
+                }
+            }
+            for (model_id, model_label) in spec.builtin_models.iter().copied() {
+                {
+                    builtin_model_row(
+                        slug.clone(),
+                        model_id,
+                        model_label,
+                        &over.hidden_builtin_ids,
+                        settings,
+                        section,
+                        on_change,
+                    )
+                }
+            }
+            for extra in over.extra_models.iter().cloned() {
+                {
+                    extra_model_row(
+                        slug.clone(),
+                        extra,
+                        false,
+                        settings,
+                        section,
+                        on_change,
+                    )
+                }
+            }
+            div { class: "settings-modal__grid",
+                div { class: "field",
+                    span { class: "field__label", "Add extra model" }
+                    input {
+                        class: "input",
+                        placeholder: "model-id",
+                        value: extra_draft,
+                        oninput: move |event| {
+                            extra_drafts.write().insert(slug.clone(), event.value());
+                        },
+                    }
+                }
+            }
+            div { class: "settings-modal__section-actions",
+                button {
+                    class: "button button--ghost button--small",
+                    onclick: move |_| {
+                        let id = extra_drafts
+                            .write()
+                            .remove(&add_slug)
+                            .unwrap_or_default()
+                            .trim()
+                            .to_string();
+                        if id.is_empty() {
+                            return;
+                        }
+                        let slug = add_slug.clone();
+                        emit_ui_update(section, on_change, move |next| {
+                            let extra = &mut next
+                                .ai_catalog
+                                .overrides
+                                .entry(slug)
+                                .or_default()
+                                .extra_models;
+                            if extra.iter().any(|existing| existing.id == id) {
+                                return;
+                            }
+                            extra.push(AiModelEntry {
+                                id,
+                                label: String::new(),
+                            });
+                        });
+                    },
+                    "Add extra model"
+                }
+                if spec.supports_model_refresh {
+                    button {
+                        class: "button button--ghost button--small",
+                        onclick: move |_| {
+                            refresh_catalog_models(
+                                section,
+                                on_change,
+                                refresh_slug.clone(),
+                                default_base.clone(),
+                            );
+                        },
+                        "Refresh"
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn builtin_model_row(
+    slug: String,
+    model_id: &str,
+    model_label: &str,
+    hidden_ids: &[String],
+    settings: &AppUiSettings,
+    section: Signal<SettingsSectionProps>,
+    on_change: Callback<(AppUiSettings, SqlFormatSettings)>,
+) -> Element {
+    let model_id = model_id.to_string();
+    let display = if model_label.trim().is_empty() {
+        model_id.clone()
+    } else {
+        model_label.to_string()
+    };
+    let hidden = hidden_ids.iter().any(|id| id == &model_id);
+    let hide_slug = slug.clone();
+    let hide_id = model_id.clone();
+    let default_slug = slug;
+    let default_id = model_id.clone();
+    let is_default = settings
+        .ai_catalog
+        .active
+        .as_ref()
+        .is_some_and(|active| active.provider == default_slug && active.model == default_id);
+    let default_label = if is_default {
+        "Default"
+    } else {
+        "Use as default"
+    };
+
+    rsx! {
+        div { class: "settings-modal__grid",
+            span { class: "field__label", {display} }
+            label { class: "settings-modal__toggle",
+                input {
+                    r#type: "checkbox",
+                    checked: hidden,
+                    oninput: move |event| {
+                        let checked = event.checked();
+                        let slug = hide_slug.clone();
+                        let model_id = hide_id.clone();
+                        emit_ui_update(section, on_change, move |next| {
+                            let hidden = &mut next
+                                .ai_catalog
+                                .overrides
+                                .entry(slug)
+                                .or_default()
+                                .hidden_builtin_ids;
+                            if checked {
+                                if !hidden.iter().any(|id| id == &model_id) {
+                                    hidden.push(model_id);
+                                }
+                            } else {
+                                hidden.retain(|id| id != &model_id);
+                            }
+                        });
+                    },
+                }
+                span { "Hide" }
+            }
+            button {
+                class: "button button--ghost button--small",
+                onclick: move |_| {
+                    let provider = default_slug.clone();
+                    let model = default_id.clone();
+                    emit_ui_update(section, on_change, move |next| {
+                        next.ai_catalog.active = Some(ActiveModel { provider, model });
+                    });
+                },
+                {default_label}
+            }
+        }
+    }
+}
+
+fn extra_model_row(
+    slug: String,
+    extra: AiModelEntry,
+    custom: bool,
+    settings: &AppUiSettings,
+    section: Signal<SettingsSectionProps>,
+    on_change: Callback<(AppUiSettings, SqlFormatSettings)>,
+) -> Element {
+    let display = extra.display_label().to_string();
+    let model_id = extra.id.clone();
+    let default_slug = slug.clone();
+    let default_id = model_id.clone();
+    let remove_slug = slug;
+    let remove_id = model_id.clone();
+    let is_default = settings
+        .ai_catalog
+        .active
+        .as_ref()
+        .is_some_and(|active| active.provider == default_slug && active.model == default_id);
+    let default_label = if is_default {
+        "Default"
+    } else {
+        "Use as default"
+    };
+
+    rsx! {
+        div { class: "settings-modal__grid",
+            span { class: "field__label", {display} }
+            button {
+                class: "button button--ghost button--small",
+                onclick: move |_| {
+                    let provider = default_slug.clone();
+                    let model = default_id.clone();
+                    emit_ui_update(section, on_change, move |next| {
+                        next.ai_catalog.active = Some(ActiveModel { provider, model });
+                    });
+                },
+                {default_label}
+            }
+            button {
+                class: "button button--ghost button--small",
+                onclick: move |_| {
+                    let slug = remove_slug.clone();
+                    let model_id = remove_id.clone();
+                    emit_ui_update(section, on_change, move |next| {
+                        if custom {
+                            if let Some(provider) = next
+                                .ai_catalog
+                                .custom_native
+                                .iter_mut()
+                                .find(|provider| provider.id == slug)
+                            {
+                                provider.models.retain(|model| model.id != model_id);
+                            }
+                        } else {
+                            next.ai_catalog
+                                .overrides
+                                .entry(slug)
+                                .or_default()
+                                .extra_models
+                                .retain(|model| model.id != model_id);
+                        }
+                    });
+                },
+                "Remove"
+            }
+        }
+    }
+}
+
+fn custom_native_provider_card(
+    custom: CustomNativeProvider,
+    settings: &AppUiSettings,
+    section: Signal<SettingsSectionProps>,
+    on_change: Callback<(AppUiSettings, SqlFormatSettings)>,
+    mut extra_drafts: Signal<BTreeMap<String, String>>,
+) -> Element {
+    let id = custom.id.clone();
+    let api_key = settings.lm_api_key(&id);
+    let extra_draft = extra_draft_value(extra_drafts, &id);
+    let name_id = id.clone();
+    let url_id = id.clone();
+    let key_id = id.clone();
+    let add_id = id.clone();
+    let delete_id = id.clone();
+    let refresh_id = id.clone();
+    let default_id = id.clone();
+    let default_model = custom
+        .models
+        .first()
+        .map(|model| model.id.clone())
+        .unwrap_or_default();
+    let title = if custom.name.trim().is_empty() {
+        custom.id.clone()
+    } else {
+        custom.name.clone()
+    };
+
+    rsx! {
+        div { class: "settings-modal__group",
+            span { class: "settings-modal__group-title", {title} }
+            div { class: "settings-modal__grid",
+                div { class: "field",
+                    span { class: "field__label", "Name" }
+                    input {
+                        class: "input",
+                        value: "{custom.name}",
+                        oninput: move |event| {
+                            let value = event.value();
+                            let id = name_id.clone();
+                            emit_ui_update(section, on_change, move |next| {
+                                if let Some(provider) = next
+                                    .ai_catalog
+                                    .custom_native
+                                    .iter_mut()
+                                    .find(|provider| provider.id == id)
+                                {
+                                    provider.name = value;
+                                }
+                            });
+                        },
+                    }
+                }
+                div { class: "field",
+                    span { class: "field__label", "Base URL" }
+                    input {
+                        class: "input",
+                        placeholder: "http://localhost:8080",
+                        value: "{custom.base_url}",
+                        oninput: move |event| {
+                            let value = event.value();
+                            let id = url_id.clone();
+                            emit_ui_update(section, on_change, move |next| {
+                                if let Some(provider) = next
+                                    .ai_catalog
+                                    .custom_native
+                                    .iter_mut()
+                                    .find(|provider| provider.id == id)
+                                {
+                                    provider.base_url = value;
+                                }
+                            });
+                        },
+                    }
+                }
+                div { class: "field",
+                    span { class: "field__label", "API Key" }
+                    input {
+                        class: "input",
+                        r#type: "password",
+                        placeholder: "sk-...",
+                        value: api_key,
+                        oninput: move |event| {
+                            let value = event.value();
+                            let id = key_id.clone();
+                            emit_ui_update(section, on_change, move |next| {
+                                next.lm_keys.insert(id, value);
+                            });
+                        },
+                    }
+                }
+            }
+            for model in custom.models.clone() {
+                {
+                    extra_model_row(id.clone(), model, true, settings, section, on_change)
+                }
+            }
+            div { class: "settings-modal__grid",
+                div { class: "field",
+                    span { class: "field__label", "Add extra model" }
+                    input {
+                        class: "input",
+                        placeholder: "model-id",
+                        value: extra_draft,
+                        oninput: move |event| {
+                            extra_drafts.write().insert(id.clone(), event.value());
+                        },
+                    }
+                }
+            }
+            div { class: "settings-modal__section-actions",
+                button {
+                    class: "button button--ghost button--small",
+                    onclick: move |_| {
+                        let model_id = extra_drafts
+                            .write()
+                            .remove(&add_id)
+                            .unwrap_or_default()
+                            .trim()
+                            .to_string();
+                        if model_id.is_empty() {
+                            return;
+                        }
+                        let id = add_id.clone();
+                        emit_ui_update(section, on_change, move |next| {
+                            if let Some(provider) = next
+                                .ai_catalog
+                                .custom_native
+                                .iter_mut()
+                                .find(|provider| provider.id == id)
+                            {
+                                if provider.models.iter().any(|model| model.id == model_id) {
+                                    return;
+                                }
+                                provider.models.push(AiModelEntry {
+                                    id: model_id,
+                                    label: String::new(),
+                                });
+                            }
+                        });
+                    },
+                    "Add extra model"
+                }
+                button {
+                    class: "button button--ghost button--small",
+                    onclick: move |_| {
+                        refresh_catalog_models(
+                            section,
+                            on_change,
+                            refresh_id.clone(),
+                            String::new(),
+                        );
+                    },
+                    "Refresh"
+                }
+                button {
+                    class: "button button--ghost button--small",
+                    onclick: move |_| {
+                        let provider = default_id.clone();
+                        let model = default_model.clone();
+                        emit_ui_update(section, on_change, move |next| {
+                            next.ai_catalog.active = Some(ActiveModel { provider, model });
+                        });
+                    },
+                    "Use as default"
+                }
+                button {
+                    class: "button button--ghost button--small",
+                    onclick: move |_| {
+                        let id = delete_id.clone();
+                        emit_ui_update(section, on_change, move |next| {
+                            delete_custom_provider(&mut next.ai_catalog, &id);
+                            next.lm_keys.remove(&id);
+                        });
+                    },
+                    "Delete"
+                }
+            }
+        }
+    }
+}
+
 fn parse_u32_in_range(value: &str, fallback: u32, min: u32, max: u32) -> u32 {
     value
         .parse::<u32>()
@@ -1237,6 +1881,35 @@ mod tests {
         assert!(current.show_agent_panel);
         current = toggle_show_flag(current, ShowFlag::BottomPanel, false);
         assert!(!current.show_bottom_panel);
+    }
+
+    #[test]
+    fn merge_refreshed_models_skips_builtin_ids() {
+        let mut settings = AppUiSettings::default();
+        merge_refreshed_models_into(
+            &mut settings,
+            "openai",
+            vec![
+                AiModelEntry {
+                    id: "gpt-4o".into(),
+                    label: String::new(),
+                },
+                AiModelEntry {
+                    id: "my-ft".into(),
+                    label: String::new(),
+                },
+            ],
+        );
+        let extra = &settings.ai_catalog.overrides["openai"].extra_models;
+        let ids: Vec<_> = extra.iter().map(|model| model.id.as_str()).collect();
+        assert_eq!(ids, ["my-ft"]);
+    }
+
+    #[test]
+    fn new_custom_native_id_uses_custom_prefix() {
+        let id = new_custom_native_id();
+        assert!(id.starts_with("custom:"));
+        assert!(id.len() > "custom:".len());
     }
 
     #[test]
