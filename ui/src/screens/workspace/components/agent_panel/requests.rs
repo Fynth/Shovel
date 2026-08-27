@@ -127,7 +127,7 @@ fn native_chat_parts(
     }
 }
 
-fn native_base_url(settings: &AppUiSettings, provider: &str) -> String {
+pub(super) fn native_base_url(settings: &AppUiSettings, provider: &str) -> String {
     if let Some(custom) = settings
         .ai_catalog
         .custom_native
@@ -1305,7 +1305,42 @@ pub(super) fn read_only_agent_sql_blocked(
 
 #[cfg(test)]
 mod tests {
-    use super::{AgentSqlExecutionMode, build_explain_sql, read_only_agent_sql_blocked};
+    use super::{
+        AgentSqlExecutionMode,
+        build_explain_sql,
+        native_base_url,
+        read_only_agent_sql_blocked,
+    };
+    use models::{AiProviderOverride, AppUiSettings, CustomNativeProvider};
+
+    #[test]
+    fn native_base_url_prefers_custom_then_override() {
+        let mut settings = AppUiSettings::default();
+        settings
+            .ai_catalog
+            .custom_native
+            .push(CustomNativeProvider {
+                id: "custom:1".into(),
+                name: "Mine".into(),
+                base_url: "http://localhost:8080/".into(),
+                models: Vec::new(),
+            });
+        assert_eq!(
+            native_base_url(&settings, "custom:1"),
+            "http://localhost:8080"
+        );
+        settings.ai_catalog.overrides.insert(
+            "openai".into(),
+            AiProviderOverride {
+                base_url: "https://example.com/v1/".into(),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            native_base_url(&settings, "openai"),
+            "https://example.com/v1"
+        );
+    }
 
     #[test]
     fn prefixes_explain_for_regular_sql() {

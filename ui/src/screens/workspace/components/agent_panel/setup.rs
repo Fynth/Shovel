@@ -391,7 +391,7 @@ pub(super) fn set_acp_catalog_active(provider: &str) {
     });
 }
 
-fn native_provider_label(settings: &AppUiSettings, provider: &str) -> String {
+pub(super) fn native_provider_label(settings: &AppUiSettings, provider: &str) -> String {
     if let Some(spec) = builtin_providers()
         .iter()
         .find(|spec| spec.slug == provider)
@@ -497,7 +497,27 @@ mod tests {
         DefaultConnectAction,
         acp_catalog_provider_id,
         default_connect_action,
+        native_provider_label,
     };
+    use models::{AppUiSettings, CustomNativeProvider};
+
+    #[test]
+    fn native_provider_label_uses_builtin_or_custom_name() {
+        let mut settings = AppUiSettings::default();
+        assert_eq!(native_provider_label(&settings, "openai"), "OpenAI");
+        settings
+            .ai_catalog
+            .custom_native
+            .push(CustomNativeProvider {
+                id: "custom:1".into(),
+                name: "Mine".into(),
+                base_url: String::new(),
+                models: Vec::new(),
+            });
+        assert_eq!(native_provider_label(&settings, "custom:1"), "Mine");
+        settings.ai_catalog.custom_native[0].name.clear();
+        assert_eq!(native_provider_label(&settings, "custom:1"), "custom:1");
+    }
 
     #[test]
     fn unreadied_native_http_active_does_not_fallback_to_vendor() {

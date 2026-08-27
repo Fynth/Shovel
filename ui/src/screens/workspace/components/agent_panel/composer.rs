@@ -12,13 +12,14 @@ use models::{
 use super::{
     prompt::{active_editor_error, active_editor_sql},
     requests::{
+        native_base_url,
         send_chat_prompt_request,
         send_sql_error_fix_request,
         send_sql_explanation_request,
         send_sql_generation_request,
         send_sql_plan_request,
     },
-    setup::{connect_registry_agent, ensure_opencode_connected},
+    setup::{connect_registry_agent, ensure_opencode_connected, native_provider_label},
 };
 
 use crate::screens::workspace::tab_store::TabStore;
@@ -374,31 +375,13 @@ fn picker_trigger_label(settings: &AppUiSettings) -> String {
     let Some(active) = settings.ai_catalog.active.as_ref() else {
         return "Select model".to_string();
     };
-    let label = provider_display_label(settings, &active.provider);
+    let label = native_provider_label(settings, &active.provider);
     let model = model_display_label(settings, active);
-    format!("{label} / {model}")
-}
-
-fn provider_display_label(settings: &AppUiSettings, provider: &str) -> String {
-    if let Some(spec) = builtin_providers()
-        .iter()
-        .find(|spec| spec.slug == provider)
-    {
-        return spec.label.to_string();
+    if model.trim().is_empty() {
+        label
+    } else {
+        format!("{label} / {model}")
     }
-    settings
-        .ai_catalog
-        .custom_native
-        .iter()
-        .find(|custom| custom.id == provider)
-        .map(|custom| {
-            if custom.name.trim().is_empty() {
-                custom.id.clone()
-            } else {
-                custom.name.clone()
-            }
-        })
-        .unwrap_or_else(|| provider.to_string())
 }
 
 fn model_display_label(settings: &AppUiSettings, active: &ActiveModel) -> String {
@@ -470,42 +453,6 @@ fn acp_picker_agents() -> Vec<(String, String)> {
         .collect()
 }
 
-fn native_refresh_base_url(settings: &AppUiSettings, provider: &str) -> String {
-    if let Some(custom) = settings
-        .ai_catalog
-        .custom_native
-        .iter()
-        .find(|custom| custom.id == provider)
-    {
-        return custom.base_url.clone();
-    }
-    let default = builtin_providers()
-        .iter()
-        .find(|spec| spec.slug == provider)
-        .map(|spec| spec.default_base_url)
-        .unwrap_or("");
-    if let Some(over) = settings.ai_catalog.overrides.get(provider)
-        && !over.base_url.trim().is_empty()
-    {
-        return over.base_url.clone();
-    }
-    let vendor = match provider {
-        "deepseek" => settings.deepseek.base_url.as_str(),
-        "openai" => settings.openai.base_url.as_str(),
-        "groq" => settings.groq.base_url.as_str(),
-        "openrouter" => settings.openrouter.base_url.as_str(),
-        "xai" => settings.xai.base_url.as_str(),
-        "mistral" => settings.mistral.base_url.as_str(),
-        "ollama" => settings.ollama.base_url.as_str(),
-        _ => "",
-    };
-    if vendor.trim().is_empty() {
-        default.to_string()
-    } else {
-        vendor.to_string()
-    }
-}
-
 fn merge_refreshed_models(slug: &str, fetched: Vec<AiModelEntry>) {
     crate::app_state::update_ui_settings(|current| {
         if let Some(custom) = current
@@ -547,7 +494,7 @@ fn merge_refreshed_models(slug: &str, fetched: Vec<AiModelEntry>) {
 
 fn refresh_picker_models(slug: String) {
     let settings = crate::app_state::APP_UI_SETTINGS();
-    let base_url = native_refresh_base_url(&settings, &slug);
+    let base_url = native_base_url(&settings, &slug);
     let api_key = settings.lm_api_key(&slug);
     spawn(async move {
         match services::refresh_provider_models(&slug, &base_url, &api_key).await {
@@ -563,14 +510,47 @@ fn connect_acp_from_picker(
     provider: String,
 ) {
     spawn(async move {
-        let result = match provider.as_str() {
-            "acp:opencode" => ensure_opencode_connected(panel_state, chat_revision).await,
-            "acp:codex" =>
-                connect_registry_agent(panel_state, chat_revision, "codex-acp", "Codex CLI").await,
-            _ => Ok(()),
-        };
-        if result.is_ok() {
-            crate::app_state::set_active_model(provider, String::new());
+        match provider.as_str() {
+            "acp:opencode" => {
+                let _ = ensure_opencode_connected(panel_state, chat_revision).await;
+            }
+            "acp:codex" => {
+                let _ =
+                    connect_registry_agent(panel_state, chat_revision, "codex-acp", "Codex CLI")
+                        .await;
+            }
+            _ => {}
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::picker_trigger_label;
+    use models::{ActiveModel, AppUiSettings};
+
+    #[test]
+    fn picker_trigger_label_omits_slash_when_model_empty() {
+        let mut settings = AppUiSettings::default();
+        settings.ai_catalog.active = Some(ActiveModel {
+            provider: "acp:opencode".into(),
+            model: String::new(),
+        });
+        assert_eq!(picker_trigger_label(&settings), "OpenCode");
+        settings.ai_catalog.active = Some(ActiveModel {
+            provider: "acp:codex".into(),
+            model: "  ".into(),
+        });
+        assert_eq!(picker_trigger_label(&settings), "Codex");
+    }
+
+    #[test]
+    fn picker_trigger_label_joins_provider_and_model() {
+        let mut settings = AppUiSettings::default();
+        settings.ai_catalog.active = Some(ActiveModel {
+            provider: "openai".into(),
+            model: "gpt-4o".into(),
+        });
+        assert_eq!(picker_trigger_label(&settings), "OpenAI / gpt-4o");
+    }
 }
