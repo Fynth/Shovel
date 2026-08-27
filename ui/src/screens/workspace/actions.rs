@@ -26,16 +26,19 @@ use models::{
 };
 use std::time::Instant;
 
-use super::tab_store::{
-    TabEditorState,
-    TabMeta,
-    TabPendingState,
-    TabResultState,
-    TabStore,
-    tab_editor,
-    tab_meta,
-    tab_pending,
-    tab_result,
+use super::{
+    helpers::{can_explain, session_capabilities},
+    tab_store::{
+        TabEditorState,
+        TabMeta,
+        TabPendingState,
+        TabResultState,
+        TabStore,
+        tab_editor,
+        tab_meta,
+        tab_pending,
+        tab_result,
+    },
 };
 
 fn redact_sql(sql: &str) -> String {
@@ -917,6 +920,14 @@ fn run_batch_for_tab(
 }
 
 pub fn run_explain_for_tab(mut store: TabStore, current_id: u64, session_id: u64, sql: String) {
+    if !session_capabilities(session_id).is_some_and(can_explain) {
+        set_active_tab_status(
+            store,
+            current_id,
+            "Explain Plan is not supported for this connection".to_string(),
+        );
+        return;
+    }
     if sql.trim().is_empty() {
         store.result.with_mut(|m| {
             if let Some(res) = m.get_mut(&current_id) {

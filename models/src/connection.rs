@@ -30,16 +30,6 @@ impl DatabaseKind {
             DatabaseKind::ClickHouse => Some(8123),
         }
     }
-
-    /// Returns `true` if this database kind supports SSH tunnel connections.
-    pub fn supports_ssh_tunnel(&self) -> bool {
-        !matches!(self, DatabaseKind::Sqlite)
-    }
-
-    /// Returns `true` if this database kind supports row-level editing.
-    pub fn supports_row_editing(&self) -> bool {
-        !matches!(self, DatabaseKind::ClickHouse)
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

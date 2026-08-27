@@ -31,12 +31,7 @@ pub fn SessionRail(store: TabStore) -> Element {
     let session_cards = sessions
         .into_iter()
         .map(|session| {
-            let kind_label = match session.kind {
-                models::DatabaseKind::Sqlite => "SQLite",
-                models::DatabaseKind::Postgres => "PostgreSQL",
-                models::DatabaseKind::MySql => "MySQL",
-                models::DatabaseKind::ClickHouse => "ClickHouse",
-            };
+            let kind_label = session.kind.display_name();
             let target_label = session_target_label(&session.request);
             (session, kind_label, target_label)
         })

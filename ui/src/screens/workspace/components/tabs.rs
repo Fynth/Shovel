@@ -24,6 +24,7 @@ use crate::{
             tab_session_or_error,
             toggle_execution_plan_for_tab,
         },
+        helpers::{can_explain, can_import_csv, session_capabilities},
         tab_store::{TabMeta, TabResultState, TabStore, materialize_tab_state, restore_tab_state},
     },
 };
@@ -204,6 +205,9 @@ pub fn TabsManager(
     });
     let active_tab_id_value = active_ctx.as_ref().map(|a| a.id).unwrap_or(0);
     let active_session_id = active_ctx.as_ref().map(|a| a.session_id).unwrap_or(0);
+    let active_capabilities = session_capabilities(active_session_id);
+    let allow_explain = active_capabilities.is_some_and(can_explain);
+    let allow_import_csv = active_capabilities.is_some_and(can_import_csv);
     let active_sql = active_ctx
         .as_ref()
         .map(|a| a.sql.clone())
@@ -554,40 +558,42 @@ pub fn TabsManager(
                             move |_| format_active_sql(store, active_tab_id_value, format_settings.clone())
                         },
                     }
-                    IconButton {
-                        icon: ActionIcon::Explain,
-                        label: "Explain Plan".to_string(),
-                        onclick: {
-                            move |_| {
-                                let current_id = active_tab_id_value;
-                                let sql = active_sql_explain.trim().to_string();
-                                if toggle_execution_plan_for_tab(store, current_id, &sql) {
-                                    return;
+                    if allow_explain {
+                        IconButton {
+                            icon: ActionIcon::Explain,
+                            label: "Explain Plan".to_string(),
+                            onclick: {
+                                move |_| {
+                                    let current_id = active_tab_id_value;
+                                    let sql = active_sql_explain.trim().to_string();
+                                    if toggle_execution_plan_for_tab(store, current_id, &sql) {
+                                        return;
+                                    }
+                                    if sql.is_empty() {
+                                        set_active_tab_status(
+                                            store,
+                                            current_id,
+                                            "Enter a query to explain".to_string(),
+                                        );
+                                        return;
+                                    }
+                                    if !services::is_read_only_sql(&sql) {
+                                        set_active_tab_status(
+                                            store,
+                                            current_id,
+                                            "Explain Plan is available only for read-only SQL.".to_string(),
+                                        );
+                                        return;
+                                    }
+                                    let Some(session_id) =
+                                        tab_session_or_error(store, current_id, active_session_id)
+                                    else {
+                                        return;
+                                    };
+                                    run_explain_for_tab(store, current_id, session_id, sql);
                                 }
-                                if sql.is_empty() {
-                                    set_active_tab_status(
-                                        store,
-                                        current_id,
-                                        "Enter a query to explain".to_string(),
-                                    );
-                                    return;
-                                }
-                                if !services::is_read_only_sql(&sql) {
-                                    set_active_tab_status(
-                                        store,
-                                        current_id,
-                                        "Explain Plan is available only for read-only SQL.".to_string(),
-                                    );
-                                    return;
-                                }
-                                let Some(session_id) =
-                                    tab_session_or_error(store, current_id, active_session_id)
-                                else {
-                                    return;
-                                };
-                                run_explain_for_tab(store, current_id, session_id, sql);
-                            }
-                        },
+                            },
+                        }
                     }
                     IconButton {
                         icon: ActionIcon::More,
@@ -670,25 +676,27 @@ pub fn TabsManager(
                                     }
                                     items.push(item);
                                 }
-                                let mut import_item = ContextMenuItem::new(
-                                    if read_only_mode {
-                                        "Import CSV (blocked by read-only mode)"
-                                    } else {
-                                        "Import CSV"
-                                    },
-                                    move || {
-                                        import_csv_into_active_table(
-                                            store,
-                                            active_tab_id_value,
-                                        )
-                                    },
-                                )
-                                .with_icon(ActionIcon::ImportCsv)
-                                .separator();
-                                if active_actionable_source.is_none() || read_only_mode {
-                                    import_item = import_item.disabled();
+                                if allow_import_csv {
+                                    let mut import_item = ContextMenuItem::new(
+                                        if read_only_mode {
+                                            "Import CSV (blocked by read-only mode)"
+                                        } else {
+                                            "Import CSV"
+                                        },
+                                        move || {
+                                            import_csv_into_active_table(
+                                                store,
+                                                active_tab_id_value,
+                                            )
+                                        },
+                                    )
+                                    .with_icon(ActionIcon::ImportCsv)
+                                    .separator();
+                                    if active_actionable_source.is_none() || read_only_mode {
+                                        import_item = import_item.disabled();
+                                    }
+                                    items.push(import_item);
                                 }
-                                items.push(import_item);
                                 open_context_menu(coords.x, coords.y, items);
                             }
                         },
@@ -933,6 +941,14 @@ fn import_csv_into_active_table(store: TabStore, current_id: u64) {
     let Some(session_id) = tab_session_or_error(store, current_id, current_tab.session_id) else {
         return;
     };
+    if !session_capabilities(session_id).is_some_and(can_import_csv) {
+        set_active_tab_status(
+            store,
+            current_id,
+            "CSV import is not supported for this connection".to_string(),
+        );
+        return;
+    }
 
     set_active_tab_status(
         store,
