@@ -336,6 +336,9 @@ pub fn provider_kind(provider: &str) -> Option<AiProviderKind> {
     if provider.starts_with("custom:") {
         return Some(AiProviderKind::NativeHttp);
     }
+    if provider.starts_with("acp:") {
+        return Some(AiProviderKind::Acp);
+    }
     None
 }
 
@@ -420,5 +423,12 @@ mod tests {
         assert!(is_native_http_ready("custom:abc", "sk"));
         assert!(!is_native_http_ready("custom:abc", ""));
         assert!(!is_native_http_ready("unknown", "sk"));
+    }
+
+    #[test]
+    fn acp_prefixed_ids_are_acp_kind() {
+        assert_eq!(provider_kind("acp:custom"), Some(AiProviderKind::Acp));
+        assert_eq!(provider_kind("acp:opencode"), Some(AiProviderKind::Acp));
+        assert!(!is_native_http_ready("acp:custom", "sk"));
     }
 }

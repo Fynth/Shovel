@@ -56,6 +56,7 @@ async fn connect_registry_agent(
 
     match services::connect_acp_agent(launch).await {
         Ok(connection) => {
+            set_acp_catalog_active(acp_catalog_provider_id(agent_id));
             panel_state.with_mut(|state| {
                 apply_connected(state, connection);
             });
@@ -121,54 +122,65 @@ pub(crate) async fn ensure_default_sql_agent_connected(
     }
 
     let settings = crate::app_state::APP_UI_SETTINGS();
-    if let Some(active) = settings.ai_catalog.active.clone() {
-        let key = settings.lm_api_key(&active.provider);
-        if is_native_http_ready(&active.provider, &key) {
-            let label = native_provider_label(&settings, &active.provider);
-            apply_native_connected_signal(panel_state, label);
-            return Ok(());
-        }
-        match provider_kind(&active.provider) {
-            Some(AiProviderKind::Acp) if active.provider == "acp:codex" => {
-                return connect_registry_agent(
-                    panel_state,
-                    chat_revision,
-                    CODEX_REGISTRY_AGENT_ID,
-                    "Codex CLI",
-                )
-                .await;
-            }
-            Some(AiProviderKind::Acp) => {
-                return ensure_opencode_connected(panel_state, chat_revision).await;
-            }
-            Some(AiProviderKind::NativeHttp) | None => {}
-        }
-    }
-
+    let active_provider = settings
+        .ai_catalog
+        .active
+        .as_ref()
+        .map(|active| active.provider.as_str());
+    let native_ready = settings.ai_catalog.active.as_ref().is_some_and(|active| {
+        is_native_http_ready(&active.provider, &settings.lm_api_key(&active.provider))
+    });
     let deepseek_key = settings.lm_api_key("deepseek");
     let deepseek_key = if deepseek_key.trim().is_empty() {
         deepseek.api_key.clone()
     } else {
         deepseek_key
     };
-    if deepseek.enabled && is_native_http_ready("deepseek", &deepseek_key) {
-        return connect_embedded_deepseek(panel_state, chat_revision, deepseek);
-    }
-
     let ollama_key = settings.lm_api_key("ollama");
     let ollama_key = if ollama_key.trim().is_empty() {
         ollama.api_key.clone()
     } else {
         ollama_key
     };
-    if ollama.enabled
-        && is_native_http_ready("ollama", &ollama_key)
-        && !ollama.model.trim().is_empty()
-    {
-        return connect_embedded_ollama(panel_state, chat_revision, ollama);
-    }
+    let action = default_connect_action(
+        active_provider,
+        native_ready,
+        deepseek.enabled && is_native_http_ready("deepseek", &deepseek_key),
+        ollama.enabled
+            && is_native_http_ready("ollama", &ollama_key)
+            && !ollama.model.trim().is_empty(),
+    );
 
-    Err("No language model is ready. Add an API key in Settings.".to_string())
+    match action {
+        DefaultConnectAction::NativeReady => {
+            let label = settings
+                .ai_catalog
+                .active
+                .as_ref()
+                .map(|active| native_provider_label(&settings, &active.provider))
+                .unwrap_or_else(|| "Language model".to_string());
+            apply_native_connected_signal(panel_state, label);
+            Ok(())
+        }
+        DefaultConnectAction::ConnectAcpCodex =>
+            connect_registry_agent(
+                panel_state,
+                chat_revision,
+                CODEX_REGISTRY_AGENT_ID,
+                "Codex CLI",
+            )
+            .await,
+        DefaultConnectAction::ConnectAcpOpencode =>
+            ensure_opencode_connected(panel_state, chat_revision).await,
+        DefaultConnectAction::UnreadyNative =>
+            Err("Add an API key for the selected provider.".to_string()),
+        DefaultConnectAction::VendorDeepSeek =>
+            connect_embedded_deepseek(panel_state, chat_revision, deepseek),
+        DefaultConnectAction::VendorOllama =>
+            connect_embedded_ollama(panel_state, chat_revision, ollama),
+        DefaultConnectAction::None =>
+            Err("No language model is ready. Add an API key in Settings.".to_string()),
+    }
 }
 
 pub(crate) fn connect_embedded_ollama(
@@ -314,6 +326,65 @@ pub(super) fn is_native_http_connection(state: &AcpPanelState) -> bool {
         .is_some_and(|connection| connection.protocol_version == NATIVE_HTTP_PROTOCOL)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum DefaultConnectAction {
+    NativeReady,
+    ConnectAcpCodex,
+    ConnectAcpOpencode,
+    UnreadyNative,
+    VendorDeepSeek,
+    VendorOllama,
+    None,
+}
+
+/// Decide auto-connect without swapping a selected-but-unready NativeHttp
+/// provider to DeepSeek/Ollama.
+pub(super) fn default_connect_action(
+    active_provider: Option<&str>,
+    native_ready: bool,
+    deepseek_vendor_ready: bool,
+    ollama_vendor_ready: bool,
+) -> DefaultConnectAction {
+    if let Some(provider) = active_provider {
+        if native_ready {
+            return DefaultConnectAction::NativeReady;
+        }
+        match provider_kind(provider) {
+            Some(AiProviderKind::Acp) if provider == "acp:codex" => {
+                return DefaultConnectAction::ConnectAcpCodex;
+            }
+            Some(AiProviderKind::Acp) => return DefaultConnectAction::ConnectAcpOpencode,
+            Some(AiProviderKind::NativeHttp) => return DefaultConnectAction::UnreadyNative,
+            None => {}
+        }
+    }
+    if deepseek_vendor_ready {
+        DefaultConnectAction::VendorDeepSeek
+    } else if ollama_vendor_ready {
+        DefaultConnectAction::VendorOllama
+    } else {
+        DefaultConnectAction::None
+    }
+}
+
+pub(super) fn acp_catalog_provider_id(registry_agent_id: &str) -> &'static str {
+    match registry_agent_id {
+        OPENCODE_REGISTRY_AGENT_ID => "acp:opencode",
+        CODEX_REGISTRY_AGENT_ID => "acp:codex",
+        _ => "acp:custom",
+    }
+}
+
+pub(super) fn set_acp_catalog_active(provider: &str) {
+    let provider = provider.to_string();
+    crate::app_state::update_ui_settings(|current| {
+        current.ai_catalog.active = Some(ActiveModel {
+            provider,
+            model: String::new(),
+        });
+    });
+}
+
 fn native_provider_label(settings: &AppUiSettings, provider: &str) -> String {
     if let Some(spec) = builtin_providers()
         .iter()
@@ -391,6 +462,15 @@ impl AgentSetupMode {
             Self::DeepSeek | Self::Ollama | Self::Custom => None,
         }
     }
+
+    pub(super) fn acp_catalog_provider(self) -> Option<&'static str> {
+        match self {
+            Self::OpenCode => Some("acp:opencode"),
+            Self::Codex => Some("acp:codex"),
+            Self::Custom => Some("acp:custom"),
+            Self::DeepSeek | Self::Ollama => None,
+        }
+    }
 }
 
 pub(super) fn setup_mode_button_class(
@@ -401,5 +481,46 @@ pub(super) fn setup_mode_button_class(
         "button button--ghost button--active agent-panel__mode-button"
     } else {
         "button button--ghost agent-panel__mode-button"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AgentSetupMode,
+        DefaultConnectAction,
+        acp_catalog_provider_id,
+        default_connect_action,
+    };
+
+    #[test]
+    fn unreadied_native_http_active_does_not_fallback_to_vendor() {
+        assert_eq!(
+            default_connect_action(Some("openai"), false, true, true),
+            DefaultConnectAction::UnreadyNative
+        );
+        assert_eq!(
+            default_connect_action(None, false, true, false),
+            DefaultConnectAction::VendorDeepSeek
+        );
+    }
+
+    #[test]
+    fn acp_setup_connect_maps_to_catalog_provider() {
+        assert_eq!(
+            AgentSetupMode::OpenCode.acp_catalog_provider(),
+            Some("acp:opencode")
+        );
+        assert_eq!(
+            AgentSetupMode::Codex.acp_catalog_provider(),
+            Some("acp:codex")
+        );
+        assert_eq!(
+            AgentSetupMode::Custom.acp_catalog_provider(),
+            Some("acp:custom")
+        );
+        assert_eq!(acp_catalog_provider_id("opencode"), "acp:opencode");
+        assert_eq!(acp_catalog_provider_id("codex-acp"), "acp:codex");
+        assert_eq!(acp_catalog_provider_id("other"), "acp:custom");
     }
 }

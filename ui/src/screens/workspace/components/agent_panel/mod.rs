@@ -58,6 +58,7 @@ use self::{
         connect_embedded_deepseek,
         connect_embedded_ollama,
         is_native_http_connection,
+        set_acp_catalog_active,
         setup_mode_button_class,
     },
     state::{
@@ -904,6 +905,10 @@ pub fn AcpAgentPanel(
                                             let cwd = panel_state().launch.cwd.clone();
                                             let registry_name = registry_name.to_string();
                                             let registry_agent_id = registry_agent_id.clone();
+                                            let catalog_provider = selected_registry_mode
+                                                .acp_catalog_provider()
+                                                .unwrap_or("acp:custom")
+                                                .to_string();
                                             registry_busy.set(true);
                                             registry_status.set(acp_registry_preparing_text(&registry_name));
                                             spawn(async move {
@@ -917,6 +922,9 @@ pub fn AcpAgentPanel(
                                                         });
                                                         match services::connect_acp_agent(launch).await {
                                                             Ok(connection) => {
+                                                                set_acp_catalog_active(
+                                                                    &catalog_provider,
+                                                                );
                                                                 panel_state.with_mut(|state| {
                                                                     state::apply_connected(state, connection);
                                                                 });
@@ -1023,6 +1031,11 @@ pub fn AcpAgentPanel(
                                         spawn(async move {
                                             match services::connect_acp_agent(launch).await {
                                                 Ok(connection) => {
+                                                    set_acp_catalog_active(
+                                                        AgentSetupMode::Custom
+                                                            .acp_catalog_provider()
+                                                            .unwrap_or("acp:custom"),
+                                                    );
                                                     panel_state.with_mut(|state| {
                                                         state::apply_connected(state, connection);
                                                     });
