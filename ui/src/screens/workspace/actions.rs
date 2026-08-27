@@ -1,5 +1,7 @@
 use crate::app_state::{
+    APP_EDITOR_BEHAVIOR,
     APP_READ_ONLY_MODE,
+    APP_SQL_FORMAT_SETTINGS,
     APP_STATE,
     APP_UI_SETTINGS,
     LastQuerySummary,
@@ -445,6 +447,38 @@ pub fn tab_connection_or_error(
     }
 }
 
+pub fn maybe_format_sql(
+    sql: String,
+    auto_format: bool,
+    kind: Option<models::DatabaseKind>,
+    format_settings: &models::SqlFormatSettings,
+) -> String {
+    if !auto_format {
+        return sql;
+    }
+    services::format_sql(kind, &sql, format_settings)
+}
+
+fn apply_auto_format_on_run(store: TabStore, current_id: u64, sql: String) -> String {
+    let auto_format = APP_EDITOR_BEHAVIOR.peek().auto_format_on_run;
+    let format_settings = APP_SQL_FORMAT_SETTINGS.peek().clone();
+    if !auto_format {
+        return sql;
+    }
+    let session_id = store.meta.read().get(&current_id).map(|m| m.session_id);
+    let kind = session_id.and_then(|sid| APP_STATE.read().session(sid).map(|s| s.kind));
+    let formatted = maybe_format_sql(sql.clone(), true, kind, &format_settings);
+    if formatted != sql {
+        replace_active_tab_sql(
+            store,
+            current_id,
+            formatted.clone(),
+            "SQL formatted".to_string(),
+        );
+    }
+    formatted
+}
+
 pub fn run_query_for_tab(
     mut store: TabStore,
     current_id: u64,
@@ -493,6 +527,7 @@ pub fn run_query_for_tab(
             return;
         }
     }
+    let sql = apply_auto_format_on_run(store, current_id, sql);
     // Многооператорные скрипты уходят в пакетный исполнитель, который
     // показывает пооператорные результаты. Однооператорные запросы
     // остаются на существующем пути с пагинацией/фильтрами.
@@ -689,6 +724,7 @@ fn run_batch_for_tab(
     page_size: u32,
     history: Option<QueryHistorySignals>,
 ) {
+    let sql = apply_auto_format_on_run(store, current_id, sql);
     let family = connection_family(&connection);
     let plan = services::plan_batch(&sql, family);
 
@@ -2133,6 +2169,7 @@ mod tests {
         format_loaded_rows_from_source_status,
         format_loaded_rows_status,
         indent_segment,
+        maybe_format_sql,
         preview_statement,
         redact_sql,
         rows_toolbar_summary,
@@ -2192,6 +2229,18 @@ mod tests {
             has_previous: offset > 0,
             has_next,
         }
+    }
+
+    #[test]
+    fn maybe_format_sql_is_noop_when_disabled() {
+        let sql = "select 1";
+        let out = maybe_format_sql(
+            sql.into(),
+            false,
+            None,
+            &models::SqlFormatSettings::default(),
+        );
+        assert_eq!(out, "select 1");
     }
 
     #[test]

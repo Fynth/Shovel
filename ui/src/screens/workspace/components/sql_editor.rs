@@ -7,6 +7,7 @@ use crate::{
     app_state::{
         APP_AI_AUTO_APPLY_COMPLETIONS,
         APP_AI_FEATURES_ENABLED,
+        APP_EDITOR_BEHAVIOR,
         APP_SQL_FORMAT_SETTINGS,
         APP_UI_SETTINGS,
         context_menu::{ContextMenuItem, open_context_menu},
@@ -631,7 +632,18 @@ const SQL_EDITOR_SELECT_ALL_SCRIPT: &str = r#"
 
 #[cfg(test)]
 mod tests {
-    use super::{completion_request_parts, selection::EditorSelection, trim_completion_for_cursor};
+    use super::{
+        completion_request_parts,
+        line_number_labels,
+        selection::EditorSelection,
+        trim_completion_for_cursor,
+    };
+
+    #[test]
+    fn line_number_labels_count_lines() {
+        assert_eq!(line_number_labels("a"), vec![1]);
+        assert_eq!(line_number_labels("a\nb\n"), vec![1, 2, 3]);
+    }
 
     #[test]
     fn completion_request_parts_split_sql_at_cursor() {
@@ -815,6 +827,11 @@ fn surrounding_sql_context(sql: &str, cursor: usize) -> String {
         keep_from += 1;
     }
     format!("…{}", &ctx[keep_from..])
+}
+
+pub fn line_number_labels(sql: &str) -> Vec<usize> {
+    let lines = sql.split('\n').count().max(1);
+    (1..=lines).collect()
 }
 
 #[component]
@@ -1158,6 +1175,16 @@ pub fn SqlEditor(
     } else {
         "sql-editor"
     };
+    let editor = APP_EDITOR_BEHAVIOR();
+    let wrap = if editor.word_wrap { "pre-wrap" } else { "pre" };
+    let editor_style = format!(
+        "font-size: {}px; tab-size: {}; white-space: {}; font-family: var(--font-mono, monospace);",
+        editor.font_size.clamp(10, 22),
+        editor.tab_size.clamp(1, 8),
+        wrap,
+    );
+    let highlight_style = format!("{editor_style}{editor_offset}");
+    let gutter_offset = format!("transform: translateY(-{}px);", scroll_top());
     let inline_cursor =
         render_completion.map_or(0, |completion| completion.cursor.min(current_sql.len()));
     let inline_suffix = render_completion.map(|completion| {
@@ -1171,12 +1198,25 @@ pub fn SqlEditor(
     rsx! {
         div {
             class: editor_class.to_string(),
+            style: editor_style.clone(),
+
+            if editor.show_line_numbers {
+                div {
+                    class: "sql-editor__gutter",
+                    div {
+                        style: gutter_offset,
+                        for n in line_number_labels(&current_sql) {
+                            span { "{n}" }
+                        }
+                    }
+                }
+            }
 
             div {
                 class: "sql-editor__viewport",
                 pre {
                     class: "sql-editor__highlight",
-                    style: editor_offset.to_string(),
+                    style: highlight_style,
                     aria_hidden: "true",
                     if !typing_now || completion_active {
                         SqlHighlightContent {
@@ -1186,12 +1226,12 @@ pub fn SqlEditor(
                         }
                     }
                 }
-            }
 
-            textarea {
-                id: SQL_EDITOR_TEXTAREA_ID,
-                class: "sql-editor__input",
-                initial_value: current_sql.to_string(),
+                textarea {
+                    id: SQL_EDITOR_TEXTAREA_ID,
+                    class: "sql-editor__input",
+                    style: editor_style,
+                    initial_value: current_sql.to_string(),
                 rows: "16",
                 cols: "80",
                 spellcheck: "false",
@@ -1396,6 +1436,7 @@ pub fn SqlEditor(
                     scroll_top.set(event.data().scroll_top());
                     scroll_left.set(event.data().scroll_left());
                 },
+            }
             }
         }
     }
