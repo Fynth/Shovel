@@ -8262,6 +8262,12 @@ tr.results__row--stripe {
   pointer-events: none;
 }
 
+.er-diagram__edge-label {
+  font-size: 10px;
+  fill: var(--color-text-muted);
+  pointer-events: none;
+}
+
 .er-diagram__tables {
   position: absolute;
   inset: 0;
@@ -8328,8 +8334,8 @@ tr.results__row--stripe {
 .er-table-card__columns {
   display: flex;
   flex-direction: column;
-  max-height: 200px;
-  overflow-y: auto;
+  max-height: none;
+  overflow-y: visible;
   padding: 1px 0;
 }
 
