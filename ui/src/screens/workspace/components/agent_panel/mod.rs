@@ -749,7 +749,7 @@ pub fn AcpAgentPanel(
                                         select {
                                             class: "input",
                                             value: "{deepseek_settings.reasoning_effort}",
-                                            oninput: move |event| {
+                                            onchange: move |event| {
                                                 set_deepseek_reasoning_effort(event.value());
                                             },
                                             option { value: "low", "low" }

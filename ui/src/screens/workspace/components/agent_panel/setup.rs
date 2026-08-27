@@ -23,7 +23,7 @@ pub(super) const NATIVE_HTTP_PROTOCOL: &str = "native-http";
 const OPENCODE_REGISTRY_AGENT_ID: &str = "opencode";
 const CODEX_REGISTRY_AGENT_ID: &str = "codex-acp";
 
-async fn connect_registry_agent(
+pub(super) async fn connect_registry_agent(
     mut panel_state: Signal<AcpPanelState>,
     mut chat_revision: Signal<u64>,
     agent_id: &str,

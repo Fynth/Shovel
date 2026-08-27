@@ -14,6 +14,16 @@ pub struct AiModelEntry {
     pub label: String,
 }
 
+impl AiModelEntry {
+    pub fn display_label(&self) -> &str {
+        if self.label.trim().is_empty() {
+            &self.id
+        } else {
+            &self.label
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AiProviderOverride {
@@ -365,6 +375,20 @@ pub fn normalize_native_chat_url(base: &str, default_base: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn active_model_label_falls_back_to_id() {
+        let e = AiModelEntry {
+            id: "gpt-4o".into(),
+            label: String::new(),
+        };
+        assert_eq!(e.display_label(), "gpt-4o");
+        let e = AiModelEntry {
+            id: "gpt-4o".into(),
+            label: "GPT-4o".into(),
+        };
+        assert_eq!(e.display_label(), "GPT-4o");
+    }
 
     #[test]
     fn resolve_picker_models_hides_builtins_and_appends_extra_without_dupes() {

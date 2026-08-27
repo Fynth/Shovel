@@ -29,6 +29,7 @@
 
 use dioxus::prelude::*;
 use models::{
+    ActiveModel,
     AppState,
     AppThemePreference,
     AppUiSettings,
@@ -328,6 +329,12 @@ pub fn update_ui_settings(update: impl FnOnce(&mut AppUiSettings)) {
         current.clone()
     };
     sync_runtime_ui_settings(&settings);
+}
+
+pub fn set_active_model(provider: String, model: String) {
+    update_ui_settings(|current| {
+        current.ai_catalog.active = Some(ActiveModel { provider, model });
+    });
 }
 
 pub fn set_show_saved_queries(visible: bool) {
