@@ -117,6 +117,8 @@ fn chat_url(req: &NativeChatRequest) -> String {
         }
     } else if base.contains("chat/completions") || normalized.contains("chat/completions") {
         normalized
+    } else if normalized.ends_with("/v1") {
+        format!("{normalized}/chat/completions")
     } else {
         format!("{normalized}/v1/chat/completions")
     }
@@ -380,6 +382,16 @@ mod tests {
             ..openai.clone()
         };
         assert_eq!(chat_url(&full), "https://example.com/v1/chat/completions");
+
+        // Bases that already end with /v1 must not become .../v1/v1/chat/completions.
+        let minimax = NativeChatRequest {
+            base_url: "https://api.minimax.chat/v1".into(),
+            ..openai.clone()
+        };
+        assert_eq!(
+            chat_url(&minimax),
+            "https://api.minimax.chat/v1/chat/completions"
+        );
 
         let ollama = NativeChatRequest {
             base_url: "http://localhost:11434".into(),
