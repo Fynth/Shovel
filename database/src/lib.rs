@@ -36,6 +36,9 @@
 //! crate does not expose any concrete error enum or configuration struct; it
 //! only publishes the trait contract.
 
+mod dialect;
+pub use dialect::*;
+
 /// A generic trait for establishing a connection pool to a database.
 ///
 /// `DatabaseDriver` is the primary abstraction at the boundary between the
@@ -159,5 +162,20 @@ mod tests {
     fn database_driver_trait_has_no_pure_logic() {
         // The trait is a contract; its implementations are tested in their
         // respective crates.
+    }
+}
+
+#[cfg(test)]
+mod dialect_tests {
+    use super::{quote_ident_backtick, quote_ident_double};
+
+    #[test]
+    fn double_quote_escapes_inner_quotes() {
+        assert_eq!(quote_ident_double("a\"b"), "\"a\"\"b\"");
+    }
+
+    #[test]
+    fn backtick_escapes_inner_backticks() {
+        assert_eq!(quote_ident_backtick("a`b"), "`a``b`");
     }
 }
