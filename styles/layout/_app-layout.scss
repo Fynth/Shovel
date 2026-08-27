@@ -1,6 +1,11 @@
 @use "../base/tokens" as *;
 
 .app {
+  --radius-sm: #{$radius-sm};
+  --radius-md: #{$radius-md};
+  --radius-lg: #{$radius-lg};
+  --font-sans: #{$font-family-sans};
+  --font-mono: #{$font-family-mono};
   position: relative;
   height: 100vh;
   min-height: 100vh;

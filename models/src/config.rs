@@ -11,6 +11,7 @@ use crate::{
     DeepSeekSettings,
     EditorBehavior,
     ExplorerViewSettings,
+    GridSettings,
     KeybindingMap,
     MySqlFormData,
     OllamaSettings,
@@ -131,6 +132,7 @@ pub struct ShovelConfig {
     pub theme_overrides: Option<ThemeOverrides>,
     pub keybindings: Option<KeybindingMap>,
     pub editor: Option<EditorBehavior>,
+    pub grid: Option<GridSettings>,
     pub panels: Option<PanelBehavior>,
     pub behavior: Option<AppBehavior>,
 
@@ -239,6 +241,40 @@ impl ShovelConfig {
         }
         if let Some(explorer) = &self.explorer {
             merge_explorer(&mut base.explorer, explorer);
+        }
+        if let Some(theme) = &self.theme_overrides {
+            base.theme_overrides = theme.clone();
+        }
+        if let Some(map) = &self.keybindings {
+            base.keybindings = map.clone();
+        }
+        if let Some(grid) = &self.grid {
+            base.grid = grid.clone();
+        }
+        if let Some(editor) = &self.editor {
+            if let Some(v) = editor.font_size {
+                base.editor.font_size = v.clamp(10, 22);
+            }
+            if let Some(v) = editor.tab_size {
+                base.editor.tab_size = v.clamp(1, 8);
+            }
+            if let Some(v) = editor.auto_format_on_run {
+                base.editor.auto_format_on_run = v;
+            }
+            if let Some(v) = editor.word_wrap {
+                base.editor.word_wrap = v;
+            }
+            if let Some(v) = editor.show_line_numbers {
+                base.editor.show_line_numbers = v;
+            }
+        }
+        if let Some(behavior) = &self.behavior {
+            if let Some(v) = behavior.confirm_before_drop {
+                base.behavior.confirm_before_drop = v;
+            }
+            if let Some(v) = behavior.confirm_before_truncate {
+                base.behavior.confirm_before_truncate = v;
+            }
         }
     }
 }
@@ -536,8 +572,45 @@ confirm_before_drop = true
             ..ThemeOverrides::default()
         };
         let css = theme.to_css();
+        assert!(css.contains(".app, .settings-window-shell"));
+        assert!(!css.contains(":root {"));
         assert!(css.contains("--color-primary: #ff0000;"));
-        assert!(css.contains("--font-size-md: 14px;"));
+        assert!(css.contains("--ui-font-size: 14px;"));
         assert!(css.contains("--radius-md: 8px;"));
+    }
+
+    #[test]
+    fn config_overlays_editor_and_keybindings() {
+        let toml_str = r##"
+[editor]
+font_size = 16
+word_wrap = true
+
+[behavior]
+confirm_before_drop = false
+
+[theme_overrides]
+primary = "#00ff00"
+
+[keybindings]
+format_sql = "Ctrl+Alt+F"
+
+[grid]
+row_height = 32
+zebra = true
+"##;
+        let config: ShovelConfig = toml::from_str(toml_str).expect("parse");
+        let mut settings = AppUiSettings::default();
+        config.apply_to(&mut settings);
+        assert_eq!(settings.editor.font_size, 16);
+        assert!(settings.editor.word_wrap);
+        assert!(!settings.behavior.confirm_before_drop);
+        assert_eq!(settings.theme_overrides.primary.as_deref(), Some("#00ff00"));
+        assert_eq!(
+            settings.keybindings.get("format_sql").map(String::as_str),
+            Some("Ctrl+Alt+F")
+        );
+        assert_eq!(settings.grid.row_height, 32);
+        assert!(settings.grid.zebra);
     }
 }

@@ -2,13 +2,15 @@
 // custom properties (`--ui-*`) so downstream components can opt in via
 // `var(--ui-row-height)` etc. without knowing the density model. The
 // preset class is set on the root `.app` element next to the theme
-// class (`app theme-dark density-compact`).
+// class (`app theme-dark density-compact`), and on the native settings
+// shell (`.settings-window-shell {theme} {density}`) which is not `.app`.
 //
 // Density classes are intentionally orthogonal to the theme blocks in
 // `themes/_theme-{dark,light}.scss` — themes define color tokens,
 // density defines geometry tokens. A user can pair any theme with any
 // density independently.
-.app.density-compact {
+.app.density-compact,
+.settings-window-shell.density-compact {
   --ui-row-height: 24px;
   --ui-toolbar-height: 30px;
   --ui-tab-height: 28px;
@@ -20,7 +22,8 @@
   --ui-row-padding-x: 6px;
 }
 
-.app.density-normal {
+.app.density-normal,
+.settings-window-shell.density-normal {
   --ui-row-height: 28px;
   --ui-toolbar-height: 34px;
   --ui-tab-height: 32px;
@@ -32,7 +35,8 @@
   --ui-row-padding-x: 8px;
 }
 
-.app.density-comfortable {
+.app.density-comfortable,
+.settings-window-shell.density-comfortable {
   --ui-row-height: 32px;
   --ui-toolbar-height: 40px;
   --ui-tab-height: 36px;

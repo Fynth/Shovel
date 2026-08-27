@@ -179,20 +179,23 @@ pub static APP_BOTTOM_PANEL_HEIGHT: GlobalSignal<f64> =
 /// unrelated settings toggles do not invalidate the tab body.
 pub static APP_SPLIT_MODE: GlobalSignal<WorkspaceSplitMode> =
     Signal::global(|| AppUiSettings::default().split_mode);
-/// Deep-customization overrides loaded from `config.toml`. The theme
-/// overrides are rendered into CSS variables; the keybinding map overrides
-/// the default shortcuts; editor/panel/behavior overrides adjust runtime
-/// defaults.
+/// Nested `AppUiSettings` copies. Theme overrides render into CSS
+/// variables; keybindings override default shortcuts; editor/grid/behavior
+/// keep the settings window bridge and runtime readers in sync.
+/// Equality-guarded in `sync_runtime_ui_settings`.
 pub static APP_THEME_OVERRIDES: GlobalSignal<models::ThemeOverrides> =
     Signal::global(models::ThemeOverrides::default);
 pub static APP_KEYBINDINGS: GlobalSignal<models::KeybindingMap> =
     Signal::global(models::KeybindingMap::new);
-pub static APP_EDITOR_BEHAVIOR: GlobalSignal<models::EditorBehavior> =
-    Signal::global(models::EditorBehavior::default);
+pub static APP_EDITOR_BEHAVIOR: GlobalSignal<models::EditorSettings> =
+    Signal::global(models::EditorSettings::default);
+#[allow(dead_code)]
 pub static APP_PANEL_BEHAVIOR: GlobalSignal<models::PanelBehavior> =
     Signal::global(models::PanelBehavior::default);
-pub static APP_APP_BEHAVIOR: GlobalSignal<models::AppBehavior> =
-    Signal::global(models::AppBehavior::default);
+pub static APP_APP_BEHAVIOR: GlobalSignal<models::AppBehaviorSettings> =
+    Signal::global(models::AppBehaviorSettings::default);
+pub static APP_GRID_SETTINGS: GlobalSignal<models::GridSettings> =
+    Signal::global(models::GridSettings::default);
 pub static APP_TOOLTIP: GlobalSignal<Option<AppTooltip>> = Signal::global(|| None);
 pub static APP_TOAST: GlobalSignal<Vec<AppToast>> = Signal::global(Vec::new);
 pub static APP_TAB_DRAFTS: GlobalSignal<Vec<models::TabDraft>> = Signal::global(Vec::new);
@@ -516,6 +519,21 @@ fn sync_runtime_ui_settings(settings: &AppUiSettings) {
     sync_bool(&APP_SHOW_BOTTOM_PANEL, settings.show_bottom_panel);
     sync_f64(&APP_BOTTOM_PANEL_HEIGHT, settings.bottom_panel_height);
     sync_split_mode(&APP_SPLIT_MODE, settings.split_mode);
+    if *APP_THEME_OVERRIDES.peek() != settings.theme_overrides {
+        *APP_THEME_OVERRIDES.write() = settings.theme_overrides.clone();
+    }
+    if *APP_KEYBINDINGS.peek() != settings.keybindings {
+        *APP_KEYBINDINGS.write() = settings.keybindings.clone();
+    }
+    if *APP_EDITOR_BEHAVIOR.peek() != settings.editor {
+        *APP_EDITOR_BEHAVIOR.write() = settings.editor.clone();
+    }
+    if *APP_APP_BEHAVIOR.peek() != settings.behavior {
+        *APP_APP_BEHAVIOR.write() = settings.behavior.clone();
+    }
+    if *APP_GRID_SETTINGS.peek() != settings.grid {
+        *APP_GRID_SETTINGS.write() = settings.grid.clone();
+    }
     crate::screens::workspace::components::agent_panel::prompt::sync_ai_response_language(
         settings.ai_response_language.clone(),
     );

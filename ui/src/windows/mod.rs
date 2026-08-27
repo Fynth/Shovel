@@ -20,7 +20,7 @@
 //! `app.rs` to write the new value to disk.
 
 use crate::{
-    layout::SettingsModal,
+    layout::{SettingsModal, ToastContainer},
     screens::{
         connect::edit_connection_modal::EditConnectionModal,
         workspace::components::{
@@ -167,13 +167,10 @@ pub fn open_settings_window(
 fn settings_window_config() -> Config {
     let window_builder = WindowBuilder::new()
         .with_title("Shovel Settings")
-        // PHASE 9: widened from 560x640 to 760x640 so the new category nav
-        // sidebar (196px) + content pane both fit comfortably without the
-        // modal collapsing into the responsive narrow-window layout.
-        // Height is unchanged so existing screen real-estate positioning
-        // (which assumes "640px tall dialog") still lines up.
-        .with_inner_size(LogicalSize::new(760.0, 640.0))
-        .with_min_inner_size(LogicalSize::new(560.0, 480.0))
+        // 960×720 keeps the 168px category nav beside the content pane.
+        // Min 720×520 stays above the 560px stacked-nav breakpoint.
+        .with_inner_size(LogicalSize::new(960.0, 720.0))
+        .with_min_inner_size(LogicalSize::new(720.0, 520.0))
         .with_resizable(true)
         // Decorations ON on X11 / Windows (native frame + minimize / close),
         // OFF on Wayland (compositor already draws its own chrome — adding
@@ -196,6 +193,8 @@ pub fn SettingsWindowRoot(props: SettingsWindowRootProps) -> Element {
     // palette. The user can still switch theme from inside the modal — that
     // edit goes through the bridge and the next render picks it up.
     let theme_class = ui().theme.css_class().to_string();
+    let density_class = ui().density.css_class();
+    let theme_css = ui().theme_overrides.to_css();
 
     let on_change =
         move |(next_ui, next_sql): (models::AppUiSettings, models::SqlFormatSettings)| {
@@ -213,13 +212,17 @@ pub fn SettingsWindowRoot(props: SettingsWindowRootProps) -> Element {
 
     rsx! {
         document::Style { {APP_CSS.to_string()} }
-        div { class: "settings-window-shell {theme_class}",
+        if !theme_css.is_empty() {
+            style { {theme_css} }
+        }
+        div { class: "settings-window-shell {theme_class} {density_class}",
             SettingsModal {
                 settings: ui(),
                 sql_settings: sql(),
                 on_change,
                 on_close,
             }
+            ToastContainer {}
         }
     }
 }

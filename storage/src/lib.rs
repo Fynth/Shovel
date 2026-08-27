@@ -60,16 +60,18 @@ pub use semantic_cache::{CacheStats, SemanticCacheStore};
 ///
 /// These functions load and save application preferences (theme, panel
 /// visibility, etc.), SQL formatting options, and ACP provider API keys
-/// (CodeStral and DeepSeek). API keys are stored in the system keyring
-/// with a fallback to the local secret store.
+/// (CodeStral, DeepSeek, and Ollama). API keys are stored in the system
+/// keyring with a fallback to the local secret store.
 pub use settings::{
     load_app_ui_settings,
     load_codestral_api_key,
     load_deepseek_api_key,
+    load_ollama_api_key,
     load_sql_format_settings,
     save_app_ui_settings,
     save_codestral_api_key,
     save_deepseek_api_key,
+    save_ollama_api_key,
     save_sql_format_settings,
 };
 

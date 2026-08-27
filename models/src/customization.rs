@@ -1,11 +1,34 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Normalize a CSS hex color to `#rrggbb` (lowercase). Accepts `#RGB` and
+/// `#RRGGBB`; returns `None` for anything else.
+pub fn parse_hex_color(value: &str) -> Option<String> {
+    let value = value.trim();
+    let hex = value.strip_prefix('#')?;
+    let expanded = match hex.len() {
+        3 => {
+            let mut out = String::with_capacity(6);
+            for ch in hex.chars() {
+                out.push(ch);
+                out.push(ch);
+            }
+            out
+        }
+        6 => hex.to_string(),
+        _ => return None,
+    };
+    if !expanded.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return None;
+    }
+    Some(format!("#{}", expanded.to_ascii_lowercase()))
+}
+
 /// Structured overrides for the app's CSS design tokens. Every field is
 /// optional; `None` leaves the default token untouched. When applied, these
-/// are rendered into `:root { --color-*: ...; --font-*: ...; }` CSS variables
-/// that the existing components already consume, so a theme override restyles
-/// the whole app without touching individual components.
+/// are rendered onto `.app` / `.settings-window-shell` (plus density/theme
+/// class combinations) so the variables beat stylesheet class selectors such
+/// as `.theme-dark` and `.app.density-*`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ThemeOverrides {
@@ -41,16 +64,41 @@ pub struct ThemeOverrides {
     pub spacing: Option<u32>,
 }
 
+/// Selectors that beat live token setters (`.theme-dark`, `.app.density-*`,
+/// `.app { --font-sans; --radius-* }`). Injected after the compiled
+/// stylesheet so equal-specificity rules still win by source order.
+const THEME_OVERRIDE_SELECTOR: &str = concat!(
+    ".app, .settings-window-shell, ",
+    ".app.theme-dark, .app.theme-light, ",
+    ".settings-window-shell.theme-dark, .settings-window-shell.theme-light, ",
+    ".app.density-compact, .app.density-normal, .app.density-comfortable, ",
+    ".settings-window-shell.density-compact, ",
+    ".settings-window-shell.density-normal, ",
+    ".settings-window-shell.density-comfortable"
+);
+
 impl ThemeOverrides {
-    /// Render these overrides as a CSS `:root { ... }` block. Only the
-    /// tokens that are set are emitted; the rest fall back to the defaults
-    /// already defined in the stylesheet.
+    /// Render these overrides as a CSS block on `.app` and
+    /// `.settings-window-shell`. Only the tokens that are set are emitted;
+    /// the rest fall back to the defaults already defined in the stylesheet.
     pub fn to_css(&self) -> String {
         let mut rules = Vec::new();
         let mut push = |name: &str, value: &str| rules.push(format!("  --{name}: {value};"));
 
         if let Some(v) = &self.primary {
             push("color-primary", v);
+            if self.primary_hover.is_none() {
+                push(
+                    "color-primary-hover",
+                    &format!("color-mix(in srgb, {v} 72%, white)"),
+                );
+            }
+            if self.primary_active.is_none() {
+                push(
+                    "color-primary-active",
+                    &format!("color-mix(in srgb, {v} 80%, black)"),
+                );
+            }
         }
         if let Some(v) = &self.primary_hover {
             push("color-primary-hover", v);
@@ -98,19 +146,19 @@ impl ThemeOverrides {
             push("color-panel-3", v);
         }
         if let Some(v) = &self.font_family {
-            push("font-family-sans", v);
+            push("font-sans", v);
         }
         if let Some(v) = &self.font_family_mono {
-            push("font-family-mono", v);
+            push("font-mono", v);
         }
         if let Some(v) = self.font_size {
-            push("font-size-md", &format!("{v}px"));
+            push("ui-font-size", &format!("{v}px"));
         }
         if let Some(v) = self.font_size_small {
-            push("font-size-sm", &format!("{v}px"));
+            push("ui-font-size-sm", &format!("{v}px"));
         }
         if let Some(v) = self.font_size_large {
-            push("font-size-lg", &format!("{v}px"));
+            push("ui-font-size-lg", &format!("{v}px"));
         }
         if let Some(v) = self.radius_small {
             push("radius-sm", &format!("{v}px"));
@@ -128,7 +176,7 @@ impl ThemeOverrides {
         if rules.is_empty() {
             String::new()
         } else {
-            format!(":root {{\n{}\n}}", rules.join("\n"))
+            format!("{THEME_OVERRIDE_SELECTOR} {{\n{}\n}}", rules.join("\n"))
         }
     }
 }
@@ -142,6 +190,62 @@ pub struct Keybinding {
 
 /// Map of action id → key combo, parsed from `[keybindings]` in config.toml.
 pub type KeybindingMap = HashMap<String, String>;
+
+/// Built-in action id → combo pairs. Overrides layer on top via
+/// [`effective_keybindings`].
+pub const DEFAULT_KEYBINDINGS: &[(&str, &str)] = &[
+    ("focus_editor", "Ctrl+E"),
+    ("format_sql", "Ctrl+Shift+F"),
+    ("new_tab", "Ctrl+T"),
+    ("close_tab", "Ctrl+W"),
+    ("next_tab", "Ctrl+Tab"),
+    ("refresh_explorer", "F5"),
+    ("focus_filter_panel", "Ctrl+F"),
+    ("save_query", "Ctrl+Shift+S"),
+    ("close_overlay", "Escape"),
+    ("command_palette", "Ctrl+Shift+P"),
+    ("global_search", "Ctrl+K"),
+    ("rename_selected", "F2"),
+    ("delete_selected", "Delete"),
+    ("focus_agent_composer", "Ctrl+Shift+M"),
+    ("new_connection", "Ctrl+Shift+N"),
+    ("open_settings", "Ctrl+,"),
+];
+
+/// Default keybinding map built from [`DEFAULT_KEYBINDINGS`].
+pub fn default_keybinding_map() -> KeybindingMap {
+    DEFAULT_KEYBINDINGS
+        .iter()
+        .map(|(id, combo)| ((*id).to_string(), (*combo).to_string()))
+        .collect()
+}
+
+/// Defaults with non-empty trimmed overrides applied on top.
+pub fn effective_keybindings(overrides: &KeybindingMap) -> KeybindingMap {
+    let mut map = default_keybinding_map();
+    for (action_id, combo) in overrides {
+        if !combo.trim().is_empty() {
+            map.insert(action_id.clone(), combo.clone());
+        }
+    }
+    map
+}
+
+/// Returns the other action id that already owns `combo`, if any.
+/// Comparison is case-insensitive after trimming; `action_id` is skipped.
+pub fn combo_conflict(action_id: &str, combo: &str, effective: &KeybindingMap) -> Option<String> {
+    let needle = combo.trim();
+    effective.iter().find_map(|(other_id, other_combo)| {
+        if other_id == action_id {
+            return None;
+        }
+        if other_combo.trim().eq_ignore_ascii_case(needle) {
+            Some(other_id.clone())
+        } else {
+            None
+        }
+    })
+}
 
 /// Editor behavior overrides applied at runtime.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -193,10 +297,42 @@ mod tests {
             ..ThemeOverrides::default()
         };
         let css = theme.to_css();
+        assert!(css.contains(".app, .settings-window-shell"));
+        assert!(css.contains(".app.density-compact"));
+        assert!(css.contains(".settings-window-shell.density-compact"));
+        assert!(!css.contains(":root {"));
         assert!(css.contains("--color-primary: #ff0000;"));
-        assert!(css.contains("--font-size-md: 14px;"));
+        assert!(css.contains("--ui-font-size: 14px;"));
         assert!(css.contains("--radius-md: 8px;"));
         assert!(!css.contains("--color-danger"));
+    }
+
+    #[test]
+    fn theme_emits_live_css_variable_names() {
+        let theme = ThemeOverrides {
+            primary: Some("#ff0000".to_string()),
+            font_family: Some("IBM Plex Sans, sans-serif".to_string()),
+            font_size: Some(14),
+            radius_small: Some(4),
+            ..ThemeOverrides::default()
+        };
+        let css = theme.to_css();
+        assert!(css.contains("--color-primary: #ff0000;"));
+        assert!(css.contains("--color-primary-hover:"));
+        assert!(css.contains("--color-primary-active:"));
+        assert!(css.contains("--font-sans: IBM Plex Sans, sans-serif;"));
+        assert!(css.contains("--ui-font-size: 14px;"));
+        assert!(css.contains("--radius-sm: 4px;"));
+        assert!(!css.contains("--font-family-sans"));
+        assert!(!css.contains("--font-size-md"));
+    }
+
+    #[test]
+    fn parse_hex_color_accepts_short_and_long() {
+        assert_eq!(parse_hex_color("#f00").as_deref(), Some("#ff0000"));
+        assert_eq!(parse_hex_color("#FF8800").as_deref(), Some("#ff8800"));
+        assert_eq!(parse_hex_color("not-a-color"), None);
+        assert_eq!(parse_hex_color("#gg0000"), None);
     }
 
     #[test]
@@ -206,5 +342,31 @@ mod tests {
         let json = serde_json::to_string(&map).expect("serialize");
         let back: KeybindingMap = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back["format_sql"], "Ctrl+Shift+F");
+    }
+
+    #[test]
+    fn effective_keybindings_apply_overrides() {
+        let mut overrides = KeybindingMap::new();
+        overrides.insert("format_sql".into(), "Ctrl+Alt+F".into());
+        let effective = effective_keybindings(&overrides);
+        assert_eq!(
+            effective.get("format_sql").map(String::as_str),
+            Some("Ctrl+Alt+F")
+        );
+        assert_eq!(effective.get("new_tab").map(String::as_str), Some("Ctrl+T"));
+    }
+
+    #[test]
+    fn combo_conflict_reports_other_action() {
+        let effective = default_keybinding_map();
+        assert_eq!(
+            combo_conflict("format_sql", "Ctrl+T", &effective).as_deref(),
+            Some("new_tab")
+        );
+        assert_eq!(
+            combo_conflict("format_sql", "Ctrl+Shift+F", &effective),
+            None
+        );
+        assert_eq!(combo_conflict("new_tab", "Ctrl+T", &effective), None);
     }
 }

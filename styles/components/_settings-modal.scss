@@ -13,29 +13,17 @@
 }
 
 .settings-modal {
-  width: min(920px, 100%);
+  width: min(960px, 100%);
   max-height: min(88vh, 100%);
-  overflow: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: $spacing-md;
-  padding: clamp($spacing-md, 2vw, $spacing-lg);
-  border: 1px solid var(--glass-border);
-  border-radius: 28px;
-  background:
-    radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--color-primary) 12%, transparent), transparent 30%),
-    linear-gradient(
-      180deg,
-      color-mix(
-        in srgb,
-        var(--color-surface-contrast, var(--color-panel-2)) 54%,
-        transparent
-      ),
-      transparent 180px
-    ),
-    color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 90%, var(--glass-tint));
-  box-shadow: var(--shadow-panel);
-  backdrop-filter: blur(30px) saturate(160%);
+  gap: $spacing-sm;
+  padding: $spacing-md;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, #{$radius-md});
+  background: var(--color-surface-elevated, var(--color-panel-2));
+  box-shadow: $shadow-md;
 }
 
 .settings-modal__header {
@@ -74,6 +62,7 @@
   flex-direction: row;
   align-items: stretch;
   gap: $spacing-md;
+  flex: 1 1 auto;
   min-height: 0;
 }
 
@@ -82,73 +71,37 @@
 // screen — today there are six, so overflow stays hidden at typical heights.
 .settings-modal__nav {
   flex: 0 0 auto;
-  width: 196px;
+  width: 168px;
   display: flex;
   flex-direction: column;
   gap: $spacing-2xs;
-  padding: $spacing-xs;
-  border: 1px solid color-mix(in srgb, var(--glass-border) 48%, var(--color-border));
-  border-radius: 18px;
-  background: color-mix(
-    in srgb,
-    var(--color-surface-contrast, var(--color-panel-2)) 46%,
-    transparent
-  );
-  box-shadow: inset 0 1px 0 var(--glass-highlight);
-  align-self: flex-start;
+  padding: $spacing-2xs;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, #{$radius-md});
+  background: var(--color-surface-contrast, var(--color-panel-2));
 }
 
 .settings-modal__nav-item {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: $spacing-sm $spacing-md;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 $spacing-sm;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: var(--radius-sm, #{$radius-sm});
   background: transparent;
   color: var(--color-text);
-  font-family: inherit;
   font-size: $font-size-md;
   text-align: left;
   cursor: pointer;
   width: 100%;
-  transition:
-    background-color $motion-fast ease,
-    border-color $motion-fast ease,
-    box-shadow $motion-fast ease,
-    transform $motion-fast ease;
 
   &:hover:not(.settings-modal__nav-item--active) {
-    background: color-mix(
-      in srgb,
-      var(--color-surface-contrast, var(--color-panel-2)) 70%,
-      transparent
-    );
-    border-color: color-mix(in srgb, var(--color-primary) 12%, var(--color-border));
-  }
-
-  &:focus-visible {
-    @include focus-ring;
+    background: var(--color-hover);
   }
 
   &--active {
-    background: color-mix(
-      in srgb,
-      var(--color-primary) 22%,
-      var(--color-surface-contrast, var(--color-panel-2)) 60%
-    );
-    border-color: color-mix(in srgb, var(--color-primary) 36%, transparent);
-    box-shadow:
-      inset 0 1px 0 var(--glass-highlight),
-      0 6px 14px rgba(8, 10, 20, 0.06);
-
-    .settings-modal__nav-label {
-      color: var(--color-text);
-    }
-    .settings-modal__nav-description {
-      color: color-mix(in srgb, var(--color-text) 80%, transparent);
-    }
+    background: var(--color-active);
+    border-color: color-mix(in srgb, var(--color-primary) 46%, transparent);
   }
 }
 
@@ -159,19 +112,13 @@
   color: var(--color-text);
 }
 
-.settings-modal__nav-description {
-  font-size: $font-size-xs;
-  line-height: $line-height-normal;
-  color: var(--color-text-muted);
-}
-
-// Right pane: stacks the sections belonging to the active category. The pane
-// is the scrollable surface inside the bounded modal (the modal itself is the
-// outer scroll container via `overflow: auto`), so the content can grow as
-// tall as it needs to without forcing the nav to stretch.
+// Right pane: stacks the sections belonging to the active category. Overflow
+// lives here so the modal chrome stays fixed while the pane scrolls.
 .settings-modal__content {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
+  overflow: auto;
   display: flex;
   flex-direction: column;
   gap: $spacing-md;
@@ -188,16 +135,9 @@
   flex-direction: column;
   gap: $spacing-sm;
   padding: $spacing-md;
-  border: 1px solid color-mix(in srgb, var(--glass-border) 72%, var(--color-border));
-  border-radius: 18px;
-  background: color-mix(
-    in srgb,
-    var(--color-surface-elevated, var(--color-panel)) 82%,
-    transparent
-  );
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    0 12px 26px rgba(8, 10, 20, 0.08);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, #{$radius-md});
+  background: var(--color-surface-elevated, var(--color-panel));
 }
 
 .settings-modal__section-header {
@@ -224,27 +164,21 @@
 .settings-modal__segmented {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: $spacing-xs;
+  gap: $spacing-2xs;
   padding: $spacing-2xs;
-  border: 1px solid color-mix(in srgb, var(--glass-border) 58%, var(--color-border));
-  border-radius: 999px;
-  background: color-mix(
-    in srgb,
-    var(--color-surface-contrast, var(--color-panel-2)) 60%,
-    transparent
-  );
-  box-shadow: inset 0 1px 0 var(--glass-highlight);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, #{$radius-sm});
+  background: var(--color-surface-contrast, var(--color-panel-2));
+}
+
+.settings-modal__segmented--density,
+.settings-modal__segmented--split-mode {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .settings-modal__segmented .button {
-  width: 100%;
-  justify-content: center;
-  height: 26px;
-  border-radius: 999px;
-
-  &:focus-visible {
-    @include focus-ring;
-  }
+  height: 24px;
+  border-radius: var(--radius-sm, #{$radius-sm});
 }
 
 // Grid for paired fields inside a section.
@@ -263,6 +197,23 @@
     var(--color-surface-contrast, var(--color-panel-2)) 56%,
     transparent
   );
+}
+
+.settings-modal__slider {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: $spacing-sm;
+
+  input[type="range"] {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  input[type="number"] {
+    width: 64px;
+    flex: 0 0 64px;
+  }
 }
 
 // Toggle rows: clickable card with hover, focus, and disabled feedback.
@@ -358,52 +309,44 @@
   border-top: 1px solid color-mix(in srgb, var(--glass-border) 36%, transparent);
 }
 
-@media (max-width: 760px) {
-  .settings-modal {
-    width: 100%;
-    max-height: 100%;
-    border-radius: 14px;
-  }
-
-  // Collapse the horizontal nav+content layout into a vertical stack so a
-  // narrow window still fits every category. The category buttons become a
-  // compact horizontal strip with wrapping rather than a tall sidebar.
+@media (max-width: 560px) {
   .settings-modal__body {
     flex-direction: column;
   }
-
   .settings-modal__nav {
     width: 100%;
     flex-direction: row;
     flex-wrap: wrap;
   }
-
   .settings-modal__nav-item {
     width: auto;
     flex: 1 1 calc(50% - #{$spacing-2xs});
   }
-
-  .settings-modal__segmented {
-    grid-template-columns: 1fr;
-  }
-
-  .settings-modal__header,
-  .settings-modal__section-header {
-    flex-direction: column;
-    align-items: stretch;
-  }
 }
 
-// Root container for the separate native OS settings window. The dialog window
-// has its own webview + theme class (set by `SettingsWindowRoot`), so this
-// shell just needs to fill the viewport and provide the page-level theme
-// tokens (`--color-*`) the modal styles expect. The `.settings-modal__backdrop`
-// inside handles centering + backdrop blur.
+// Root container for the separate native OS settings window. Fills the
+// webview so the modal chrome sits flush against the OS frame.
 .settings-window-shell {
   min-height: 100vh;
+  height: 100vh;
   color: var(--color-text);
-  font-family: var(--font-sans);
-  background: var(--color-backdrop, transparent);
+  font-family: var(--font-sans, #{$font-family-sans});
+  background: var(--color-surface-shell, var(--color-bg));
+
+  .settings-modal__backdrop {
+    padding: 0;
+    background: transparent;
+    place-items: stretch;
+  }
+
+  .settings-modal {
+    width: 100%;
+    max-height: 100%;
+    height: 100%;
+    border-radius: 0;
+    box-shadow: none;
+    border: 0;
+  }
 }
 
 // Root container for the separate native OS connection-edit window. Same

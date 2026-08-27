@@ -201,10 +201,46 @@ pub fn parse_combo(combo: &str) -> Option<(Key, Modifiers)> {
         "f12" => Key::F12,
         "delete" | "del" => Key::Delete,
         "backspace" => Key::Backspace,
+        "comma" | "," => Key::Character(",".into()),
         single if single.chars().count() == 1 => Key::Character(single.to_uppercase()),
         _ => return None,
     };
     Some((key, modifiers))
+}
+
+/// Build a `"Ctrl+Shift+F"`-style combo string from a key event.
+/// Returns `None` for lone modifier keys so the recorder can ignore them.
+pub fn combo_from_event(key: &Key, modifiers: Modifiers) -> Option<String> {
+    if matches!(key, Key::Control | Key::Shift | Key::Alt | Key::Meta) {
+        return None;
+    }
+    let mut parts: Vec<&str> = Vec::new();
+    if ctrl_or_meta(modifiers) {
+        parts.push("Ctrl");
+    }
+    if modifiers.contains(Modifiers::SHIFT) {
+        parts.push("Shift");
+    }
+    if modifiers.contains(Modifiers::ALT) {
+        parts.push("Alt");
+    }
+    let key_label = match key {
+        Key::Tab => "Tab".to_string(),
+        Key::Escape => "Escape".to_string(),
+        Key::Enter => "Enter".to_string(),
+        Key::Delete => "Delete".to_string(),
+        Key::Backspace => "Backspace".to_string(),
+        Key::F2 => "F2".to_string(),
+        Key::F5 => "F5".to_string(),
+        Key::Character(c) if c == "," => ",".to_string(),
+        Key::Character(c) => c.to_uppercase(),
+        _ => return None,
+    };
+    if parts.is_empty() {
+        Some(key_label)
+    } else {
+        Some(format!("{}+{}", parts.join("+"), key_label))
+    }
 }
 
 /// Match a key/modifier pair against the user's overridden keybindings
@@ -596,5 +632,28 @@ mod tests {
             Some(ShortcutAction::OpenSettings)
         );
         assert_eq!(action_from_id("bogus"), None);
+    }
+
+    #[test]
+    fn parse_combo_accepts_ctrl_comma_and_f2() {
+        let (key, mods) = parse_combo("Ctrl+,").expect("ctrl comma");
+        assert_eq!(key, Key::Character(",".into()));
+        assert!(ctrl_or_meta(mods));
+        let (key, mods) = parse_combo("F2").expect("f2");
+        assert_eq!(key, Key::F2);
+        assert!(mods.is_empty());
+    }
+
+    #[test]
+    fn combo_from_event_skips_lone_modifiers() {
+        assert_eq!(combo_from_event(&Key::Control, Modifiers::CONTROL), None);
+        assert_eq!(
+            combo_from_event(&Key::Character("f".into()), ctrl_shift()).as_deref(),
+            Some("Ctrl+Shift+F")
+        );
+        assert_eq!(
+            combo_from_event(&Key::Character(",".into()), ctrl()).as_deref(),
+            Some("Ctrl+,")
+        );
     }
 }
