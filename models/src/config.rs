@@ -537,7 +537,7 @@ confirm_before_drop = true
         };
         let css = theme.to_css();
         assert!(css.contains("--color-primary: #ff0000;"));
-        assert!(css.contains("--font-size-md: 14px;"));
+        assert!(css.contains("--ui-font-size: 14px;"));
         assert!(css.contains("--radius-md: 8px;"));
     }
 }

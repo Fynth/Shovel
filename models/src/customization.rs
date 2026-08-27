@@ -1,6 +1,29 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Normalize a CSS hex color to `#rrggbb` (lowercase). Accepts `#RGB` and
+/// `#RRGGBB`; returns `None` for anything else.
+pub fn parse_hex_color(value: &str) -> Option<String> {
+    let value = value.trim();
+    let hex = value.strip_prefix('#')?;
+    let expanded = match hex.len() {
+        3 => {
+            let mut out = String::with_capacity(6);
+            for ch in hex.chars() {
+                out.push(ch);
+                out.push(ch);
+            }
+            out
+        }
+        6 => hex.to_string(),
+        _ => return None,
+    };
+    if !expanded.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return None;
+    }
+    Some(format!("#{}", expanded.to_ascii_lowercase()))
+}
+
 /// Structured overrides for the app's CSS design tokens. Every field is
 /// optional; `None` leaves the default token untouched. When applied, these
 /// are rendered into `:root { --color-*: ...; --font-*: ...; }` CSS variables
@@ -51,6 +74,18 @@ impl ThemeOverrides {
 
         if let Some(v) = &self.primary {
             push("color-primary", v);
+            if self.primary_hover.is_none() {
+                push(
+                    "color-primary-hover",
+                    &format!("color-mix(in srgb, {v} 72%, white)"),
+                );
+            }
+            if self.primary_active.is_none() {
+                push(
+                    "color-primary-active",
+                    &format!("color-mix(in srgb, {v} 80%, black)"),
+                );
+            }
         }
         if let Some(v) = &self.primary_hover {
             push("color-primary-hover", v);
@@ -98,19 +133,19 @@ impl ThemeOverrides {
             push("color-panel-3", v);
         }
         if let Some(v) = &self.font_family {
-            push("font-family-sans", v);
+            push("font-sans", v);
         }
         if let Some(v) = &self.font_family_mono {
-            push("font-family-mono", v);
+            push("font-mono", v);
         }
         if let Some(v) = self.font_size {
-            push("font-size-md", &format!("{v}px"));
+            push("ui-font-size", &format!("{v}px"));
         }
         if let Some(v) = self.font_size_small {
-            push("font-size-sm", &format!("{v}px"));
+            push("ui-font-size-sm", &format!("{v}px"));
         }
         if let Some(v) = self.font_size_large {
-            push("font-size-lg", &format!("{v}px"));
+            push("ui-font-size-lg", &format!("{v}px"));
         }
         if let Some(v) = self.radius_small {
             push("radius-sm", &format!("{v}px"));
@@ -194,9 +229,37 @@ mod tests {
         };
         let css = theme.to_css();
         assert!(css.contains("--color-primary: #ff0000;"));
-        assert!(css.contains("--font-size-md: 14px;"));
+        assert!(css.contains("--ui-font-size: 14px;"));
         assert!(css.contains("--radius-md: 8px;"));
         assert!(!css.contains("--color-danger"));
+    }
+
+    #[test]
+    fn theme_emits_live_css_variable_names() {
+        let theme = ThemeOverrides {
+            primary: Some("#ff0000".to_string()),
+            font_family: Some("IBM Plex Sans, sans-serif".to_string()),
+            font_size: Some(14),
+            radius_small: Some(4),
+            ..ThemeOverrides::default()
+        };
+        let css = theme.to_css();
+        assert!(css.contains("--color-primary: #ff0000;"));
+        assert!(css.contains("--color-primary-hover:"));
+        assert!(css.contains("--color-primary-active:"));
+        assert!(css.contains("--font-sans: IBM Plex Sans, sans-serif;"));
+        assert!(css.contains("--ui-font-size: 14px;"));
+        assert!(css.contains("--radius-sm: 4px;"));
+        assert!(!css.contains("--font-family-sans"));
+        assert!(!css.contains("--font-size-md"));
+    }
+
+    #[test]
+    fn parse_hex_color_accepts_short_and_long() {
+        assert_eq!(parse_hex_color("#f00").as_deref(), Some("#ff0000"));
+        assert_eq!(parse_hex_color("#FF8800").as_deref(), Some("#ff8800"));
+        assert_eq!(parse_hex_color("not-a-color"), None);
+        assert_eq!(parse_hex_color("#gg0000"), None);
     }
 
     #[test]
