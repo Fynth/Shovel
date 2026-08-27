@@ -55,6 +55,7 @@ pub use session_ops::{
     execute_explain,
     execute_query,
     execute_query_page,
+    format_sql_for_session,
     import_csv_into_table,
     insert_table_row,
     insert_table_row_with_values,

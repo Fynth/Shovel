@@ -1023,15 +1023,12 @@ fn format_active_sql(store: TabStore, current_id: u64, format_settings: SqlForma
         return;
     }
 
-    let session_kind = APP_STATE
-        .read()
-        .session(current_tab.session_id)
-        .map(|session| session.kind);
+    let session_id = current_tab.session_id;
     let sql = sql.to_string();
     let fallback_sql = sql.clone();
     spawn(async move {
         let formatted = tokio::task::spawn_blocking(move || {
-            services::format_sql(session_kind, &sql, &format_settings)
+            services::format_sql_for_session(session_id, &sql, &format_settings).unwrap_or(sql)
         })
         .await
         .unwrap_or(fallback_sql);

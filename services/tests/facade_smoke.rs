@@ -52,6 +52,7 @@ fn facade_surface_compiles() {
     let _ = &services::is_read_only_sql;
     let _ = &services::preview_source_for_sql;
     let _ = &services::format_sql;
+    let _ = &services::format_sql_for_session;
 
     // --- Import / export ---
     let _ = &services::export_query_page_csv;

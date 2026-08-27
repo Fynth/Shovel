@@ -9,6 +9,7 @@ use models::{
     QueryFilter,
     QueryOutput,
     QuerySort,
+    SqlFormatSettings,
     TableForeignKey,
     TablePreviewSource,
 };
@@ -19,6 +20,20 @@ fn live_connection(session_id: u64) -> Result<LiveConnection, DatabaseError> {
     handle
         .legacy()
         .ok_or_else(|| DatabaseError::Unsupported("session has no live connection".into()))
+}
+
+pub fn format_sql_for_session(
+    session_id: u64,
+    sql: &str,
+    settings: &SqlFormatSettings,
+) -> Result<String, DatabaseError> {
+    let handle =
+        connection::session(session_id).ok_or(DatabaseError::SessionNotFound(session_id))?;
+    Ok(query::format_sql(
+        handle.dialect().format_flavor,
+        sql,
+        settings,
+    ))
 }
 
 pub async fn execute_query(session_id: u64, sql: String) -> Result<QueryOutput, DatabaseError> {

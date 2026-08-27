@@ -1771,13 +1771,14 @@ pub fn format_active_tab(
         return;
     }
 
-    let session_id = store.meta.read().get(&current_id).map(|m| m.session_id);
-    let session_kind = session_id.and_then(|sid| APP_STATE.read().session(sid).map(|s| s.kind));
+    let Some(session_id) = store.meta.read().get(&current_id).map(|m| m.session_id) else {
+        return;
+    };
     let sql = sql.to_string();
     let fallback_sql = sql.clone();
     spawn(async move {
         let formatted = tokio::task::spawn_blocking(move || {
-            services::format_sql(session_kind, &sql, &format_settings)
+            services::format_sql_for_session(session_id, &sql, &format_settings).unwrap_or(sql)
         })
         .await
         .unwrap_or(fallback_sql);

@@ -8,7 +8,7 @@ mod preview;
 mod rows;
 pub mod splitter;
 
-use database::{DatabaseDriver, LiveConnection};
+use database::{DatabaseDriver, Dialect, FormatFlavor, LiveConnection};
 use driver_clickhouse::ClickHouseDriver;
 use models::{DatabaseError, QueryFilter, QueryOutput, QuerySort, TablePreviewSource};
 use sqlx::Row;
@@ -26,7 +26,6 @@ pub use preview::load_table_preview_page;
 
 use self::{
     build::{
-        SqlBuildDialect,
         build_editable_paginated_query,
         build_outer_paginated_query,
         build_paginated_query,
@@ -54,21 +53,25 @@ use self::{
 };
 
 const LOCATOR_COLUMN: &str = "__shovel_locator";
-const SQLITE_DIALECT: SqlBuildDialect = SqlBuildDialect {
+const SQLITE_DIALECT: Dialect = Dialect {
     quote_identifier,
     filter_expression: sqlite_filter_expression,
+    format_flavor: FormatFlavor::Generic,
 };
-const POSTGRES_DIALECT: SqlBuildDialect = SqlBuildDialect {
+const POSTGRES_DIALECT: Dialect = Dialect {
     quote_identifier,
     filter_expression: postgres_filter_expression,
+    format_flavor: FormatFlavor::Postgres,
 };
-const MYSQL_DIALECT: SqlBuildDialect = SqlBuildDialect {
+const MYSQL_DIALECT: Dialect = Dialect {
     quote_identifier: quote_identifier_clickhouse,
     filter_expression: mysql_filter_expression,
+    format_flavor: FormatFlavor::Generic,
 };
-const CLICKHOUSE_DIALECT: SqlBuildDialect = SqlBuildDialect {
+const CLICKHOUSE_DIALECT: Dialect = Dialect {
     quote_identifier: quote_identifier_clickhouse,
     filter_expression: clickhouse_filter_expression,
+    format_flavor: FormatFlavor::Generic,
 };
 
 pub(crate) use self::rows::{postgres_rows_to_page, sqlite_rows_to_page};
