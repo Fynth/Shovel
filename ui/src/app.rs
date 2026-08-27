@@ -1,9 +1,5 @@
 use crate::{
     app_state::{
-        APP_APP_BEHAVIOR,
-        APP_EDITOR_BEHAVIOR,
-        APP_KEYBINDINGS,
-        APP_PANEL_BEHAVIOR,
         APP_SQL_FORMAT_SETTINGS,
         APP_STATE,
         APP_THEME,
@@ -61,12 +57,6 @@ pub fn App() -> Element {
 
         replace_ui_settings(startup.ui_settings.clone());
         *APP_SQL_FORMAT_SETTINGS.write() = startup.sql_format_settings.clone();
-        // Apply deep-customization overrides from config.toml.
-        *APP_THEME_OVERRIDES.write() = startup.theme_overrides.clone().unwrap_or_default();
-        *APP_KEYBINDINGS.write() = startup.keybindings.clone().unwrap_or_default();
-        *APP_EDITOR_BEHAVIOR.write() = startup.editor.clone().unwrap_or_default();
-        *APP_PANEL_BEHAVIOR.write() = startup.panels.clone().unwrap_or_default();
-        *APP_APP_BEHAVIOR.write() = startup.behavior.clone().unwrap_or_default();
         last_saved_ui_settings.set(Some(startup.ui_settings.clone()));
         last_saved_sql_settings.set(Some(startup.sql_format_settings.clone()));
         startup_loaded.set(true);
