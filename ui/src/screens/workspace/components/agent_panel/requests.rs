@@ -4,6 +4,7 @@ use models::{
     AcpPanelState,
     AcpUiMessage,
     ActiveModel,
+    AiCatalogSettings,
     AiProviderKind,
     AppUiSettings,
     builtin_providers,
@@ -12,6 +13,7 @@ use models::{
     normalize_native_chat_url,
     provider_backend,
     provider_kind,
+    provider_offers_chat,
 };
 
 use super::{
@@ -91,6 +93,10 @@ enum ActiveChatBackend {
     Acp,
 }
 
+fn native_chat_allowed(provider: &str, catalog: &AiCatalogSettings) -> bool {
+    provider_offers_chat(provider, catalog)
+}
+
 fn resolve_active_chat_backend(settings: &AppUiSettings) -> Result<ActiveChatBackend, String> {
     let Some(active) = settings.ai_catalog.active.as_ref() else {
         return Err("No language model selected.".to_string());
@@ -98,6 +104,9 @@ fn resolve_active_chat_backend(settings: &AppUiSettings) -> Result<ActiveChatBac
     let api_key = settings.lm_api_key(&active.provider);
     match provider_kind(&active.provider) {
         Some(AiProviderKind::NativeHttp) => {
+            if !native_chat_allowed(&active.provider, &settings.ai_catalog) {
+                return Err("This provider does not support chat.".to_string());
+            }
             if !native_http_provider_enabled(&settings.ai_catalog, &active.provider) {
                 return Err("Enable this provider in Settings.".to_string());
             }
@@ -1317,9 +1326,18 @@ mod tests {
         AgentSqlExecutionMode,
         build_explain_sql,
         native_base_url,
+        native_chat_allowed,
         read_only_agent_sql_blocked,
+        resolve_active_chat_backend,
     };
-    use models::{AiBackendId, AiProviderOverride, AppUiSettings, CustomNativeProvider};
+    use models::{
+        ActiveModel,
+        AiBackendId,
+        AiCatalogSettings,
+        AiProviderOverride,
+        AppUiSettings,
+        CustomNativeProvider,
+    };
 
     #[test]
     fn native_base_url_prefers_custom_then_override() {
@@ -1407,5 +1425,54 @@ mod tests {
             read_only_agent_sql_blocked("DELETE FROM products", AgentSqlExecutionMode::Manual),
             None
         );
+    }
+
+    #[test]
+    fn native_chat_allowed_skips_complete_only_codestral() {
+        let catalog = AiCatalogSettings::default();
+        assert!(!native_chat_allowed("codestral", &catalog));
+        assert!(native_chat_allowed("openai", &catalog));
+    }
+
+    #[test]
+    fn resolve_active_chat_backend_rejects_complete_only_codestral() {
+        let mut settings = AppUiSettings::default();
+        settings.ai_catalog.active = Some(ActiveModel {
+            provider: "codestral".into(),
+            model: "codestral-latest".into(),
+        });
+        settings.ai_catalog.overrides.insert(
+            "codestral".into(),
+            AiProviderOverride {
+                enabled: true,
+                ..Default::default()
+            },
+        );
+        settings.set_lm_api_key("codestral", "sk-test".into());
+        match resolve_active_chat_backend(&settings) {
+            Err(err) => assert!(
+                err.to_ascii_lowercase().contains("chat"),
+                "expected a chat-capability error, got {err}"
+            ),
+            Ok(_) => panic!("complete-only Codestral must not chat"),
+        }
+    }
+
+    #[test]
+    fn resolve_active_chat_backend_accepts_enabled_openai() {
+        let mut settings = AppUiSettings::default();
+        settings.ai_catalog.active = Some(ActiveModel {
+            provider: "openai".into(),
+            model: "gpt-5.6-sol".into(),
+        });
+        settings.ai_catalog.overrides.insert(
+            "openai".into(),
+            AiProviderOverride {
+                enabled: true,
+                ..Default::default()
+            },
+        );
+        settings.set_lm_api_key("openai", "sk-test".into());
+        assert!(resolve_active_chat_backend(&settings).is_ok());
     }
 }

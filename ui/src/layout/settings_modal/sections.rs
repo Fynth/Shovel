@@ -3,6 +3,7 @@ use dioxus::prelude::*;
 use models::{
     ActiveModel,
     AiBackendId,
+    AiCatalogSettings,
     AiModelEntry,
     AiProviderKind,
     AppThemePreference,
@@ -17,6 +18,7 @@ use models::{
     completion_picker_ids,
     normalize_native_chat_url,
     provider_backend,
+    provider_offers_chat,
     resolve_picker_models,
 };
 use std::collections::BTreeMap;
@@ -1855,6 +1857,10 @@ fn native_http_provider_card(
     }
 }
 
+fn show_use_as_chat_default(provider: &str, catalog: &AiCatalogSettings) -> bool {
+    provider_offers_chat(provider, catalog)
+}
+
 fn builtin_model_row(
     slug: String,
     model_id: &str,
@@ -1875,6 +1881,7 @@ fn builtin_model_row(
     let hide_id = model_id.clone();
     let default_slug = slug;
     let default_id = model_id.clone();
+    let offers_chat = show_use_as_chat_default(&default_slug, &settings.ai_catalog);
     let is_default = settings
         .ai_catalog
         .active
@@ -1916,16 +1923,18 @@ fn builtin_model_row(
                 }
                 span { "Hide" }
             }
-            button {
-                class: "button button--ghost button--small",
-                onclick: move |_| {
-                    let provider = default_slug.clone();
-                    let model = default_id.clone();
-                    emit_ui_update(section, on_change, move |next| {
-                        next.ai_catalog.active = Some(ActiveModel { provider, model });
-                    });
-                },
-                {default_label}
+            if offers_chat {
+                button {
+                    class: "button button--ghost button--small",
+                    onclick: move |_| {
+                        let provider = default_slug.clone();
+                        let model = default_id.clone();
+                        emit_ui_update(section, on_change, move |next| {
+                            next.ai_catalog.active = Some(ActiveModel { provider, model });
+                        });
+                    },
+                    {default_label}
+                }
             }
         }
     }
@@ -1945,6 +1954,7 @@ fn extra_model_row(
     let default_id = model_id.clone();
     let remove_slug = slug;
     let remove_id = model_id.clone();
+    let offers_chat = show_use_as_chat_default(&default_slug, &settings.ai_catalog);
     let is_default = settings
         .ai_catalog
         .active
@@ -1959,16 +1969,18 @@ fn extra_model_row(
     rsx! {
         div { class: "settings-modal__grid",
             span { class: "field__label", {display} }
-            button {
-                class: "button button--ghost button--small",
-                onclick: move |_| {
-                    let provider = default_slug.clone();
-                    let model = default_id.clone();
-                    emit_ui_update(section, on_change, move |next| {
-                        next.ai_catalog.active = Some(ActiveModel { provider, model });
-                    });
-                },
-                {default_label}
+            if offers_chat {
+                button {
+                    class: "button button--ghost button--small",
+                    onclick: move |_| {
+                        let provider = default_slug.clone();
+                        let model = default_id.clone();
+                        emit_ui_update(section, on_change, move |next| {
+                            next.ai_catalog.active = Some(ActiveModel { provider, model });
+                        });
+                    },
+                    {default_label}
+                }
             }
             button {
                 class: "button button--ghost button--small",
@@ -2156,16 +2168,18 @@ fn custom_native_provider_card(
                     },
                     "Refresh"
                 }
-                button {
-                    class: "button button--ghost button--small",
-                    onclick: move |_| {
-                        let provider = default_id.clone();
-                        let model = default_model.clone();
-                        emit_ui_update(section, on_change, move |next| {
-                            next.ai_catalog.active = Some(ActiveModel { provider, model });
-                        });
-                    },
-                    "Use as default"
+                if show_use_as_chat_default(&id, &settings.ai_catalog) {
+                    button {
+                        class: "button button--ghost button--small",
+                        onclick: move |_| {
+                            let provider = default_id.clone();
+                            let model = default_model.clone();
+                            emit_ui_update(section, on_change, move |next| {
+                                next.ai_catalog.active = Some(ActiveModel { provider, model });
+                            });
+                        },
+                        "Use as default"
+                    }
                 }
                 button {
                     class: "button button--ghost button--small",
@@ -2229,5 +2243,12 @@ mod tests {
         assert_eq!(parse_u32_in_range("5", 50, 10, 1000), 10);
         assert_eq!(parse_u32_in_range("9999", 50, 10, 1000), 1000);
         assert_eq!(parse_u32_in_range("250", 50, 10, 1000), 250);
+    }
+
+    #[test]
+    fn use_as_chat_default_hidden_for_complete_only_codestral() {
+        let catalog = AiCatalogSettings::default();
+        assert!(!show_use_as_chat_default("codestral", &catalog));
+        assert!(show_use_as_chat_default("openai", &catalog));
     }
 }
