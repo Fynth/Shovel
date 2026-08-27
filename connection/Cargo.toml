@@ -22,3 +22,6 @@ sqlite = ["driver-sqlite"]
 postgres = ["driver-postgres"]
 mysql = ["driver-mysql"]
 clickhouse = ["driver-clickhouse", "reqwest"]
+
+[dev-dependencies]
+database = { workspace = true, features = ["fake"] }

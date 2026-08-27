@@ -4,6 +4,7 @@ use models::{
     AppUiSettings,
     ConnectionRequest,
     DatabaseConnection,
+    DatabaseError,
     EditorBehavior,
     KeybindingMap,
     PanelBehavior,
@@ -182,7 +183,7 @@ pub async fn restore_saved_sessions() -> Result<SessionRestoreResult, String> {
 
     let restored_results = join_all(open_requests.into_iter().map(|request| async move {
         match connection::connect_to_db(request.clone()).await {
-            Ok(connection) => Ok((request, connection)),
+            Ok(handle) => Ok((request, handle.legacy().expect("legacy handle"))),
             Err(err) => Err((request, err.to_string())),
         }
     }))
@@ -205,16 +206,23 @@ pub async fn restore_saved_sessions() -> Result<SessionRestoreResult, String> {
     })
 }
 
+pub async fn connect_to_db(
+    request: ConnectionRequest,
+) -> Result<DatabaseConnection, DatabaseError> {
+    let handle = connection::connect_to_db(request).await?;
+    Ok(handle.legacy().expect("legacy handle"))
+}
+
 pub async fn connect_and_save_request(
     request: ConnectionRequest,
 ) -> Result<ConnectAndSaveResult, String> {
-    let connection = connection::connect_to_db(request.clone())
+    let handle = connection::connect_to_db(request.clone())
         .await
         .map_err(|err| err.to_string())?;
     let save_warning = storage::save_connection_request(request).await.err();
 
     Ok(ConnectAndSaveResult {
-        connection,
+        connection: handle.legacy().expect("legacy handle"),
         save_warning,
     })
 }

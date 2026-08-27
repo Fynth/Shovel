@@ -1,5 +1,8 @@
 //! Database connection orchestration and SSH tunnel lifecycle management for Shovel.
 
+mod registry;
+pub use registry::{register_session, session, unregister_session};
+
 use connection_ssh::{OpenedSshTunnel, open_ssh_tunnel, register_ssh_tunnel};
 #[cfg(any(
     feature = "sqlite",
@@ -8,6 +11,7 @@ use connection_ssh::{OpenedSshTunnel, open_ssh_tunnel, register_ssh_tunnel};
     feature = "clickhouse"
 ))]
 use database::DatabaseDriver;
+use database::SessionHandle;
 #[cfg(feature = "clickhouse")]
 use driver_clickhouse::ClickHouseDriver;
 #[cfg(feature = "mysql")]
@@ -179,9 +183,8 @@ pub async fn test_connection(request: ConnectionRequest) -> Result<(), DatabaseE
 ///
 /// # Returns
 ///
-/// * `Ok(DatabaseConnection)` — a type-erased handle to the live connection
-///   (one of `DatabaseConnection::Sqlite`, `::Postgres`, `::MySql`, or
-///   `::ClickHouse`).
+/// * `Ok(SessionHandle)` — a type-erased session wrapping the live connection
+///   (legacy sqlx pool or ClickHouse form, via [`SessionHandle::from_legacy`]).
 ///
 /// # Errors
 ///
@@ -193,9 +196,7 @@ pub async fn test_connection(request: ConnectionRequest) -> Result<(), DatabaseE
 ///   host or username is empty, DSN input used with tunneling, HTTPS
 ///   ClickHouse endpoint requested over SSH, unparseable ClickHouse URL).
 /// * `DatabaseError::Unsupported` — the requested driver is not compiled in.
-pub async fn connect_to_db(
-    request: ConnectionRequest,
-) -> Result<DatabaseConnection, DatabaseError> {
+pub async fn connect_to_db(request: ConnectionRequest) -> Result<SessionHandle, DatabaseError> {
     let session_key = request.identity_key();
 
     match request {
@@ -204,7 +205,7 @@ pub async fn connect_to_db(
             let pool = SqliteDriver::connect(data.path)
                 .await
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-            Ok(DatabaseConnection::Sqlite(pool))
+            Ok(SessionHandle::from_legacy(DatabaseConnection::Sqlite(pool)))
         }
         #[cfg(feature = "postgres")]
         ConnectionRequest::Postgres(mut data) => {
@@ -239,7 +240,7 @@ pub async fn connect_to_db(
             .await;
 
             finalize_tunnel(&session_key, resolved, &result);
-            result
+            result.map(SessionHandle::from_legacy)
         }
         #[cfg(feature = "mysql")]
         ConnectionRequest::MySql(mut data) => {
@@ -278,7 +279,7 @@ pub async fn connect_to_db(
             .await;
 
             finalize_tunnel(&session_key, resolved, &result);
-            result
+            result.map(SessionHandle::from_legacy)
         }
         #[cfg(feature = "clickhouse")]
         ConnectionRequest::ClickHouse(mut data) => {
@@ -317,7 +318,7 @@ pub async fn connect_to_db(
             .await;
 
             finalize_tunnel(&session_key, resolved, &result);
-            result
+            result.map(SessionHandle::from_legacy)
         }
         #[allow(unreachable_patterns)]
         _ => Err(DatabaseError::Unsupported(

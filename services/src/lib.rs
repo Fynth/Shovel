@@ -20,11 +20,12 @@ pub use app::{
     ConnectAndSaveResult,
     SessionRestoreResult,
     connect_and_save_request,
+    connect_to_db,
     load_app_startup_settings,
     restore_saved_sessions,
     save_app_ui_settings_with_secrets,
 };
-pub use connection::{connect_to_db, release_ssh_tunnel, test_connection};
+pub use connection::{release_ssh_tunnel, test_connection};
 
 // --- Schema exploration ---
 

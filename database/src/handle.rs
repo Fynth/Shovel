@@ -7,6 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use models::{
     Capabilities,
+    DatabaseConnection,
     DatabaseError,
     DatabaseKind,
     ExecutionPlan,
@@ -17,7 +18,7 @@ use models::{
     TablePreviewSource,
 };
 
-use crate::Dialect;
+use crate::{Dialect, FormatFlavor, quote_ident_double};
 
 #[async_trait]
 pub trait QueryExec: Send + Sync {
@@ -80,6 +81,9 @@ pub trait DriverSession: QueryExec + SchemaExec + Send + Sync {
     fn as_mutate(&self) -> Option<&dyn MutateExec>;
     fn as_explain(&self) -> Option<&dyn ExplainExec>;
     fn as_introspect(&self) -> Option<&dyn IntrospectExec>;
+    fn as_legacy(&self) -> Option<DatabaseConnection> {
+        None
+    }
 }
 
 #[derive(Clone)]
@@ -90,6 +94,14 @@ pub struct SessionHandle {
 impl SessionHandle {
     pub fn wrap(inner: Arc<dyn DriverSession>) -> Self {
         Self { inner }
+    }
+
+    pub fn from_legacy(connection: DatabaseConnection) -> Self {
+        Self::wrap(Arc::new(LegacyDriver { connection }))
+    }
+
+    pub fn legacy(&self) -> Option<DatabaseConnection> {
+        self.inner.as_legacy()
     }
 
     pub fn kind(&self) -> DatabaseKind {
@@ -122,5 +134,93 @@ impl SessionHandle {
 
     pub fn introspect(&self) -> Option<&dyn IntrospectExec> {
         self.inner.as_introspect()
+    }
+}
+
+const LEGACY_UNSUPPORTED: &str = "legacy driver; use SessionHandle::legacy";
+
+fn legacy_unsupported<T>() -> Result<T, DatabaseError> {
+    Err(DatabaseError::Unsupported(LEGACY_UNSUPPORTED.to_string()))
+}
+
+#[derive(Clone)]
+struct LegacyDriver {
+    connection: DatabaseConnection,
+}
+
+#[async_trait]
+impl QueryExec for LegacyDriver {
+    async fn execute_sql(&self, _sql: &str) -> Result<QueryOutput, DatabaseError> {
+        legacy_unsupported()
+    }
+}
+
+#[async_trait]
+impl SchemaExec for LegacyDriver {
+    async fn describe_table(
+        &self,
+        _schema: Option<String>,
+        _table: String,
+    ) -> Result<QueryOutput, DatabaseError> {
+        legacy_unsupported()
+    }
+
+    async fn load_table_columns(
+        &self,
+        _schema: Option<String>,
+        _table: String,
+    ) -> Result<Vec<String>, DatabaseError> {
+        legacy_unsupported()
+    }
+
+    async fn load_connection_tree(&self) -> Result<Vec<ExplorerNode>, DatabaseError> {
+        legacy_unsupported()
+    }
+
+    async fn load_foreign_keys(&self) -> Result<Vec<TableForeignKey>, DatabaseError> {
+        legacy_unsupported()
+    }
+
+    async fn load_object_ddl(
+        &self,
+        _schema: Option<String>,
+        _object: String,
+        _kind: ExplorerNodeKind,
+    ) -> Result<Option<String>, DatabaseError> {
+        legacy_unsupported()
+    }
+}
+
+impl DriverSession for LegacyDriver {
+    fn kind(&self) -> DatabaseKind {
+        self.connection.kind()
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        Capabilities::for_kind(self.connection.kind())
+    }
+
+    fn dialect(&self) -> Dialect {
+        Dialect {
+            quote_identifier: quote_ident_double,
+            filter_expression: |_, _, _| "1=1".to_string(),
+            format_flavor: FormatFlavor::Generic,
+        }
+    }
+
+    fn as_mutate(&self) -> Option<&dyn MutateExec> {
+        None
+    }
+
+    fn as_explain(&self) -> Option<&dyn ExplainExec> {
+        None
+    }
+
+    fn as_introspect(&self) -> Option<&dyn IntrospectExec> {
+        None
+    }
+
+    fn as_legacy(&self) -> Option<DatabaseConnection> {
+        Some(self.connection.clone())
     }
 }
