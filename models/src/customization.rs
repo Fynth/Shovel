@@ -178,6 +178,62 @@ pub struct Keybinding {
 /// Map of action id → key combo, parsed from `[keybindings]` in config.toml.
 pub type KeybindingMap = HashMap<String, String>;
 
+/// Built-in action id → combo pairs. Overrides layer on top via
+/// [`effective_keybindings`].
+pub const DEFAULT_KEYBINDINGS: &[(&str, &str)] = &[
+    ("focus_editor", "Ctrl+E"),
+    ("format_sql", "Ctrl+Shift+F"),
+    ("new_tab", "Ctrl+T"),
+    ("close_tab", "Ctrl+W"),
+    ("next_tab", "Ctrl+Tab"),
+    ("refresh_explorer", "F5"),
+    ("focus_filter_panel", "Ctrl+F"),
+    ("save_query", "Ctrl+Shift+S"),
+    ("close_overlay", "Escape"),
+    ("command_palette", "Ctrl+Shift+P"),
+    ("global_search", "Ctrl+K"),
+    ("rename_selected", "F2"),
+    ("delete_selected", "Delete"),
+    ("focus_agent_composer", "Ctrl+Shift+M"),
+    ("new_connection", "Ctrl+Shift+N"),
+    ("open_settings", "Ctrl+,"),
+];
+
+/// Default keybinding map built from [`DEFAULT_KEYBINDINGS`].
+pub fn default_keybinding_map() -> KeybindingMap {
+    DEFAULT_KEYBINDINGS
+        .iter()
+        .map(|(id, combo)| ((*id).to_string(), (*combo).to_string()))
+        .collect()
+}
+
+/// Defaults with non-empty trimmed overrides applied on top.
+pub fn effective_keybindings(overrides: &KeybindingMap) -> KeybindingMap {
+    let mut map = default_keybinding_map();
+    for (action_id, combo) in overrides {
+        if !combo.trim().is_empty() {
+            map.insert(action_id.clone(), combo.clone());
+        }
+    }
+    map
+}
+
+/// Returns the other action id that already owns `combo`, if any.
+/// Comparison is case-insensitive after trimming; `action_id` is skipped.
+pub fn combo_conflict(action_id: &str, combo: &str, effective: &KeybindingMap) -> Option<String> {
+    let needle = combo.trim();
+    effective.iter().find_map(|(other_id, other_combo)| {
+        if other_id == action_id {
+            return None;
+        }
+        if other_combo.trim().eq_ignore_ascii_case(needle) {
+            Some(other_id.clone())
+        } else {
+            None
+        }
+    })
+}
+
 /// Editor behavior overrides applied at runtime.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -269,5 +325,31 @@ mod tests {
         let json = serde_json::to_string(&map).expect("serialize");
         let back: KeybindingMap = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back["format_sql"], "Ctrl+Shift+F");
+    }
+
+    #[test]
+    fn effective_keybindings_apply_overrides() {
+        let mut overrides = KeybindingMap::new();
+        overrides.insert("format_sql".into(), "Ctrl+Alt+F".into());
+        let effective = effective_keybindings(&overrides);
+        assert_eq!(
+            effective.get("format_sql").map(String::as_str),
+            Some("Ctrl+Alt+F")
+        );
+        assert_eq!(effective.get("new_tab").map(String::as_str), Some("Ctrl+T"));
+    }
+
+    #[test]
+    fn combo_conflict_reports_other_action() {
+        let effective = default_keybinding_map();
+        assert_eq!(
+            combo_conflict("format_sql", "Ctrl+T", &effective).as_deref(),
+            Some("new_tab")
+        );
+        assert_eq!(
+            combo_conflict("format_sql", "Ctrl+Shift+F", &effective),
+            None
+        );
+        assert_eq!(combo_conflict("new_tab", "Ctrl+T", &effective), None);
     }
 }
