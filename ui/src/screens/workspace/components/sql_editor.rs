@@ -5,7 +5,6 @@ mod selection;
 
 use crate::{
     app_state::{
-        APP_AI_AUTO_APPLY_COMPLETIONS,
         APP_AI_FEATURES_ENABLED,
         APP_EDITOR_BEHAVIOR,
         APP_SQL_FORMAT_SETTINGS,
@@ -13,7 +12,7 @@ use crate::{
         context_menu::{ContextMenuItem, open_context_menu},
         toast_error,
     },
-    completion::{CompletionService, CompletionToken},
+    completion::{CompletionService, CompletionToken, trim::trim_completion_for_cursor},
     screens::workspace::{
         actions::{
             IndentDirection,
@@ -40,7 +39,6 @@ use self::{
     highlight::SqlHighlightContent,
     selection::{
         EditorSelection,
-        current_token_range,
         editor_value_and_selection_query_script,
         set_editor_value_script,
         sync_editor_selection,
@@ -51,9 +49,6 @@ use self::{
 const SQL_EDITOR_TEXTAREA_ID: &str = "workspace-sql-editor";
 const COMPLETION_DEBOUNCE_MS: u64 = 180;
 const HIGHLIGHT_IDLE_MS: u64 = 90;
-/// Idle pause before a finished inline completion is auto-inserted.
-/// Typing during this window cancels the auto-apply.
-const AUTO_APPLY_IDLE_MS: u64 = 400;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct InlineCompletion {
@@ -149,13 +144,9 @@ fn is_completion_accept_key(event: &KeyboardEvent) -> bool {
     event.key() == Key::Tab || event.code() == Code::Tab
 }
 
-/// Insert the active inline completion into the editor. Used by both
-/// the Tab accept handler and the auto-apply idle timer so the two
-/// insertion paths stay byte-identical (same trim rules, same clause
-/// space handling, same DOM/state sync).
+/// Insert the active inline completion into the editor at the live caret.
 ///
-/// `source` is a short tag used only for logging and tracing
-/// (`"tab"` vs `"auto"`).
+/// `source` is a short tag used only for logging and tracing.
 #[allow(clippy::too_many_arguments)]
 fn apply_inline_completion(
     completion_runtime: Signal<CompletionRuntime>,
@@ -170,18 +161,20 @@ fn apply_inline_completion(
 ) {
     spawn(async move {
         log_completion(&format!("apply_inline_completion ({source})"));
-        // Read current SQL from DOM (most accurate), fall back to signal.
-        let actual_sql = if let Ok((sql, _, _)) = document::eval(
+        // Read current SQL and caret from DOM (most accurate), fall back to signals.
+        let (actual_sql, cursor) = if let Ok((sql, start, _end)) = document::eval(
             &editor_value_and_selection_query_script(SQL_EDITOR_TEXTAREA_ID),
         )
         .join::<(String, usize, usize)>()
         .await
         {
-            sql
+            let cursor = EditorSelection::collapsed(start).clamped(&sql).start;
+            (sql, cursor)
         } else {
-            draft_sql.peek().clone()
+            let sql = draft_sql.peek().clone();
+            let cursor = editor_selection.peek().clamped(&sql).start;
+            (sql, cursor)
         };
-        let cursor = actual_sql.len();
         let mut completion_text =
             trim_completion_for_cursor(&actual_sql, cursor, &completion_text_raw);
         let prev = actual_sql[..cursor].chars().last().unwrap_or(' ');
@@ -227,87 +220,6 @@ fn apply_inline_completion(
             .join::<bool>()
             .await;
         });
-    });
-}
-
-/// Schedule an automatic insert for the active inline completion. After
-/// `AUTO_APPLY_IDLE_MS` of idle time (no typing, no newer request, no
-/// dismissal) the completion is applied via the same path Tab uses.
-///
-/// The timer is keyed on the editor's `editor_revision` plus the
-/// completion snapshot: any typing (which bumps `editor_revision`)
-/// cancels the pending insert, so the editor never "fights" a user
-/// who's still editing.
-///
-/// The setting `ai_auto_apply_completions` gates the timer; when it
-/// is off, the timer is a no-op and completions stay as ghost text
-/// until the user accepts manually.
-#[allow(clippy::too_many_arguments)]
-fn schedule_auto_apply(
-    completion_runtime: Signal<CompletionRuntime>,
-    store: TabStore,
-    active_tab_id_value: u64,
-    draft_sql: Signal<String>,
-    editor_selection: Signal<EditorSelection>,
-    is_typing: Signal<bool>,
-    editor_revision: Signal<u64>,
-    snapshot: usize,
-) {
-    if !APP_AI_AUTO_APPLY_COMPLETIONS() {
-        log_completion("auto-apply: disabled by setting");
-        return;
-    }
-
-    // Snapshot the completion text now so a later request (e.g. the user
-    // hitting Tab and triggering another fetch) can't race us into
-    // inserting the wrong completion.
-    let completion_text = {
-        let state = completion_runtime.peek();
-        match state.active.as_ref() {
-            Some(active) if state.last_completed_snapshot == Some(snapshot) => active.text.clone(),
-            _ => return,
-        }
-    };
-
-    // Re-check after taking the snapshot: if the user typed between the
-    // Done token and us reaching this point, editor_revision already
-    // moved on and there is nothing to auto-apply.
-    let revision_at_schedule = *editor_revision.peek();
-    spawn(async move {
-        tokio::time::sleep(Duration::from_millis(AUTO_APPLY_IDLE_MS)).await;
-
-        // Typing (or any other revision bump) during the idle window
-        // cancels the auto-apply — the user is still editing.
-        if *editor_revision.peek() != revision_at_schedule {
-            log_completion("auto-apply: cancelled by typing");
-            return;
-        }
-
-        // Confirm the same completion is still active and the
-        // completion runtime hasn't been invalidated (e.g. by a newer
-        // request or an explicit Esc dismiss).
-        let should_apply = {
-            let state = completion_runtime.peek();
-            state.last_completed_snapshot == Some(snapshot)
-                && state.active.is_some()
-                && state.pending_snapshot.is_none()
-        };
-        if !should_apply {
-            log_completion("auto-apply: cancelled (completion no longer active)");
-            return;
-        }
-
-        apply_inline_completion(
-            completion_runtime,
-            store,
-            active_tab_id_value,
-            draft_sql,
-            editor_selection,
-            is_typing,
-            editor_revision,
-            completion_text,
-            "auto",
-        );
     });
 }
 
@@ -632,12 +544,7 @@ const SQL_EDITOR_SELECT_ALL_SCRIPT: &str = r#"
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        completion_request_parts,
-        line_number_labels,
-        selection::EditorSelection,
-        trim_completion_for_cursor,
-    };
+    use super::{completion_request_parts, line_number_labels, selection::EditorSelection};
 
     #[test]
     fn line_number_labels_count_lines() {
@@ -656,17 +563,6 @@ mod tests {
         assert_eq!(prefix, "select ");
         assert_eq!(suffix.as_deref(), Some(" from users"));
     }
-
-    #[test]
-    fn trim_completion_removes_repeated_token_and_suffix_overlap() {
-        let sql = "sel from users";
-        let cursor = "sel".len();
-
-        assert_eq!(
-            trim_completion_for_cursor(sql, cursor, "select from users"),
-            "ect"
-        );
-    }
 }
 
 fn completion_request_parts(
@@ -684,57 +580,6 @@ fn completion_request_parts(
         sql[..cursor].to_string(),
         (!sql[cursor..].is_empty()).then(|| sql[cursor..].to_string()),
     ))
-}
-
-fn trim_completion_for_cursor(sql: &str, cursor: usize, completion: &str) -> String {
-    let mut completion = completion
-        .trim_matches(|ch| matches!(ch, '\r' | '\n'))
-        .to_string();
-    if completion.is_empty() {
-        return completion;
-    }
-
-    let token_range = current_token_range(sql, EditorSelection::collapsed(cursor));
-    let typed_token = &sql[token_range.start..cursor];
-    if !typed_token.is_empty() && completion.starts_with(typed_token) {
-        completion = completion[typed_token.len()..].to_string();
-    }
-
-    let suffix = &sql[cursor..];
-    let prefix_overlap = common_prefix_byte_len(suffix, &completion);
-    if prefix_overlap > 0 {
-        completion = completion[prefix_overlap..].to_string();
-    }
-
-    let suffix_overlap = suffix_prefix_overlap_byte_len(suffix, &completion);
-    if suffix_overlap > 0 {
-        completion.truncate(completion.len() - suffix_overlap);
-    }
-
-    completion
-}
-
-fn common_prefix_byte_len(left: &str, right: &str) -> usize {
-    let mut byte_len = 0;
-    for (left_ch, right_ch) in left.chars().zip(right.chars()) {
-        if left_ch != right_ch {
-            break;
-        }
-        byte_len += right_ch.len_utf8();
-    }
-    byte_len
-}
-
-fn suffix_prefix_overlap_byte_len(suffix: &str, completion: &str) -> usize {
-    let mut best_overlap = 0;
-    let mut suffix_prefix_len = 0;
-    for ch in suffix.chars() {
-        suffix_prefix_len += ch.len_utf8();
-        if completion.ends_with(&suffix[..suffix_prefix_len]) {
-            best_overlap = suffix_prefix_len;
-        }
-    }
-    best_overlap
 }
 
 fn build_schema_context(sections: &[ExplorerConnectionSection], session_id: u64) -> String {
@@ -1134,16 +979,6 @@ pub fn SqlEditor(
                                     accumulated,
                                 );
                             });
-                            schedule_auto_apply(
-                                completion_runtime,
-                                store,
-                                active_tab_id_value,
-                                draft_sql,
-                                editor_selection,
-                                is_typing,
-                                editor_revision,
-                                sql_hash,
-                            );
                         }
                         return;
                     }

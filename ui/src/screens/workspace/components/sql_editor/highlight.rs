@@ -37,6 +37,18 @@ thread_local! {
         RefCell::new(build_highlight_config());
 }
 
+pub fn inline_highlight_parts<'a>(
+    sql: &'a str,
+    cursor: usize,
+    ghost: Option<&'a str>,
+) -> (&'a str, Option<&'a str>, &'a str) {
+    let cursor = cursor.min(sql.len());
+    match ghost {
+        Some(text) if !text.is_empty() => (&sql[..cursor], Some(text), &sql[cursor..]),
+        _ => (sql, None, ""),
+    }
+}
+
 #[component]
 pub(super) fn SqlHighlightContent(
     sql: String,
@@ -47,14 +59,17 @@ pub(super) fn SqlHighlightContent(
     let highlighted_before = use_memo(use_reactive(
         (&sql, &inline_cursor_position, &inline_suffix),
         |(sql, inline_cursor_position, inline_suffix)| {
-            if inline_suffix
-                .as_ref()
-                .is_some_and(|suffix| !suffix.is_empty())
-            {
-                highlight_sql(&sql[..inline_cursor_position])
-            } else {
-                highlight_sql(&sql)
-            }
+            let (before, _, _) =
+                inline_highlight_parts(&sql, inline_cursor_position, inline_suffix.as_deref());
+            highlight_sql(before)
+        },
+    ));
+    let highlighted_after = use_memo(use_reactive(
+        (&sql, &inline_cursor_position, &inline_suffix),
+        |(sql, inline_cursor_position, inline_suffix)| {
+            let (_, _, after) =
+                inline_highlight_parts(&sql, inline_cursor_position, inline_suffix.as_deref());
+            highlight_sql(after)
         },
     ));
     rsx! {
@@ -76,6 +91,12 @@ pub(super) fn SqlHighlightContent(
                         class: "sql-editor__token sql-editor__token--inline",
                         {suffix.to_string()}
                     }
+                }
+            }
+            for segment in highlighted_after() {
+                span {
+                    class: format!("sql-editor__token {}", segment.class_name),
+                    "{segment.text}"
                 }
             }
         }
@@ -175,5 +196,27 @@ fn token_class(highlight_index: Option<usize>) -> &'static str {
         Some("operator" | "keyword.operator") => "sql-editor__token--operator",
         Some("punctuation.bracket" | "punctuation.delimiter") => "sql-editor__token--punctuation",
         _ => "sql-editor__token--plain",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::inline_highlight_parts;
+
+    #[test]
+    fn inline_highlight_parts_keeps_suffix_after_caret() {
+        let (before, ghost, after) =
+            inline_highlight_parts("select  from users", 7, Some("id, name"));
+        assert_eq!(before, "select ");
+        assert_eq!(ghost, Some("id, name"));
+        assert_eq!(after, " from users");
+    }
+
+    #[test]
+    fn inline_highlight_parts_without_ghost_is_full_sql() {
+        let (before, ghost, after) = inline_highlight_parts("select 1", 8, None);
+        assert_eq!(before, "select 1");
+        assert!(ghost.is_none());
+        assert_eq!(after, "");
     }
 }
