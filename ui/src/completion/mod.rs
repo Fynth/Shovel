@@ -1,6 +1,4 @@
-mod legacy;
-pub use legacy::*;
-
+pub mod ai;
 pub mod query;
 pub mod keywords;
 pub mod schema;

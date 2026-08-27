@@ -7438,7 +7438,6 @@ dependencies = [
  "futures-util",
  "models",
  "pulldown-cmark",
- "reqwest",
  "rfd",
  "serde",
  "serde_json",

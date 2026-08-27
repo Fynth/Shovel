@@ -12,7 +12,7 @@ use crate::{
         context_menu::{ContextMenuItem, open_context_menu},
         toast_error,
     },
-    completion::{CompletionService, CompletionToken, trim::trim_completion_for_cursor},
+    completion::{ai::stream_sql_ghost, trim::trim_completion_for_cursor},
     screens::workspace::{
         actions::{
             IndentDirection,
@@ -33,6 +33,7 @@ use crate::{
 };
 use dioxus::prelude::*;
 use models::{ExplorerNodeKind, QueryHistoryItem};
+use services::CompletionToken;
 use std::time::Duration;
 
 use self::{
@@ -842,9 +843,8 @@ pub fn SqlEditor(
         // the value is not otherwise used in this block.
         let _ = editor_revision();
         let settings = APP_UI_SETTINGS();
-        let completion_service = CompletionService::new(&settings);
 
-        if completion_service.is_empty() {
+        if !settings.sql_ghost_ready() {
             invalidate_completion(completion_runtime);
             return;
         }
@@ -852,17 +852,25 @@ pub fn SqlEditor(
         spawn(async move {
             tokio::time::sleep(Duration::from_millis(COMPLETION_DEBOUNCE_MS)).await;
 
-            // Read SQL from DOM (most accurate), fall back to signals.
-            let sql_text = if let Ok((sql, _, _)) = document::eval(
+            // Read SQL and caret from DOM (most accurate), fall back to signals.
+            let (sql_text, start, end) = if let Ok((sql, start, end)) = document::eval(
                 &editor_value_and_selection_query_script(SQL_EDITOR_TEXTAREA_ID),
             )
             .join::<(String, usize, usize)>()
             .await
             {
-                sql
+                (sql, start, end)
             } else {
-                draft_sql.peek().clone()
+                let sql = draft_sql.peek().clone();
+                let selection = editor_selection.peek().clamped(&sql);
+                (sql, selection.start, selection.end)
             };
+
+            if start != end {
+                eprintln!("[completion] bail: no cursor (selection range)");
+                invalidate_completion(completion_runtime);
+                return;
+            }
 
             if sql_text.len() < 3 {
                 eprintln!(
@@ -873,10 +881,7 @@ pub fn SqlEditor(
                 return;
             }
 
-            // Complete at the end of the SQL — most reliable position.
-            let cursor = sql_text.len();
-            let selection = EditorSelection::collapsed(cursor);
-
+            let selection = EditorSelection { start, end };
             let Some((cursor, prefix, suffix)) = completion_request_parts(&sql_text, selection)
             else {
                 eprintln!("[completion] bail: no cursor (selection range)");
@@ -885,8 +890,9 @@ pub fn SqlEditor(
             };
 
             // Re-check settings after debounce (they may have changed).
-            if CompletionService::new(&APP_UI_SETTINGS()).is_empty() {
-                eprintln!("[completion] bail: settings changed, no providers");
+            let settings = APP_UI_SETTINGS();
+            if !settings.sql_ghost_ready() {
+                eprintln!("[completion] bail: settings changed, ghost not ready");
                 invalidate_completion(completion_runtime);
                 return;
             }
@@ -913,14 +919,12 @@ pub fn SqlEditor(
             }
             let sql_for_result = sql_text.clone();
 
-            // Stream completion tokens from the AI provider.
-            // Tokens arrive incrementally and are shown as ghost text immediately.
             log_completion(&format!(
                 "streaming completion: prefix={} cursor={}",
                 prefix.len(),
                 cursor
             ));
-            let mut token_rx = completion_service.stream_completion(prefix, suffix, schema_ctx);
+            let mut token_rx = stream_sql_ghost(&settings, prefix, suffix, schema_ctx, &[]);
 
             let mut accumulated = String::new();
             let mut token_count = 0u32;
@@ -935,16 +939,17 @@ pub fn SqlEditor(
                 match token {
                     CompletionToken::Text(t) => {
                         accumulated.push_str(&t);
-                        // Show partial completion immediately (Zed-style).
                         let trimmed =
                             trim_completion_for_cursor(&sql_for_result, cursor, &accumulated);
                         if !trimmed.is_empty() {
                             completion_runtime.with_mut(|state| {
-                                state.active = Some(InlineCompletion {
+                                state.set_active(
+                                    expected_id,
+                                    sql_hash,
                                     cursor,
-                                    source_sql: sql_for_result.clone(),
-                                    text: accumulated.clone(),
-                                });
+                                    sql_for_result.clone(),
+                                    accumulated.clone(),
+                                );
                             });
                         }
                     }
@@ -952,7 +957,9 @@ pub fn SqlEditor(
                         log_completion(&format!("error: {}", e));
                         toast_error(format!("Completion failed: {e}"));
                         completion_runtime.with_mut(|state| {
-                            state.finish_request(expected_id, sql_hash);
+                            if state.finish_request(expected_id, sql_hash) {
+                                state.active = None;
+                            }
                         });
                         return;
                     }
@@ -961,12 +968,13 @@ pub fn SqlEditor(
                             "done: {} tokens, text={}",
                             token_count, accumulated
                         ));
-                        // Finalize: only keep the completion if it's non-empty after trimming.
                         let trimmed =
                             trim_completion_for_cursor(&sql_for_result, cursor, &accumulated);
                         if trimmed.is_empty() {
                             completion_runtime.with_mut(|state| {
-                                state.finish_request(expected_id, sql_hash);
+                                if state.finish_request(expected_id, sql_hash) {
+                                    state.active = None;
+                                }
                             });
                         } else {
                             log_completion(&format!("got completion: {}", accumulated));
