@@ -13,6 +13,7 @@
 //! the module are filtered out.
 
 use models::{
+    Capabilities,
     ClickHouseFormData,
     ConnectionRequest,
     DatabaseError,
@@ -174,4 +175,31 @@ fn request_kind_matches_database_kind() {
     assert_eq!(postgres_request().kind(), DatabaseKind::Postgres);
     assert_eq!(mysql_request().kind(), DatabaseKind::MySql);
     assert_eq!(clickhouse_request().kind(), DatabaseKind::ClickHouse);
+}
+
+#[test]
+fn capabilities_for_kind_match_current_product() {
+    let sqlite = Capabilities::for_kind(DatabaseKind::Sqlite);
+    assert!(sqlite.row_editing);
+    assert!(sqlite.explain);
+    assert!(sqlite.transactions);
+    assert!(sqlite.import_csv);
+    assert!(!sqlite.ssh_tunnel);
+    assert!(!sqlite.schemas);
+
+    let postgres = Capabilities::for_kind(DatabaseKind::Postgres);
+    assert!(postgres.row_editing && postgres.explain && postgres.transactions);
+    assert!(postgres.schemas && postgres.import_csv && postgres.ssh_tunnel);
+
+    let mysql = Capabilities::for_kind(DatabaseKind::MySql);
+    assert!(mysql.row_editing && mysql.explain && mysql.transactions);
+    assert!(mysql.schemas && mysql.import_csv && mysql.ssh_tunnel);
+
+    let ch = Capabilities::for_kind(DatabaseKind::ClickHouse);
+    assert!(!ch.row_editing);
+    assert!(ch.explain);
+    assert!(!ch.transactions);
+    assert!(ch.schemas);
+    assert!(ch.import_csv);
+    assert!(ch.ssh_tunnel);
 }

@@ -42,6 +42,47 @@ impl DatabaseKind {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Capabilities {
+    pub row_editing: bool,
+    pub explain: bool,
+    pub transactions: bool,
+    pub schemas: bool,
+    pub import_csv: bool,
+    pub ssh_tunnel: bool,
+}
+
+impl Capabilities {
+    pub fn for_kind(kind: DatabaseKind) -> Self {
+        match kind {
+            DatabaseKind::Sqlite => Self {
+                row_editing: true,
+                explain: true,
+                transactions: true,
+                schemas: false,
+                import_csv: true,
+                ssh_tunnel: false,
+            },
+            DatabaseKind::Postgres | DatabaseKind::MySql => Self {
+                row_editing: true,
+                explain: true,
+                transactions: true,
+                schemas: true,
+                import_csv: true,
+                ssh_tunnel: true,
+            },
+            DatabaseKind::ClickHouse => Self {
+                row_editing: false,
+                explain: true,
+                transactions: false,
+                schemas: true,
+                import_csv: true,
+                ssh_tunnel: true,
+            },
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct SshTunnelConfig {
     pub host: String,
