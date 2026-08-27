@@ -13,46 +13,10 @@
   min-height: 100dvh;
   display: grid;
   grid-template-rows: minmax($toolbar-height, auto) 1fr minmax($statusbar-height, auto);
-  background:
-    radial-gradient(circle at 14% 8%, color-mix(in srgb, var(--color-primary) 26%, transparent), transparent 26%),
-    radial-gradient(circle at 86% 2%, color-mix(in srgb, var(--color-info) 18%, transparent), transparent 24%),
-    radial-gradient(circle at 50% 112%, color-mix(in srgb, var(--color-warning) 10%, transparent), transparent 32%),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface-shell, var(--color-bg)) 92%, white 2%),
-      var(--color-surface-shell, var(--color-bg))
-    );
+  background: var(--color-surface-shell, var(--color-bg));
   color: var(--color-text);
   overflow: hidden;
   isolation: isolate;
-}
-
-.app::before,
-.app::after {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  pointer-events: none;
-  filter: blur(46px);
-  opacity: 0.55;
-}
-
-.app::before {
-  width: min(42vw, 680px);
-  height: min(42vw, 680px);
-  left: -14vw;
-  top: -18vw;
-  background:
-    radial-gradient(circle, color-mix(in srgb, var(--color-primary) 42%, transparent), transparent 62%);
-}
-
-.app::after {
-  width: min(38vw, 620px);
-  height: min(38vw, 620px);
-  right: -14vw;
-  bottom: -20vw;
-  background:
-    radial-gradient(circle, color-mix(in srgb, var(--color-info) 28%, transparent), transparent 64%);
 }
 
 .app__body {
@@ -76,7 +40,6 @@
   place-items: center;
   padding: clamp($spacing-sm, 2.5vw, $spacing-xl);
   background: var(--color-backdrop);
-  backdrop-filter: blur(28px) saturate(130%);
 }
 
 .app__tooltip-layer {
@@ -91,21 +54,15 @@
   left: 0;
   top: 0;
   max-width: min(280px, calc(100vw - 24px));
-  padding: 7px 10px;
-  border: 1px solid var(--glass-border);
-  border-radius: 10px;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 92%, var(--glass-tint-strong)),
-      color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 88%, var(--glass-tint))
-    );
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-sm;
+  background: var(--color-surface-elevated, var(--color-panel-2));
   color: var(--color-text);
   font-size: $font-size-xs;
   line-height: 1.2;
   white-space: nowrap;
-  box-shadow: var(--shadow-panel);
-  backdrop-filter: blur(24px) saturate(150%);
+  box-shadow: $shadow-sm;
   // Fade-in with a small delay so tooltips don't flash while the mouse
   // moves across the UI: starts invisible, waits, then fades in.
   // Uses opacity only (GPU-composited) so motion stays cheap.

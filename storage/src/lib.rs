@@ -66,11 +66,13 @@ pub use settings::{
     load_app_ui_settings,
     load_codestral_api_key,
     load_deepseek_api_key,
+    load_lm_api_key,
     load_ollama_api_key,
     load_sql_format_settings,
     save_app_ui_settings,
     save_codestral_api_key,
     save_deepseek_api_key,
+    save_lm_api_key,
     save_ollama_api_key,
     save_sql_format_settings,
 };

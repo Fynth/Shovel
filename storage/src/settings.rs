@@ -87,6 +87,20 @@ pub async fn save_ollama_api_key(api_key: String) -> Result<(), String> {
     .map_err(|err| format!("failed to join Ollama secret task: {err}"))?
 }
 
+pub async fn load_lm_api_key(service: &str) -> Result<String, String> {
+    let service = service.to_string();
+    tokio::task::spawn_blocking(move || load_api_key_sync(&service, "default"))
+        .await
+        .map_err(|err| format!("failed to join language-model secret task: {err}"))?
+}
+
+pub async fn save_lm_api_key(service: &str, api_key: String) -> Result<(), String> {
+    let service = service.to_string();
+    tokio::task::spawn_blocking(move || save_api_key_sync(&service, "default", &api_key))
+        .await
+        .map_err(|err| format!("failed to join language-model secret task: {err}"))?
+}
+
 fn load_api_key_sync(service: &str, account: &str) -> Result<String, String> {
     let entry = Entry::new(service, account);
     match entry {

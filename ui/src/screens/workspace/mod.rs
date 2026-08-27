@@ -1337,7 +1337,12 @@ fn open_object_hit(store: TabStore, _tree_reload: Signal<u64>, object: &GlobalSe
         return;
     }
 
-    let current_id = actions::ensure_tab_for_session(store, object.session_id);
+    let source = TablePreviewSource {
+        schema: object.schema.clone(),
+        table_name: object.name.clone(),
+        qualified_name: object.qualified_name.clone(),
+    };
+    let current_id = actions::ensure_tab_for_table_preview(store, object.session_id, &source);
     let current_tab = store.result.read().get(&current_id).cloned();
     let Some(current_tab) = current_tab else {
         return;
@@ -1353,11 +1358,6 @@ fn open_object_hit(store: TabStore, _tree_reload: Signal<u64>, object: &GlobalSe
         return;
     };
 
-    let source = TablePreviewSource {
-        schema: object.schema.clone(),
-        table_name: object.name.clone(),
-        qualified_name: object.qualified_name.clone(),
-    };
     actions::run_table_preview_for_tab(
         store,
         current_id,

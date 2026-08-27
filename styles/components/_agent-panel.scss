@@ -8,8 +8,8 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 6px 8px;
-  background: color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 46%, transparent);
+  padding: 4px 6px 6px;
+  background: transparent;
   overflow: hidden;
 }
 
@@ -18,16 +18,18 @@
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  min-height: 24px;
-  padding: 0 2px;
+  min-height: 22px;
+  padding: 0 1px;
 }
 
+// Single-line Zed-style header: thread title with the connection/status
+// meta inline next to it instead of stacked below.
 .agent-panel__header-copy {
   min-width: 0;
   flex: 1 1 auto;
   display: flex;
-  flex-direction: column;
-  gap: 0;
+  align-items: baseline;
+  gap: 6px;
   overflow: hidden;
 }
 
@@ -153,8 +155,8 @@
 }
 
 .agent-panel__title {
-  width: 100%;
-  max-width: 100%;
+  flex: 0 1 auto;
+  min-width: 0;
   margin: 0;
   font-size: $font-size-md;
   font-weight: 600;
@@ -174,17 +176,17 @@
   line-height: 1.45;
 }
 
+.agent-panel__header-copy .agent-panel__meta {
+  flex: 1 1 auto;
+  width: auto;
+  color: var(--color-text-dim);
+  font-size: $font-size-xs;
+}
+
 .agent-panel__meta {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.agent-panel__connect,
-.agent-panel__composer {
-  display: flex;
-  flex-direction: column;
-  gap: $spacing-sm;
 }
 
 .agent-panel__session {
@@ -192,13 +194,16 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
 }
 
 .agent-panel__connect {
   min-height: 0;
   overflow: auto;
   padding: 2px 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
   align-items: stretch;
 }
 
@@ -275,8 +280,7 @@
 }
 
 .agent-panel__registry-copy,
-.agent-panel__registry-actions,
-.agent-panel__message-actions {
+.agent-panel__registry-actions {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -325,9 +329,17 @@
   overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 4px 2px 4px 0;
+  gap: 8px;
+  padding: 4px 2px 8px 0;
   scrollbar-gutter: stable;
+}
+
+.agent-panel__messages .empty-state {
+  margin: auto;
+  padding: 16px 10px;
+  text-align: center;
+  color: var(--color-text-dim);
+  font-size: $font-size-sm;
 }
 
 .agent-panel__message-meta {
@@ -338,12 +350,15 @@
   padding-right: $spacing-2xs;
 }
 
+// Zed-style minimal messages: user prompts get a soft primary-tinted card,
+// agent replies sit flat on the panel surface — no avatars, no accent bars,
+// roles are told apart by tone alone.
 .agent-panel__message {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 4px 6px;
-  border-radius: $radius-sm;
+  gap: 2px;
+  padding: 5px 7px;
+  border-radius: 8px;
   transition: background $motion-fast ease;
   animation: agent-message-in 200ms ease;
 }
@@ -351,58 +366,42 @@
 .agent-panel__message:hover {
   background: color-mix(
     in srgb,
-    var(--color-surface-contrast, var(--color-panel-2)) 40%,
+    var(--color-surface-contrast, var(--color-panel-2)) 28%,
     transparent
   );
 }
 
 .agent-panel__message--user {
-  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 9%, transparent);
+}
+
+.agent-panel__message--user:hover {
+  background: color-mix(in srgb, var(--color-primary) 13%, transparent);
 }
 
 .agent-panel__message--agent {
-  position: relative;
-}
-
-.agent-panel__message--agent::before {
-  content: "";
-  position: absolute;
-  inset: 4px auto 4px 0;
-  width: 2px;
-  border-radius: 2px;
-  background: linear-gradient(
-    180deg,
-    var(--color-info),
-    color-mix(in srgb, var(--color-info) 40%, transparent)
-  );
-  opacity: 0.5;
-  transition: opacity $motion-normal ease;
+  background: transparent;
 }
 
 .agent-panel__message--in-progress {
-  background: color-mix(in srgb, var(--color-info) 5%, transparent);
-}
-
-.agent-panel__message--in-progress::before {
-  opacity: 1;
-  animation: agent-thinking-bar 1.6s ease-in-out infinite;
+  background: color-mix(in srgb, var(--color-info) 6%, transparent);
 }
 
 .agent-panel__message--thought {
-  background: color-mix(in srgb, var(--color-warning) 5%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 6%, transparent);
 }
 
 .agent-panel__message--tool,
 .agent-panel__message--system {
   background: color-mix(
     in srgb,
-    var(--color-surface-contrast, var(--color-panel-2)) 40%,
+    var(--color-surface-contrast, var(--color-panel-2)) 32%,
     transparent
   );
 }
 
 .agent-panel__message--error {
-  background: color-mix(in srgb, var(--color-danger) 6%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
 }
 
 @keyframes agent-message-in {
@@ -417,24 +416,7 @@
   }
 }
 
-@keyframes agent-thinking-bar {
-  0%,
-  100% {
-    background-position: 0 0;
-    opacity: 0.85;
-  }
-
-  50% {
-    background-position: 0 12px;
-    opacity: 1;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .agent-panel__message--in-progress::before {
-    animation: none;
-  }
-
   .agent-panel__message {
     animation: none;
   }
@@ -538,12 +520,11 @@
 .agent-panel__message-markdown code {
   display: inline;
   padding: 1px 5px;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-border));
-  border-radius: 5px;
+  border-radius: 4px;
   background: color-mix(
     in srgb,
-    var(--color-surface-contrast, var(--color-panel-2)) 76%,
-    black 24%
+    var(--color-surface-contrast, var(--color-panel-2)) 55%,
+    transparent
   );
   color: color-mix(in srgb, var(--color-text) 96%, white 4%);
   font-family: $font-family-mono;
@@ -553,13 +534,8 @@
 .agent-panel__message-markdown pre {
   overflow-x: auto;
   padding: 8px;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 18%, var(--color-border));
-  border-radius: $radius-md;
-  background: color-mix(
-    in srgb,
-    var(--color-surface-contrast, var(--color-panel-2)) 82%,
-    black 18%
-  );
+  border-radius: 6px;
+  background: var(--editor-bg, var(--color-surface-main, var(--color-panel)));
   font-family: $font-family-mono;
 }
 
@@ -596,12 +572,11 @@
 .agent-panel__inline-code {
   display: inline;
   padding: 1px 5px;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-border));
-  border-radius: 5px;
+  border-radius: 4px;
   background: color-mix(
     in srgb,
-    var(--color-surface-contrast, var(--color-panel-2)) 76%,
-    black 24%
+    var(--color-surface-contrast, var(--color-panel-2)) 55%,
+    transparent
   );
   color: color-mix(in srgb, var(--color-text) 96%, white 4%);
   font-family: $font-family-mono;
@@ -611,8 +586,8 @@
 .agent-panel__code-card {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 4px 0;
+  gap: 2px;
+  padding: 0;
 }
 
 .agent-panel__code-header {
@@ -620,7 +595,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-height: 22px;
 }
 
 .agent-panel__code-language {
@@ -634,36 +610,41 @@
   text-transform: uppercase;
 }
 
-.agent-panel__code-actions {
+.agent-panel__code-actions,
+.agent-panel__artifact-actions,
+.agent-panel__message-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: flex-end;
+  gap: 4px;
   flex-wrap: wrap;
+}
+
+.agent-panel__code-actions .button,
+.agent-panel__artifact-actions .button,
+.agent-panel__message-actions .button {
+  width: auto;
+  flex: 0 0 auto;
 }
 
 .agent-panel__code-body {
   margin: 0;
-  padding: 10px;
-  border-radius: $radius-sm;
-  border: 1px solid color-mix(in srgb, var(--color-border-strong) 55%, transparent);
-  background: color-mix(
-    in srgb,
-    black 22%,
-    var(--color-surface-main, var(--color-panel))
-  );
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--editor-bg, var(--color-surface-main, var(--color-panel)));
   color: color-mix(in srgb, var(--color-text) 96%, white 4%);
   white-space: pre-wrap;
   word-break: break-word;
   font-family: $font-family-mono;
   font-size: $font-size-sm;
-  line-height: 1.55;
+  line-height: 1.5;
 }
 
 .agent-panel__artifact {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 4px 0;
+  gap: 2px;
+  padding: 0;
 }
 
 .agent-panel__artifact-header {
@@ -671,14 +652,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  flex-wrap: wrap;
-}
-
-.agent-panel__artifact-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .agent-panel__artifact-label {
@@ -691,6 +665,9 @@
 
 .agent-panel__artifact-body {
   margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--editor-bg, var(--color-surface-main, var(--color-panel)));
   white-space: pre-wrap;
   word-break: break-word;
   font-family: $font-family-mono;
@@ -699,7 +676,7 @@
 }
 
 .agent-panel__message-actions {
-  margin-top: 2px;
+  margin-top: 4px;
 }
 
 .agent-panel__thinking {
@@ -874,62 +851,68 @@
 }
 
 .agent-panel__composer {
+  flex: 0 0 auto;
   margin-top: auto;
   display: flex;
-  flex-direction: row;
-  align-items: flex-end;
-  gap: 6px;
-  padding: 4px 0 0;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 6px 4px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-md;
+  background: var(--color-surface-elevated, var(--color-panel-2));
+  transition: border-color $motion-fast ease;
+
+  &:focus-within {
+    border-color: color-mix(in srgb, var(--color-primary) 50%, var(--color-border));
+  }
 }
 
 .agent-panel__prompt {
-  flex: 1 1 auto;
+  display: block;
+  width: 100%;
   min-width: 0;
-  min-height: 44px;
+  min-height: 56px;
   max-height: 160px;
-  padding: 10px 12px;
-  resize: none;
-  font-family: $font-family-mono;
+  margin: 0;
+  padding: 4px 2px 2px;
+  border: 0;
+  border-radius: 0;
+  appearance: none;
+  background: transparent;
+  color: var(--color-text);
+  font-family: $font-family-sans;
   font-size: $font-size-md;
-  line-height: 1.5;
-  border-radius: $radius-md;
-  background: color-mix(
-    in srgb,
-    var(--color-surface-main, var(--color-panel-2)) 72%,
-    transparent
-  );
-  border-color: color-mix(in srgb, var(--color-border) 70%, transparent);
-  transition:
-    border-color $motion-fast ease,
-    box-shadow $motion-fast ease;
-}
+  line-height: 1.45;
+  resize: none;
+  overflow-y: auto;
+  field-sizing: content;
+  box-shadow: none;
 
-.agent-panel__prompt:hover {
-  border-color: color-mix(in srgb, var(--color-border-strong) 86%, var(--color-border));
-}
+  &::placeholder {
+    color: var(--color-text-dim);
+  }
 
-.agent-panel__prompt:focus {
-  outline: none;
-  border-color: color-mix(in srgb, var(--color-primary) 56%, var(--color-border));
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 16%, transparent);
+  &:focus,
+  &:focus-visible {
+    outline: none;
+    box-shadow: none;
+  }
 }
 
 .agent-panel__composer-actions {
   flex: 0 0 auto;
   display: flex;
-  align-items: stretch;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 0 0;
 }
 
 .agent-panel__composer-actions .button {
-  min-height: 44px;
-  height: auto;
-  padding-inline: 16px;
-  font-size: $font-size-md;
   white-space: nowrap;
-  // Match the prompt field's corner radius so the input and the send
-  // button read as one consistent control instead of a pill next to a
-  // rounded rectangle.
-  border-radius: $radius-md;
+}
+
+.agent-panel__composer-actions .button--primary {
+  margin-left: auto;
 }
 
 .agent-panel__composer-actions .button:disabled {
@@ -939,12 +922,5 @@
 @media (min-width: 1500px) {
   .agent-panel__field-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 1180px) {
-  .agent-panel {
-    border-left: none;
-    border-top: 1px solid var(--color-border);
   }
 }

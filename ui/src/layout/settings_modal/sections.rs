@@ -4,6 +4,7 @@ use models::{
     AppThemePreference,
     AppUiSettings,
     NullDisplay,
+    OpenAiCompatProvider,
     SqlFormatSettings,
     UiDensity,
     WorkspaceSplitMode,
@@ -926,6 +927,106 @@ pub(super) fn OllamaSection(props: SettingsSectionProps) -> Element {
                             next.ollama.model = event.value();
                             on_change.call((next, section_props_signal.read().sql_settings.clone()));
                         },
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+pub(super) fn LanguageModelsSection(props: SettingsSectionProps) -> Element {
+    let settings = props.settings.clone();
+    let on_change = props.on_change;
+    let section_props_signal = use_signal(|| props.clone());
+    sync_section_props(section_props_signal, &props);
+
+    rsx! {
+        section {
+            class: "settings-modal__section",
+            div {
+                class: "settings-modal__section-header",
+                h3 { class: "settings-modal__section-title", "Language models" }
+                p {
+                    class: "settings-modal__section-hint",
+                    "Zed-style API providers. Keys stay in the OS keyring. The agent panel uses the same catalog."
+                }
+            }
+            for provider in OpenAiCompatProvider::ALL {
+                {
+                    let profile = settings.openai_compat(provider).clone();
+                    rsx! {
+                        div {
+                            class: "settings-modal__grid",
+                            key: "{provider.id()}",
+                            h4 { class: "settings-modal__section-title", "{provider.label()}" }
+                            label {
+                                class: "settings-modal__toggle",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: profile.enabled,
+                                    disabled: profile.api_key.trim().is_empty(),
+                                    oninput: move |event| {
+                                        let mut next = section_props_signal.read().settings.clone();
+                                        next.openai_compat_mut(provider).enabled = event.checked();
+                                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                                    },
+                                }
+                                span { "Enable {provider.label()}" }
+                            }
+                            div { class: "field",
+                                span { class: "field__label", "API key" }
+                                input {
+                                    class: "input",
+                                    r#type: "password",
+                                    placeholder: "sk-...",
+                                    value: "{profile.api_key}",
+                                    oninput: move |event| {
+                                        let mut next = section_props_signal.read().settings.clone();
+                                        let value = event.value();
+                                        let target = next.openai_compat_mut(provider);
+                                        target.api_key = value.clone();
+                                        if value.trim().is_empty() {
+                                            target.enabled = false;
+                                        }
+                                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                                    },
+                                }
+                            }
+                            div { class: "field",
+                                span { class: "field__label", "Base URL" }
+                                input {
+                                    class: "input",
+                                    placeholder: "{provider.default_base_url()}",
+                                    value: "{profile.base_url}",
+                                    oninput: move |event| {
+                                        let mut next = section_props_signal.read().settings.clone();
+                                        next.openai_compat_mut(provider).base_url = event.value();
+                                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                                    },
+                                }
+                            }
+                            div { class: "field",
+                                span { class: "field__label", "Model" }
+                                select {
+                                    class: "input",
+                                    value: "{profile.model}",
+                                    onchange: move |event| {
+                                        let mut next = section_props_signal.read().settings.clone();
+                                        next.openai_compat_mut(provider).model = event.value();
+                                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                                    },
+                                    for model in provider.models() {
+                                        option { value: model.to_string(), {model.to_string()} }
+                                    }
+                                    if !provider.models().contains(&profile.model.as_str())
+                                        && !profile.model.trim().is_empty()
+                                    {
+                                        option { value: "{profile.model}", "{profile.model}" }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

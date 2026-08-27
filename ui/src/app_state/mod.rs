@@ -467,6 +467,34 @@ pub fn set_ollama_model(model: String) {
     });
 }
 
+pub fn set_openai_compat_enabled(provider: models::OpenAiCompatProvider, enabled: bool) {
+    update_ui_settings(|current| {
+        current.openai_compat_mut(provider).enabled = enabled;
+    });
+}
+
+pub fn set_openai_compat_api_key(provider: models::OpenAiCompatProvider, api_key: String) {
+    update_ui_settings(|current| {
+        let settings = current.openai_compat_mut(provider);
+        settings.api_key = api_key;
+        if settings.api_key.trim().is_empty() {
+            settings.enabled = false;
+        }
+    });
+}
+
+pub fn set_openai_compat_base_url(provider: models::OpenAiCompatProvider, base_url: String) {
+    update_ui_settings(|current| {
+        current.openai_compat_mut(provider).base_url = base_url;
+    });
+}
+
+pub fn set_openai_compat_model(provider: models::OpenAiCompatProvider, model: String) {
+    update_ui_settings(|current| {
+        current.openai_compat_mut(provider).model = model;
+    });
+}
+
 /// Dioxus 0.7 writes notify subscribers even when the value is unchanged.
 /// Since every `set_*` toggle funnels through `update_ui_settings`, writing
 /// every mirror signal here would re-render the whole `.app` subtree on a

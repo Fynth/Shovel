@@ -6,6 +6,7 @@ use models::{
     DatabaseConnection,
     EditorBehavior,
     KeybindingMap,
+    OpenAiCompatProvider,
     PanelBehavior,
     ShovelConfig,
     SqlFormatSettings,
@@ -84,6 +85,16 @@ pub async fn load_app_startup_settings() -> Result<AppStartupSettings, String> {
         storage::save_ollama_api_key,
     )
     .await?;
+    for provider in OpenAiCompatProvider::ALL {
+        let service = provider.keyring_service();
+        let key = storage::load_lm_api_key(service).await?;
+        hydrate_secret(
+            &mut ui_settings.openai_compat_mut(provider).api_key,
+            key,
+            move |api_key| storage::save_lm_api_key(service, api_key),
+        )
+        .await?;
+    }
 
     Ok(AppStartupSettings {
         ui_settings,
@@ -131,6 +142,10 @@ pub async fn save_app_ui_settings_with_secrets(settings: AppUiSettings) -> Resul
     let codestral_api_key = settings.codestral.api_key.clone();
     let deepseek_api_key = settings.deepseek.api_key.clone();
     let ollama_api_key = settings.ollama.api_key.clone();
+    let lm_keys = OpenAiCompatProvider::ALL
+        .into_iter()
+        .map(|provider| (provider, settings.openai_compat(provider).api_key.clone()))
+        .collect::<Vec<_>>();
 
     storage::save_app_ui_settings(settings)
         .await
@@ -147,6 +162,11 @@ pub async fn save_app_ui_settings_with_secrets(settings: AppUiSettings) -> Resul
     }
     if let Err(err) = storage::save_ollama_api_key(ollama_api_key).await {
         secret_errors.push(format!("Ollama: {err}"));
+    }
+    for (provider, api_key) in lm_keys {
+        if let Err(err) = storage::save_lm_api_key(provider.keyring_service(), api_key).await {
+            secret_errors.push(format!("{}: {err}", provider.label()));
+        }
     }
 
     if secret_errors.is_empty() {

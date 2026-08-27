@@ -1,62 +1,64 @@
 .theme-dark {
   color-scheme: dark;
 
-  --color-bg: #05070d;
-  --color-surface-shell: #080b12;
-  --color-surface-sidebar: rgba(21, 25, 36, 0.78);
-  --color-surface-main: rgba(18, 22, 32, 0.82);
-  --color-surface-inspector: rgba(21, 25, 36, 0.78);
-  --color-surface-elevated: rgba(31, 36, 50, 0.82);
-  --color-surface-contrast: rgba(49, 57, 78, 0.74);
-  --color-panel: rgba(18, 22, 32, 0.88);
-  --color-panel-2: rgba(31, 36, 50, 0.84);
-  --color-panel-3: rgba(57, 67, 92, 0.82);
-  --color-border: rgba(116, 130, 160, 0.24);
-  --color-border-strong: rgba(158, 176, 214, 0.34);
+  // Zed-like chrome: near-neutral gray panels, editor a step darker,
+  // hairline borders. Accent stays blue but quieter than neon.
+  --color-bg: #111317;
+  --color-surface-shell: #14161b;
+  --color-surface-sidebar: #191c23;
+  --color-surface-main: #101218;
+  --color-surface-inspector: #191c23;
+  --color-surface-elevated: #1f232c;
+  --color-surface-contrast: #282d38;
+  --color-panel: #161920;
+  --color-panel-2: #1f232c;
+  --color-panel-3: #2b3140;
+  --color-border: rgba(255, 255, 255, 0.06);
+  --color-border-strong: rgba(255, 255, 255, 0.11);
 
-  --color-text: #f3f7ff;
-  --color-text-muted: #b8c2d9;
-  --color-text-dim: #78859f;
+  --color-text: #dfe3ea;
+  --color-text-muted: #8b93a2;
+  --color-text-dim: #656d7b;
 
-  --color-primary: #5eb1ff;
-  --color-primary-hover: #8fccff;
-  --color-primary-active: #2f8ff7;
-  --color-info: #65d7ff;
-  --color-success: #5ce1a5;
-  --color-danger: #ff6f91;
-  --color-warning: #ffd166;
-  --color-focus: rgba(94, 177, 255, 0.34);
+  --color-primary: #74b4ff;
+  --color-primary-hover: #9accff;
+  --color-primary-active: #4a9af0;
+  --color-info: #7ec8e3;
+  --color-success: #6bcf9a;
+  --color-danger: #e06c75;
+  --color-warning: #e5c07b;
+  --color-focus: rgba(116, 180, 255, 0.32);
 
-  --color-accent-purple: #b48be6;
-  --color-accent-amber: #f0a45a;
+  --color-accent-purple: #c678dd;
+  --color-accent-amber: #d19a66;
 
-  --color-hover: rgba(255, 255, 255, 0.07);
-  --color-active: rgba(94, 177, 255, 0.18);
-  --color-backdrop: rgba(3, 5, 10, 0.76);
-  --color-error: #ff5c6c;
-  --color-error-hover: #ff7d8a;
-  --focus-ring: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-focus);
+  --color-hover: rgba(255, 255, 255, 0.05);
+  --color-active: rgba(116, 180, 255, 0.14);
+  --color-backdrop: rgba(8, 10, 14, 0.62);
+  --color-error: #e06c75;
+  --color-error-hover: #f08189;
+  --focus-ring: 0 0 0 1px color-mix(in srgb, var(--color-primary) 72%, transparent);
 
-  --glass-tint: rgba(255, 255, 255, 0.065);
-  --glass-tint-strong: rgba(255, 255, 255, 0.105);
-  --glass-border: rgba(255, 255, 255, 0.13);
-  --glass-highlight: rgba(255, 255, 255, 0.12);
-  --shadow-panel: 0 26px 70px rgba(0, 0, 0, 0.36);
+  --glass-tint: rgba(255, 255, 255, 0.03);
+  --glass-tint-strong: rgba(255, 255, 255, 0.05);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-highlight: rgba(255, 255, 255, 0.04);
+  --shadow-panel: 0 12px 32px rgba(0, 0, 0, 0.38);
 
-  --editor-bg: #070a12;
-  --editor-overlay: rgba(255, 255, 255, 0.035);
-  --editor-line: rgba(94, 177, 255, 0.13);
-  --editor-token-plain: #eff4ff;
-  --editor-token-keyword: #68bdff;
-  --editor-token-string: #76e7b4;
-  --editor-token-number: #ffbe7b;
-  --editor-token-comment: #7b879f;
-  --editor-token-function: #c9b7ff;
-  --editor-token-type: #ffd166;
-  --editor-token-identifier: #d6def1;
-  --editor-token-attribute: #83e0ff;
-  --editor-token-operator: #8de5ff;
-  --editor-token-punctuation: #a2adc4;
-  --grid-header: rgba(36, 43, 60, 0.88);
-  --grid-row-hover: rgba(94, 177, 255, 0.1);
+  --editor-bg: #0d0f14;
+  --editor-overlay: rgba(255, 255, 255, 0.03);
+  --editor-line: rgba(116, 180, 255, 0.1);
+  --editor-token-plain: #dfe3ea;
+  --editor-token-keyword: #74b4ff;
+  --editor-token-string: #6bcf9a;
+  --editor-token-number: #d19a66;
+  --editor-token-comment: #5c6370;
+  --editor-token-function: #c678dd;
+  --editor-token-type: #e5c07b;
+  --editor-token-identifier: #abb2bf;
+  --editor-token-attribute: #7ec8e3;
+  --editor-token-operator: #56b6c2;
+  --editor-token-punctuation: #7d8594;
+  --grid-header: #1c2028;
+  --grid-row-hover: rgba(116, 180, 255, 0.07);
 }

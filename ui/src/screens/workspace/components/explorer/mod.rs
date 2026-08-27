@@ -562,18 +562,15 @@ pub fn confirm_drop_selected_table(
         .session(session_id)
         .map(|s| s.kind)
         .unwrap_or(models::DatabaseKind::Sqlite);
-    spawn(async move {
-        tree_views::confirm_and_drop_table(
-            source.clone(),
-            selected,
-            session_id,
-            connection_kind,
-            store,
-            None,
-            tree_reload,
-        )
-        .await;
-    });
+    tree_views::confirm_and_drop_table(
+        source.clone(),
+        selected,
+        session_id,
+        connection_kind,
+        store,
+        None,
+        tree_reload,
+    );
 }
 
 // ---------------------------------------------------------------------------

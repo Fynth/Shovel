@@ -420,13 +420,16 @@ pub fn TabsManager(
                         }
                         button {
                             class: "tabbar__close",
+                            r#type: "button",
+                            title: "Close tab",
+                            "aria-label": "Close tab",
                             onclick: {
                                 move |event| {
                                     event.stop_propagation();
                                     close_tab_for_middle_click(store, tab_id);
                                 }
                             },
-                            "x"
+                            "×"
                         }
                     }
                 }
@@ -500,9 +503,9 @@ pub fn TabsManager(
                         }
                     }
                 }
-                if matches!(APP_SPLIT_MODE(), WorkspaceSplitMode::Horizontal) {
-                    div {
-                        class: "editor-shell__bottom",
+                div {
+                    class: "editor-shell__bottom",
+                    if APP_SHOW_SQL_EDITOR() {
                         div {
                             class: "editor__actions",
                     IconButton {
@@ -693,7 +696,8 @@ pub fn TabsManager(
                             }
                         },
                     }
-                }
+                    }
+                    }
                 div {
                     class: "workspace__results",
                     if show_generate_sql_window() {
@@ -772,6 +776,12 @@ pub fn TabsManager(
                                 }
                             }
                         }
+                    } else if active_tab_kind == WorkspaceTabKind::TablePreview
+                        && active_preview_source.is_some()
+                    {
+                        TableEditor {
+                            store,
+                        }
                     } else if active_batch_results.is_some() {
                         BatchResultsView {
                             store,
@@ -788,19 +798,12 @@ pub fn TabsManager(
                                 store,
                             }
                         }
-                    } else if active_tab_kind == WorkspaceTabKind::TablePreview
-                        && active_preview_source.is_some()
-                    {
-                        TableEditor {
-                            store,
-                        }
                     } else {
                         ResultTable {
                             result: active_result.clone(),
                             store,
                         }
                     }
-                }
                 }
                 }
             } else {

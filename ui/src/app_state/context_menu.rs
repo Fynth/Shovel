@@ -126,6 +126,54 @@ pub fn open_context_menu(x: f64, y: f64, items: Vec<ContextMenuItem>) {
     *CONTEXT_MENU.write() = Some(ContextMenuState { x, y, items });
 }
 
+/// In-app confirm overlay. Native `rfd` dialogs often return `No`
+/// immediately on Wayland/Hyprland without showing a window, so
+/// destructive explorer actions (drop/truncate) go through this instead.
+#[derive(Clone, PartialEq)]
+pub struct ConfirmDialogState {
+    pub title: String,
+    pub message: String,
+    pub confirm_label: String,
+    pub danger: bool,
+    pub callback: CallbackId,
+}
+
+pub static CONFIRM_DIALOG: GlobalSignal<Option<ConfirmDialogState>> = Signal::global(|| None);
+
+pub fn open_confirm_dialog(
+    title: impl Into<String>,
+    message: impl Into<String>,
+    confirm_label: impl Into<String>,
+    danger: bool,
+    callback: impl FnOnce() + 'static,
+) {
+    let id = CallbackId::next();
+    let mut callback = Some(callback);
+    CALLBACKS.with(|cell| {
+        cell.borrow_mut().insert(
+            id,
+            Box::new(move || {
+                if let Some(cb) = callback.take() {
+                    cb();
+                }
+            }),
+        );
+    });
+    *CONFIRM_DIALOG.write() = Some(ConfirmDialogState {
+        title: title.into(),
+        message: message.into(),
+        confirm_label: confirm_label.into(),
+        danger,
+        callback: id,
+    });
+}
+
+pub fn close_confirm_dialog() {
+    if CONFIRM_DIALOG().is_some() {
+        *CONFIRM_DIALOG.write() = None;
+    }
+}
+
 /// Close the menu, if one is open. Safe to call from anywhere.
 pub fn close_context_menu() {
     if CONTEXT_MENU().is_some() {
@@ -140,18 +188,16 @@ pub fn close_context_menu() {
 pub fn invoke_callback(id: CallbackId) {
     let mut taken: Option<Box<dyn FnMut()>> = None;
     CALLBACKS.with(|cell| {
-        if let Some(cb) = cell.borrow_mut().remove(&id) {
-            taken = Some(cb);
-        }
+        taken = cell.borrow_mut().remove(&id);
     });
-    if let Some(mut cb) = taken {
-        // Errors from the callback are not propagated to the UI; the
-        // caller is expected to surface them through the standard
-        // toast / dialog mechanisms.
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            cb();
-        }));
-    }
+    let Some(mut cb) = taken else {
+        eprintln!("context_menu: no callback registered for {id:?}");
+        crate::app_state::toast_error(
+            "That menu action is no longer available. Right-click again.",
+        );
+        return;
+    };
+    cb();
 }
 
 /// Copy `text` to the system clipboard. Uses the same thread-local
@@ -231,6 +277,40 @@ mod tests {
         let a = CallbackId::next();
         let b = CallbackId::next();
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn invoke_callback_can_register_a_follow_up_callback() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        let nested_ran = Arc::new(AtomicBool::new(false));
+        let nested_flag = nested_ran.clone();
+        let id = CallbackId::next();
+        CALLBACKS.with(|cell| {
+            cell.borrow_mut().insert(
+                id,
+                Box::new(move || {
+                    let nested_id = CallbackId::next();
+                    let nested_flag = nested_flag.clone();
+                    CALLBACKS.with(|cell| {
+                        cell.borrow_mut().insert(
+                            nested_id,
+                            Box::new(move || {
+                                nested_flag.store(true, Ordering::SeqCst);
+                            }),
+                        );
+                    });
+                    invoke_callback(nested_id);
+                }),
+            );
+        });
+        invoke_callback(id);
+        assert!(
+            nested_ran.load(Ordering::SeqCst),
+            "nested confirm-style callback must run without panicking"
+        );
     }
 
     #[test]

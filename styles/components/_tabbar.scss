@@ -1,61 +1,58 @@
 @use "../base/tokens" as *;
 @use "../base/states" as *;
 
+// Flat Zed-style tab strip: no folder-tab borders — the active tab is
+// separated from inactive ones purely by fill tone (editor surface) and
+// text brightness.
 .tabbar {
   position: relative;
   z-index: 1;
   flex: 0 0 auto;
-  min-height: var(--ui-tab-height, 28px);
+  min-height: var(--ui-tab-height, 26px);
   display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 6px 0;
-  margin-bottom: -1px;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 82%, var(--glass-tint)),
-      color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 88%, transparent)
-    );
-  backdrop-filter: blur(16px) saturate(135%);
+  align-items: stretch;
+  gap: 1px;
+  padding: 0 2px;
+  background: color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 55%, transparent);
   overflow-x: auto;
   overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.tabbar::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .tabbar__tab,
 .tabbar__add {
-  height: var(--ui-tab-height);
-  padding: 0 10px;
-  border: 1px solid color-mix(in srgb, var(--glass-border) 52%, var(--color-border));
-  border-radius: 13px 13px 0 0;
-  color: var(--color-text-muted);
+  height: var(--ui-tab-height, 26px);
+  padding: 0 8px;
+  border: none;
+  border-radius: 4px 4px 0 0;
+  color: var(--color-text-dim);
   cursor: pointer;
+  background: transparent;
   @include interactive;
   flex: 0 0 auto;
+}
+
+.tabbar__tab:hover,
+.tabbar__add:hover {
+  color: var(--color-text-muted);
+  background: var(--color-hover);
 }
 
 .tabbar__tab--active {
   position: relative;
   z-index: 1;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--editor-bg) 88%, var(--glass-tint-strong)),
-      color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 10%, var(--editor-bg))
-    );
-  border-color: color-mix(in srgb, var(--glass-border) 74%, var(--color-border));
-  border-bottom-color: transparent;
+  background: var(--editor-bg, var(--color-surface-main));
   color: var(--color-text);
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    0 -10px 28px rgba(2, 8, 18, 0.18);
 }
 
 .tabbar__tab--pinned {
-  border-color: color-mix(in srgb, var(--color-primary) 36%, var(--color-border));
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    inset 2px 0 0 0 color-mix(in srgb, var(--color-primary) 70%, transparent);
+  box-shadow: inset 2px 0 0 0 color-mix(in srgb, var(--color-primary) 70%, transparent);
 }
 
 .tabbar__pin {
@@ -63,7 +60,6 @@
   font-size: 10px;
   line-height: 1;
   color: var(--color-primary);
-  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--color-primary) 30%, transparent));
   user-select: none;
   margin-right: -2px;
 }
@@ -71,18 +67,10 @@
 .tabbar__tab {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   max-width: clamp(140px, 18vw, 220px);
-  min-width: 0;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface-elevated, var(--color-panel-2)) 76%, var(--glass-tint)),
-      color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 14%, var(--color-surface-elevated, var(--color-panel-2)))
-    );
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    0 10px 20px rgba(2, 8, 18, 0.08);
+  min-width: 88px;
+  overflow: hidden;
 }
 
 .tabbar__copy {
@@ -109,15 +97,17 @@
 
 .tabbar__close {
   flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
-  margin-right: -4px;
-  border-radius: 999px;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border-radius: 4px;
   color: var(--color-text-dim);
   cursor: pointer;
   @include interactive;
   background: transparent;
   border: none;
+  font-size: 13px;
+  line-height: 1;
 }
 
 @media (max-width: 760px) {

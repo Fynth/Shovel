@@ -5,16 +5,9 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: $spacing-sm;
-  padding: $spacing-sm;
-  background:
-    radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--color-primary) 12%, transparent), transparent 28%),
-    radial-gradient(circle at 92% 4%, color-mix(in srgb, var(--color-info) 10%, transparent), transparent 26%),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface-shell, var(--color-bg)) 92%, transparent),
-      var(--color-surface-shell, var(--color-bg))
-    );
+  gap: 0;
+  padding: 0;
+  background: var(--color-surface-shell, var(--color-bg));
   overflow: hidden;
 }
 
@@ -23,10 +16,10 @@
   min-height: 0;
   display: grid;
   grid-template-columns:
-    minmax(260px, var(--workspace-sidebar-width, clamp(240px, 21vw, 340px)))
-    6px
+    minmax(220px, var(--workspace-sidebar-width, clamp(220px, 21vw, 340px)))
+    4px
     minmax(0, 1fr);
-  gap: $spacing-xs;
+  gap: 0;
   min-width: 0;
 }
 
@@ -47,18 +40,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--glass-border);
-  border-radius: 22px;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface-sidebar, var(--color-panel)) 88%, var(--glass-tint-strong)),
-      color-mix(in srgb, var(--color-surface-sidebar, var(--color-panel)) 88%, transparent)
-    );
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    var(--shadow-panel);
-  backdrop-filter: blur(28px) saturate(150%);
+  background: var(--color-surface-sidebar, var(--color-panel));
   overflow: hidden;
   opacity: 1;
   transform: translateX(0);
@@ -101,18 +83,7 @@
   min-height: 0;
   display: grid;
   grid-template-rows: 1fr;
-  border: 1px solid var(--glass-border);
-  border-radius: 24px;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 88%, var(--glass-tint-strong)),
-      color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 92%, transparent)
-    );
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    var(--shadow-panel);
-  backdrop-filter: blur(30px) saturate(155%);
+  background: var(--color-surface-main, var(--color-panel));
   overflow: hidden;
 }
 
@@ -127,9 +98,9 @@
 .workspace__content--with-inspector {
   grid-template-columns:
     minmax(0, 1fr)
-    6px
+    4px
     minmax(0, var(--workspace-inspector-width, clamp(280px, 24vw, 400px)));
-  gap: $spacing-xs;
+  gap: 0;
 }
 
 .workspace__canvas {
@@ -147,15 +118,7 @@
   display: flex;
   flex-direction: column;
   gap: 0;
-  border-left: 1px solid color-mix(in srgb, var(--color-border) 68%, transparent);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface-inspector, var(--color-panel-2)) 88%, var(--glass-tint)),
-      color-mix(in srgb, var(--color-surface-inspector, var(--color-panel-2)) 92%, transparent)
-    );
-  box-shadow: inset 1px 0 0 var(--glass-highlight);
-  backdrop-filter: blur(24px) saturate(145%);
+  background: var(--color-surface-inspector, var(--color-panel-2));
 }
 
 // header padding is intentionally asymmetric (7px vertical, 9px horizontal)
@@ -166,15 +129,8 @@
   align-items: center;
   justify-content: flex-end;
   gap: $spacing-sm;
-  padding: 5px 7px;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--glass-tint-strong) 80%, var(--color-surface-inspector, var(--color-panel-2))),
-      color-mix(in srgb, var(--glass-tint) 52%, transparent)
-    );
-  backdrop-filter: blur(18px) saturate(140%);
+  padding: 3px 6px;
+  background: var(--color-surface-main, var(--color-panel));
 }
 
 .workspace__toolbar {
@@ -192,21 +148,24 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: $spacing-xs;
-  padding: 0 $spacing-xs $spacing-xs;
-  border-top: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 84%, var(--glass-tint)),
-      color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 88%, transparent)
-    );
+  gap: 0;
+  padding: 0;
+  background: var(--color-surface-main, var(--color-panel));
   overflow: auto;
 }
 
+.workspace__results > .results,
+.workspace__results > .table-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .workspace__section-title {
-  font-size: $font-size-lg;
+  font-size: $font-size-sm;
   font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
 }
 
 .workspace__sidebar .workspace__hint,
@@ -217,25 +176,25 @@
   line-height: 1.3;
 }
 
-.workspace__sidebar .input,
-.workspace__inspector .input {
-  min-height: 30px;
-  padding: 0 8px;
+.workspace__sidebar .input:not(textarea),
+.workspace__inspector .input:not(textarea) {
+  min-height: 24px;
+  padding: 0 7px;
   font-size: $font-size-sm;
 }
 
 .workspace__sidebar .button.button--small,
 .workspace__inspector .button.button--small {
-  height: 22px;
+  height: 20px;
   padding: 0 6px;
   font-size: $font-size-xs;
 }
 
 .workspace__sidebar .button.button--small.button--icon,
 .workspace__inspector .button.button--small.button--icon {
-  width: 24px;
-  min-width: 24px;
-  height: 24px;
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
 }
 
 .workspace__empty {
@@ -251,25 +210,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
-  background:
-    radial-gradient(
-      circle at 50% 0%,
-      color-mix(in srgb, var(--color-primary) 8%, transparent),
-      transparent 60%
-    ),
-    var(--color-backdrop);
-  backdrop-filter: blur(14px) saturate(135%);
-  animation: workspace-overlay-in 160ms ease-out;
+  padding: 16px;
+  background: var(--color-backdrop);
+  animation: workspace-overlay-in 140ms ease-out;
 }
 
 .workspace__overlay > * {
   position: relative;
   max-width: 100%;
   max-height: 100%;
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    0 26px 70px rgba(2, 8, 20, 0.32);
+  box-shadow: $shadow-md;
   border-radius: $radius-lg;
 }
 
@@ -287,8 +237,8 @@
 @media (max-width: 980px) {
   .workspace__top-row {
     grid-template-columns:
-      minmax(260px, var(--workspace-sidebar-width, clamp(240px, 21vw, 340px)))
-      6px
+      minmax(220px, var(--workspace-sidebar-width, clamp(220px, 21vw, 340px)))
+      4px
       minmax(0, 1fr);
   }
 
@@ -333,8 +283,8 @@
 
 @media (max-height: 860px) {
   .workspace {
-    gap: $spacing-sm;
-    padding: $spacing-sm;
+    gap: 0;
+    padding: 0;
   }
 
   .workspace__header {

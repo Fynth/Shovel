@@ -31,6 +31,7 @@ use sections::{
     DeepSeekAgentSection,
     EditorBehaviorSection,
     GridSection,
+    LanguageModelsSection,
     NavigationSection,
     OllamaSection,
     SqlFormattingSection,
@@ -248,6 +249,7 @@ pub fn SettingsModal(props: SettingsModalProps) -> Element {
                             SettingsCategory::Advanced => rsx! {
                                 DeepSeekAgentSection { ..section_props.clone() }
                                 OllamaSection { ..section_props.clone() }
+                                LanguageModelsSection { ..section_props.clone() }
                                 AdvancedSection { ..section_props }
                             },
                             SettingsCategory::Config => rsx! {
@@ -268,6 +270,11 @@ pub(super) fn reset_ui_preserving_secrets(current: &AppUiSettings) -> AppUiSetti
     next.deepseek.api_key = current.deepseek.api_key.clone();
     next.codestral.api_key = current.codestral.api_key.clone();
     next.ollama.api_key = current.ollama.api_key.clone();
+    next.openai.api_key = current.openai.api_key.clone();
+    next.groq.api_key = current.groq.api_key.clone();
+    next.openrouter.api_key = current.openrouter.api_key.clone();
+    next.xai.api_key = current.xai.api_key.clone();
+    next.mistral.api_key = current.mistral.api_key.clone();
     next.keybindings = current.keybindings.clone();
     next
 }

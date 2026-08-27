@@ -8,8 +8,7 @@
   align-items: center;
   justify-content: center;
   padding: clamp(12px, 4vw, 32px);
-  background: color-mix(in srgb, #000 40%, transparent);
-  backdrop-filter: blur(4px);
+  background: var(--color-backdrop);
 }
 
 .value-editor__panel {
@@ -18,19 +17,10 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--glass-border) 72%, var(--color-border));
-  border-radius: 14px;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-primary) 8%, transparent),
-      transparent 160px
-    ),
-    color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 92%, var(--glass-tint));
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    0 22px 60px rgba(2, 8, 20, 0.28);
-  backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-lg;
+  background: var(--color-surface-elevated, var(--color-panel-2));
+  box-shadow: $shadow-md;
   transition: width $motion-fast ease;
 }
 

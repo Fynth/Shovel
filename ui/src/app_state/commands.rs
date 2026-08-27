@@ -58,6 +58,7 @@ pub use crate::app_state::actions::{
 thread_local! {
     static RUNNERS: std::cell::RefCell<HashMap<CommandId, Box<dyn FnMut()>>> =
         std::cell::RefCell::new(HashMap::new());
+    static REGISTERED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 pub fn register_runner(id: CommandId, runner: impl FnMut() + 'static) {
@@ -73,6 +74,9 @@ pub fn register_runner(id: CommandId, runner: impl FnMut() + 'static) {
 /// panicking, since panicking from a UI callback would tear down the
 /// whole workspace.
 pub fn dispatch(id: CommandId) {
+    // Toolbar / keyboard can fire before the palette is opened.
+    // command_list() is idempotent and registers the thread-local runners.
+    let _ = command_list();
     let outcome = RUNNERS.with(|cell| {
         cell.borrow_mut().get_mut(&id).map(|runner| {
             // Panic-trampoline: a panic inside the runner must not
@@ -101,8 +105,15 @@ pub fn dispatch(id: CommandId) {
 pub fn command_list() -> &'static [Command] {
     use crate::app_state as app;
 
-    static REGISTERED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    if !REGISTERED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+    let should_register = REGISTERED.with(|flag| {
+        if flag.get() {
+            false
+        } else {
+            flag.set(true);
+            true
+        }
+    });
+    if should_register {
         register_runner(CMD_NEW_CONNECTION, app::open_connection_screen);
         register_runner(CMD_OPEN_SETTINGS, || {
             // Bridge + receiver are wired in the toolbar's helper; we
@@ -162,6 +173,11 @@ pub fn command_list() -> &'static [Command] {
 }
 
 #[cfg(test)]
+fn has_runner(id: CommandId) -> bool {
+    RUNNERS.with(|cell| cell.borrow().contains_key(&id))
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -199,9 +215,24 @@ mod tests {
             CMD_SAVE_QUERY,
             CMD_OPEN_COMMAND_PALETTE,
             CMD_ABOUT,
+            CMD_ER_DIAGRAM,
+            CMD_REFRESH_EXPLORER,
         ] {
             assert!(ids.contains(&required), "missing command: {required:?}");
         }
+    }
+
+    #[test]
+    fn command_list_registers_er_diagram_and_refresh_runners() {
+        let _ = command_list();
+        assert!(
+            has_runner(CMD_ER_DIAGRAM),
+            "ER Diagram must have a palette runner"
+        );
+        assert!(
+            has_runner(CMD_REFRESH_EXPLORER),
+            "Refresh explorer must have a palette runner"
+        );
     }
 
     #[test]

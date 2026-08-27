@@ -13,33 +13,19 @@
   align-items: flex-start;
   justify-content: center;
   padding: clamp(72px, 14vh, 130px) $spacing-lg 0;
-  background: color-mix(in srgb, var(--color-backdrop, #000) 55%, transparent);
-  backdrop-filter: blur(20px) saturate(140%);
+  background: var(--color-backdrop);
   animation: global-search-in $motion-fast ease-out;
 }
 
 .global-search {
-  width: min(720px, 100%);
-  max-height: min(70vh, 540px);
+  width: min(640px, 100%);
+  max-height: min(60vh, 480px);
   display: flex;
   flex-direction: column;
-  border: 1px solid color-mix(in srgb, var(--glass-border) 78%, var(--color-border));
-  border-radius: $radius-lg;
-  background:
-    radial-gradient(
-      circle at 6% 0%,
-      color-mix(in srgb, var(--color-primary) 16%, transparent),
-      transparent 32%
-    ),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface-contrast, var(--color-panel-2)) 62%, transparent),
-      transparent 140px
-    ),
-    color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 94%, var(--glass-tint));
-  box-shadow:
-    var(--shadow-panel, 0 18px 40px rgba(8, 10, 20, 0.32)),
-    inset 0 1px 0 var(--glass-highlight);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-md;
+  background: var(--color-surface-elevated, var(--color-panel-2));
+  box-shadow: $shadow-md;
   overflow: hidden;
   outline: none;
 }

@@ -1,5 +1,11 @@
 use dioxus::prelude::*;
-use models::{AcpMessageKind, AcpPanelState, DeepSeekSettings, OllamaSettings};
+use models::{
+    AcpMessageKind,
+    AcpPanelState,
+    DeepSeekSettings,
+    OllamaSettings,
+    OpenAiCompatProvider,
+};
 
 use super::{
     messages::acp_registry_preparing_text,
@@ -107,12 +113,45 @@ pub(crate) async fn ensure_default_sql_agent_connected(
     }
 
     if deepseek.enabled && !deepseek.api_key.trim().is_empty() {
-        connect_embedded_deepseek(panel_state, chat_revision, deepseek).await
-    } else if ollama.enabled && !ollama.model.trim().is_empty() {
+        return connect_embedded_deepseek(panel_state, chat_revision, deepseek).await;
+    }
+    let ui = crate::app_state::APP_UI_SETTINGS();
+    for provider in OpenAiCompatProvider::ALL {
+        let settings = ui.openai_compat(provider);
+        if settings.enabled
+            && !settings.api_key.trim().is_empty()
+            && !settings.model.trim().is_empty()
+        {
+            return connect_embedded_openai_compat(
+                panel_state,
+                chat_revision,
+                provider,
+                settings.clone(),
+            )
+            .await;
+        }
+    }
+    if ollama.enabled && !ollama.model.trim().is_empty() {
         connect_embedded_ollama(panel_state, chat_revision, ollama).await
     } else {
         ensure_opencode_connected(panel_state, chat_revision).await
     }
+}
+
+pub(crate) async fn connect_embedded_openai_compat(
+    panel_state: Signal<AcpPanelState>,
+    chat_revision: Signal<u64>,
+    provider: OpenAiCompatProvider,
+    settings: models::OpenAiCompatSettings,
+) -> Result<(), String> {
+    let mut bridge = settings.to_deepseek_bridge();
+    if bridge.model.trim().is_empty() {
+        bridge.model = provider.default_model().to_string();
+    }
+    if bridge.base_url.trim().is_empty() {
+        bridge.base_url = provider.default_base_url().to_string();
+    }
+    connect_embedded_deepseek(panel_state, chat_revision, bridge).await
 }
 
 pub(crate) async fn connect_embedded_ollama(
@@ -231,6 +270,11 @@ pub(crate) async fn connect_embedded_deepseek(
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum AgentSetupMode {
     DeepSeek,
+    OpenAi,
+    Groq,
+    OpenRouter,
+    XAi,
+    Mistral,
     Ollama,
     OpenCode,
     Codex,
@@ -238,8 +282,13 @@ pub(super) enum AgentSetupMode {
 }
 
 impl AgentSetupMode {
-    pub(super) const ALL: [Self; 5] = [
+    pub(super) const ALL: [Self; 10] = [
         Self::DeepSeek,
+        Self::OpenAi,
+        Self::Groq,
+        Self::OpenRouter,
+        Self::XAi,
+        Self::Mistral,
         Self::Ollama,
         Self::OpenCode,
         Self::Codex,
@@ -249,6 +298,11 @@ impl AgentSetupMode {
     pub(super) fn label(self) -> &'static str {
         match self {
             Self::DeepSeek => "DeepSeek",
+            Self::OpenAi => "OpenAI",
+            Self::Groq => "Groq",
+            Self::OpenRouter => "OpenRouter",
+            Self::XAi => "xAI",
+            Self::Mistral => "Mistral",
             Self::Ollama => "Ollama",
             Self::OpenCode => "OpenCode",
             Self::Codex => "Codex",
@@ -258,10 +312,26 @@ impl AgentSetupMode {
 
     pub(super) fn meta(self) -> &'static str {
         match self {
-            Self::DeepSeek => "API key",
-            Self::Ollama => "Embedded",
-            Self::OpenCode | Self::Codex => "Registry",
+            Self::DeepSeek
+            | Self::OpenAi
+            | Self::Groq
+            | Self::OpenRouter
+            | Self::XAi
+            | Self::Mistral => "API",
+            Self::Ollama => "Local",
+            Self::OpenCode | Self::Codex => "ACP",
             Self::Custom => "stdio",
+        }
+    }
+
+    pub(super) fn openai_compat(self) -> Option<OpenAiCompatProvider> {
+        match self {
+            Self::OpenAi => Some(OpenAiCompatProvider::OpenAi),
+            Self::Groq => Some(OpenAiCompatProvider::Groq),
+            Self::OpenRouter => Some(OpenAiCompatProvider::OpenRouter),
+            Self::XAi => Some(OpenAiCompatProvider::XAi),
+            Self::Mistral => Some(OpenAiCompatProvider::Mistral),
+            Self::DeepSeek | Self::Ollama | Self::OpenCode | Self::Codex | Self::Custom => None,
         }
     }
 
@@ -269,7 +339,7 @@ impl AgentSetupMode {
         match self {
             Self::OpenCode => Some(OPENCODE_REGISTRY_AGENT_ID),
             Self::Codex => Some(CODEX_REGISTRY_AGENT_ID),
-            Self::DeepSeek | Self::Ollama | Self::Custom => None,
+            _ => None,
         }
     }
 
@@ -277,7 +347,7 @@ impl AgentSetupMode {
         match self {
             Self::OpenCode => Some("OpenCode"),
             Self::Codex => Some("Codex CLI"),
-            Self::DeepSeek | Self::Ollama | Self::Custom => None,
+            _ => None,
         }
     }
 
@@ -285,7 +355,7 @@ impl AgentSetupMode {
         match self {
             Self::OpenCode => Some("OpenCode agent."),
             Self::Codex => Some("Codex CLI agent."),
-            Self::DeepSeek | Self::Ollama | Self::Custom => None,
+            _ => None,
         }
     }
 }

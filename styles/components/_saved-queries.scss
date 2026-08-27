@@ -23,7 +23,7 @@
   overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 1px;
   padding-right: 2px;
 }
 
@@ -48,7 +48,7 @@
 }
 
 .saved-queries__form .input {
-  min-height: 36px;
+  min-height: 26px;
 }
 
 .saved-queries__form-actions,
@@ -69,8 +69,8 @@
   @include interactive;
 
   &:hover {
-    background: color-mix(in srgb, var(--color-primary) 7%, transparent);
-    border-color: color-mix(in srgb, var(--color-primary) 18%, transparent);
+    background: var(--color-hover);
+    border-color: transparent;
   }
 }
 

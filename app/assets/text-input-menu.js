@@ -63,12 +63,12 @@
         // editable element.
         var el = node;
         while (el && el.nodeType === 1) {
+            // The SQL editor has its own Dioxus context menu (format /
+            // run / explain). Skip it so the capture listener does not
+            // steal the event and paint a theme-less overlay on body.
             if (el.id === 'workspace-sql-editor' ||
-                el.classList && el.classList.contains('sql-editor__input')) {
-                if (el.disabled || el.readOnly) {
-                    return null;
-                }
-                return { kind: 'textarea', el: el };
+                (el.classList && el.classList.contains('sql-editor__input'))) {
+                return null;
             }
             var tag = el.tagName;
             if (tag === 'TEXTAREA' && !el.disabled && !el.readOnly) {
@@ -302,7 +302,8 @@
             menu.appendChild(btn);
         }
 
-        document.body.appendChild(menu);
+        var host = document.querySelector('.app') || document.body;
+        host.appendChild(menu);
         activeMenu = menu;
 
         // Clamp to viewport on open. We use getBoundingClientRect on

@@ -25,9 +25,11 @@ const TEXT_INPUT_MENU_SCRIPT: &str = include_str!("../../../app/assets/text-inpu
 
 use crate::{
     app_state::context_menu::{
+        CONFIRM_DIALOG,
         CONTEXT_MENU,
         ContextMenuState,
         clamp_to_viewport,
+        close_confirm_dialog,
         close_context_menu,
         invoke_callback,
     },
@@ -228,107 +230,177 @@ pub fn ContextMenu() -> Element {
     rsx! {
         div {
             class: "context-menu-backdrop",
-            onclick: move |_| close_context_menu(),
-            div {
-                class: "context-menu",
-                style: "left: {clamped.0:.0}px; top: {clamped.1:.0}px;",
-                onclick: move |event| event.stop_propagation(),
-                oncontextmenu: move |event| event.prevent_default(),
-                for item in state.items.iter() {
-                    if item.separator_before {
-                        div { class: "context-menu__separator" }
+            onclick: move |_| {
+                spawn(async move {
+                    close_context_menu();
+                });
+            },
+        }
+        div {
+            class: "context-menu",
+            style: "left: {clamped.0:.0}px; top: {clamped.1:.0}px;",
+            onclick: move |event| event.stop_propagation(),
+            oncontextmenu: move |event| event.prevent_default(),
+            for item in state.items.iter() {
+                if item.separator_before {
+                    div { class: "context-menu__separator" }
+                }
+                {
+                    let label = item.label.clone();
+                    let callback = item.callback;
+                    let disabled = item.disabled;
+                    let active = item.active;
+                    let mut class_name = String::from("context-menu__item");
+                    if item.danger {
+                        class_name.push_str(" context-menu__item--danger");
                     }
-                    {
-                        let label = item.label.clone();
-                        let callback = item.callback;
-                        let disabled = item.disabled;
-                        let active = item.active;
-                        let mut class_name = String::from("context-menu__item");
-                        if item.danger {
-                            class_name.push_str(" context-menu__item--danger");
-                        }
-                        if disabled {
-                            class_name.push_str(" context-menu__item--disabled");
-                        }
-                        if active {
-                            class_name.push_str(" context-menu__item--active");
-                        }
-                        rsx! {
-                            button {
-                                class: {class_name.to_string()},
-                                disabled,
-                                r#type: "button",
-                                onclick: move |_| {
-                                    if !disabled {
-                                        invoke_callback(callback);
-                                    }
+                    if disabled {
+                        class_name.push_str(" context-menu__item--disabled");
+                    }
+                    if active {
+                        class_name.push_str(" context-menu__item--active");
+                    }
+                    rsx! {
+                        button {
+                            class: {class_name.to_string()},
+                            disabled,
+                            r#type: "button",
+                            onclick: move |event| {
+                                event.stop_propagation();
+                                event.prevent_default();
+                                if !disabled {
+                                    invoke_callback(callback);
+                                }
+                                spawn(async move {
                                     close_context_menu();
-                                },
-                                if let Some(icon) = item.icon {
-                                    span { class: "context-menu__item-icon",
-                                        svg {
-                                            view_box: "0 0 24 24",
-                                            fill: "none",
-                                            stroke: "currentColor",
-                                            stroke_width: "1.85",
-                                            stroke_linecap: "round",
-                                            stroke_linejoin: "round",
-                                            width: "14",
-                                            height: "14",
-                                            IconGlyph { icon }
-                                        }
-                                    }
-                                } else {
-                                    // Reserve the icon-column width so labels stay aligned with sibling items that do have an icon.
-                                    span { class: "context-menu__item-icon-spacer" }
-                                }
-                                {
-                                    // Split the label on the last `\t\t`
-                                    // boundary so a label like
-                                    // `"Cut\t\tCtrl+X"` renders as two
-                                    // child spans: the label text and a
-                                    // shortcut hint on the right. This
-                                    // keeps the public `label` field a
-                                    // single string (and back-compat with
-                                    // older items that don't include a
-                                    // shortcut) while still showing the
-                                    // hint when one is present.
-                                    let (visible, shortcut) =
-                                        match label.rsplit_once("\t\t") {
-                                            Some((left, right)) => {
-                                                (left.to_string(), Some(right.to_string()))
-                                            }
-                                            None => (label.clone(), None),
-                                        };
-                                    rsx! {
-                                        span { class: "context-menu__item-label", {visible.to_string()} }
-                                        if let Some(hint) = shortcut {
-                                            span { class: "context-menu__item-shortcut", {hint.to_string()} }
-                                        }
-                                    }
-                                }
-                                span {
-                                    class: if active {
-                                        "context-menu__item-check context-menu__item-check--on"
-                                    } else {
-                                        "context-menu__item-check"
-                                    },
-                                    "aria-hidden": "true",
+                                });
+                            },
+                            if let Some(icon) = item.icon {
+                                span { class: "context-menu__item-icon",
                                     svg {
                                         view_box: "0 0 24 24",
                                         fill: "none",
                                         stroke: "currentColor",
-                                        stroke_width: "2.4",
+                                        stroke_width: "1.85",
                                         stroke_linecap: "round",
                                         stroke_linejoin: "round",
-                                        width: "12",
-                                        height: "12",
-                                        path { d: "m5 13 4 4L19 7" }
+                                        width: "14",
+                                        height: "14",
+                                        IconGlyph { icon }
                                     }
+                                }
+                            } else {
+                                span { class: "context-menu__item-icon-spacer" }
+                            }
+                            {
+                                let (visible, shortcut) = match label.rsplit_once("\t\t") {
+                                    Some((left, right)) => {
+                                        (left.to_string(), Some(right.to_string()))
+                                    }
+                                    None => (label.clone(), None),
+                                };
+                                rsx! {
+                                    span { class: "context-menu__item-label", {visible.to_string()} }
+                                    if let Some(hint) = shortcut {
+                                        span { class: "context-menu__item-shortcut", {hint.to_string()} }
+                                    }
+                                }
+                            }
+                            span {
+                                class: if active {
+                                    "context-menu__item-check context-menu__item-check--on"
+                                } else {
+                                    "context-menu__item-check"
+                                },
+                                "aria-hidden": "true",
+                                svg {
+                                    view_box: "0 0 24 24",
+                                    fill: "none",
+                                    stroke: "currentColor",
+                                    stroke_width: "2.4",
+                                    stroke_linecap: "round",
+                                    stroke_linejoin: "round",
+                                    width: "12",
+                                    height: "12",
+                                    path { d: "m5 13 4 4L19 7" }
                                 }
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+pub fn ConfirmDialog() -> Element {
+    let mut dismiss_armed = use_signal(|| false);
+    let state = CONFIRM_DIALOG();
+
+    use_effect(move || {
+        if CONFIRM_DIALOG().is_none() {
+            dismiss_armed.set(false);
+            return;
+        }
+        dismiss_armed.set(false);
+        spawn(async move {
+            let _ =
+                document::eval(r#"(() => new Promise((resolve) => setTimeout(resolve, 250)))()"#)
+                    .await;
+            dismiss_armed.set(true);
+        });
+    });
+
+    let Some(state) = state else {
+        return rsx! {};
+    };
+    let callback = state.callback;
+    let danger = state.danger;
+    let confirm_class = if danger {
+        "button button--primary confirm-dialog__confirm confirm-dialog__confirm--danger"
+    } else {
+        "button button--primary confirm-dialog__confirm"
+    };
+
+    rsx! {
+        div {
+            class: "confirm-dialog-backdrop",
+            onclick: move |_| {
+                if dismiss_armed() {
+                    spawn(async move {
+                        close_confirm_dialog();
+                    });
+                }
+            },
+        }
+        div {
+            class: "confirm-dialog",
+            onclick: move |event| event.stop_propagation(),
+            h3 { class: "confirm-dialog__title", "{state.title}" }
+            p { class: "confirm-dialog__message", "{state.message}" }
+            div { class: "confirm-dialog__actions",
+                button {
+                    class: "button button--ghost",
+                    r#type: "button",
+                    onclick: move |_| {
+                        spawn(async move {
+                            close_confirm_dialog();
+                        });
+                    },
+                    "Cancel"
+                }
+                button {
+                    class: confirm_class,
+                    r#type: "button",
+                    onclick: move |event| {
+                        event.stop_propagation();
+                        invoke_callback(callback);
+                        spawn(async move {
+                            close_confirm_dialog();
+                        });
+                    },
+                    "{state.confirm_label}"
                 }
             }
         }

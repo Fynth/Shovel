@@ -70,12 +70,19 @@ pub(super) fn AgentComposer(
         ));
     });
 
+    let resize_target_id = prompt_textarea_key.clone();
+    use_effect(move || {
+        let _ = prompt_draft();
+        sync_prompt_textarea_height(&resize_target_id);
+    });
+
     rsx! {
         div { class: "agent-panel__composer",
             textarea {
                 key: "{prompt_textarea_key}",
-                class: "input agent-panel__prompt",
-                rows: 1,
+                id: prompt_textarea_key.clone(),
+                class: "agent-panel__prompt",
+                rows: 2,
                 value: "{prompt_draft}",
                 placeholder: "Ask the agent…",
                 oninput: move |event| prompt_draft.set(event.value()),
@@ -122,7 +129,7 @@ pub(super) fn AgentComposer(
                         );
                     },
                     title: "Explain the execution plan of the active read-only SQL",
-                    "Explain Plan"
+                    "Plan"
                 }
                 button {
                     class: "button button--ghost button--small",
@@ -138,7 +145,7 @@ pub(super) fn AgentComposer(
                         );
                     },
                     title: "Explain the active SQL with the agent",
-                    "Explain SQL"
+                    "Explain"
                 }
                 button {
                     class: "button button--ghost button--small",
@@ -154,7 +161,7 @@ pub(super) fn AgentComposer(
                         );
                     },
                     title: "Ask the agent to fix the latest SQL error",
-                    "Fix SQL Error"
+                    "Fix"
                 }
                 button {
                     class: "button button--ghost button--small",
@@ -179,7 +186,7 @@ pub(super) fn AgentComposer(
                         );
                     },
                     title: "Generate SQL only and insert it into the active editor",
-                    "Generate SQL"
+                    "Generate"
                 }
                 button {
                     class: "button button--primary button--small",
@@ -217,4 +224,19 @@ pub(super) fn AgentComposer(
             }
         }
     }
+}
+
+fn sync_prompt_textarea_height(element_id: &str) {
+    let _ = document::eval(&format!(
+        r#"
+        (() => {{
+            const el = document.getElementById({element_id:?});
+            if (!el) return;
+            el.style.height = "auto";
+            const min = 56;
+            const max = 160;
+            el.style.height = Math.min(Math.max(el.scrollHeight, min), max) + "px";
+        }})()
+        "#
+    ));
 }

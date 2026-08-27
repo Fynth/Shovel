@@ -12,8 +12,13 @@
 }
 
 .editor-shell--editor-hidden .workspace__results {
-  padding-top: 3px;
+  padding-top: 0;
   border-top: 0;
+}
+
+.editor-shell--editor-hidden .editor-shell__bottom {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 // Horizontal split: editor on the left, result column on the right.
@@ -44,18 +49,14 @@
 }
 
 // Vertical split is geometry-identical to the default stacked layout;
-// we keep a dedicated class so the divider can render a more explicit
-// "split" affordance (gradient halo + grip bar) when the user opts in.
+// the split affordance only appears on hover/drag of the handle.
 .editor-shell--split-vertical .editor-shell__resize-handle::after {
-  height: 6px;
+  height: 3px;
   background: color-mix(
     in srgb,
     var(--color-primary) 38%,
     var(--color-border-strong) 62%
   );
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--color-primary) 22%, transparent),
-    0 6px 12px rgba(2, 8, 18, 0.08);
 }
 
 .editor-shell__bottom {
@@ -68,8 +69,8 @@
 
 .editor-shell__col-resize {
   position: relative;
-  flex: 0 0 6px;
-  min-width: 6px;
+  flex: 0 0 4px;
+  min-width: 4px;
   cursor: col-resize;
   background: transparent;
   transition: background $motion-fast ease;
@@ -81,10 +82,11 @@
   top: 14px;
   bottom: 14px;
   left: 50%;
-  width: 4px;
+  width: 2px;
   transform: translateX(-50%);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-border-strong) 88%, transparent);
+  background: transparent;
+  transition: background $motion-fast ease;
 }
 
 .editor-shell__col-resize:hover,
@@ -105,16 +107,8 @@
 .editor {
   flex: 0 0 var(--editor-pane-height, clamp(96px, 22vh, 200px));
   min-height: 120px;
-  padding: 6px;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 82%, var(--glass-tint)),
-      color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 90%, transparent)
-    );
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    0 14px 32px rgba(2, 8, 18, 0.1);
+  padding: 0;
+  background: var(--editor-bg, var(--color-surface-main, var(--color-panel)));
   min-width: 0;
   overflow: hidden;
 }
@@ -134,10 +128,11 @@
   left: 14px;
   right: 14px;
   top: 50%;
-  height: 5px;
+  height: 3px;
   transform: translateY(-50%);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-border-strong) 88%, transparent);
+  background: transparent;
+  transition: background $motion-fast ease;
 }
 
 .editor-shell__resize-handle:hover,
@@ -159,14 +154,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--color-border);
-  background: color-mix(
-    in srgb,
-    var(--color-surface-main, var(--color-panel)) 84%,
-    var(--color-surface-contrast, var(--color-panel-2))
-  );
+  gap: 6px;
+  padding: 3px 6px;
+  background: var(--color-surface-main, var(--color-panel));
 }
 
 .editor__toolbar-main {
@@ -182,16 +172,9 @@
   gap: 6px;
   min-width: 0;
   padding: 4px 8px;
-  border: 1px solid color-mix(in srgb, var(--color-border) 86%, transparent);
-  border-radius: 999px;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-panel-2) 94%, white 2%),
-      color-mix(in srgb, var(--color-panel) 92%, black 2%)
-    );
+  border-radius: 6px;
+  background: var(--color-hover);
   color: var(--color-text);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .editor__session-label {
@@ -204,16 +187,10 @@
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex-wrap: wrap;
-  padding: 4px 8px;
-  border-top: 1px solid color-mix(in srgb, var(--color-border) 76%, transparent);
-  background: color-mix(
-    in srgb,
-    var(--color-surface-contrast, var(--color-panel-2)) 58%,
-    transparent
-  );
-  backdrop-filter: blur(16px) saturate(140%);
+  padding: 3px 6px;
+  background: var(--color-surface-main, var(--color-panel));
 }
 
 .editor__pagination-meta {
@@ -234,14 +211,9 @@
   gap: 8px;
   padding: 10px;
   border: 1px solid var(--color-border);
-  border-radius: $radius-lg;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 95%, white 2%),
-      color-mix(in srgb, var(--color-panel) 10%, var(--color-surface-elevated, var(--color-panel)))
-    );
-  box-shadow: $shadow-md;
+  border-radius: $radius-md;
+  background: var(--color-surface-elevated, var(--color-panel-2));
+  box-shadow: $shadow-sm;
 }
 
 .editor__format-settings-header {
@@ -348,20 +320,9 @@
   line-height: 1.64;
   min-height: 0;
   height: 100%;
-  border: 1px solid color-mix(in srgb, var(--glass-border) 70%, var(--color-border));
-  border-radius: 20px;
-  background:
-    radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--color-primary) 9%, transparent), transparent 28%),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--editor-bg) 92%, var(--glass-tint)),
-      var(--editor-bg)
-    );
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 5%, transparent),
-    0 24px 54px rgba(2, 8, 18, 0.18);
-  backdrop-filter: blur(18px) saturate(135%);
+  border: none;
+  border-radius: 0;
+  background: var(--editor-bg);
   overflow: hidden;
 }
 
@@ -420,10 +381,10 @@
 .sql-editor__highlight,
 .sql-editor__input {
   margin: 0;
-  padding: 18px 20px;
+  padding: 10px 12px;
   font-family: $font-family-mono;
-  font-size: 15px;
-  line-height: 1.64;
+  font-size: $font-size-xl;
+  line-height: 1.6;
   letter-spacing: 0.01em;
   white-space: pre-wrap;
   word-break: normal;
@@ -542,11 +503,10 @@
   display: flex;
   flex-direction: column;
   overflow: auto;
-  border: 1px solid color-mix(in srgb, var(--glass-border) 68%, var(--color-border-strong));
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--editor-bg) 86%, var(--glass-tint-strong));
-  box-shadow: var(--shadow-panel);
-  backdrop-filter: blur(24px) saturate(155%);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-md;
+  background: var(--color-surface-elevated, var(--color-panel-2));
+  box-shadow: $shadow-sm;
 }
 
 .sql-editor__autocomplete-item {

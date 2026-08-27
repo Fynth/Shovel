@@ -24,6 +24,10 @@ use crate::{
         set_ollama_base_url,
         set_ollama_enabled,
         set_ollama_model,
+        set_openai_compat_api_key,
+        set_openai_compat_base_url,
+        set_openai_compat_enabled,
+        set_openai_compat_model,
         toggle_panel_collapsed,
     },
     screens::workspace::tab_store::TabStore,
@@ -57,15 +61,10 @@ use self::{
         AgentSetupMode,
         connect_embedded_deepseek,
         connect_embedded_ollama,
+        connect_embedded_openai_compat,
         setup_mode_button_class,
     },
-    state::{
-        message_kind_avatar,
-        message_kind_class,
-        message_kind_label,
-        permission_button_class,
-        push_message,
-    },
+    state::{message_kind_class, message_kind_label, permission_button_class, push_message},
 };
 
 pub(crate) use self::{
@@ -112,6 +111,7 @@ pub fn AcpAgentPanel(
     let collapsed = is_panel_collapsed(WorkspaceToolPanel::Agent);
     let mut setup_mode = use_signal(|| AgentSetupMode::DeepSeek);
     let mut show_dialogs = use_signal(|| false);
+    let mut show_providers = use_signal(|| false);
     let mut registry_busy = use_signal(|| false);
     let mut registry_status = use_signal(String::new);
     let registry_agents =
@@ -235,8 +235,23 @@ pub fn AcpAgentPanel(
                         } else {
                             "button button--ghost button--small"
                         },
-                        onclick: move |_| show_dialogs.set(!show_dialogs()),
+                        onclick: move |_| {
+                            show_providers.set(false);
+                            show_dialogs.set(!show_dialogs());
+                        },
                         "Dialogs"
+                    }
+                    button {
+                        class: if show_providers() {
+                            "button button--ghost button--small button--active"
+                        } else {
+                            "button button--ghost button--small"
+                        },
+                        onclick: move |_| {
+                            show_dialogs.set(false);
+                            show_providers.set(!show_providers());
+                        },
+                        "Providers"
                     }
                     if state.connected && state.busy {
                         IconButton {
@@ -347,7 +362,7 @@ pub fn AcpAgentPanel(
             }
 
             if !collapsed {
-            if state.connected {
+            if state.connected && !show_providers() {
                 div { class: "agent-panel__session",
                     div {
                         id: "agent-panel-messages",
@@ -417,10 +432,17 @@ pub fn AcpAgentPanel(
                                         article {
                                             class: message_class,
                                             div { class: "agent-panel__message-meta",
-                                                span { class: "agent-panel__message-avatar",
-                                                    "{message_kind_avatar(&message.kind)}"
+                                                // User/agent roles are told apart by message
+                                                // tone alone; only auxiliary kinds keep a
+                                                // small text label.
+                                                if matches!(
+                                                    message.kind,
+                                                    AcpMessageKind::Tool
+                                                        | AcpMessageKind::System
+                                                        | AcpMessageKind::Error
+                                                ) {
+                                                    p { class: "agent-panel__message-role", "{message_kind_label(&message.kind)}" }
                                                 }
-                                                p { class: "agent-panel__message-role", "{message_kind_label(&message.kind)}" }
                                                 if matches!(message.kind, AcpMessageKind::Thought) {
                                                     div { class: "agent-panel__thinking",
                                                         span { class: "agent-panel__thinking-orb" }
@@ -466,17 +488,23 @@ pub fn AcpAgentPanel(
                                                                     div { class: "agent-panel__code-header",
                                                                         span { class: "agent-panel__code-language", {language_label.to_string()} }
                                                                     div { class: "agent-panel__code-actions",
-                                                                        button {
-                                                                            class: "button button--ghost button--small",
-                                                                            onclick: {
-                                                                                let copy_value = sql.clone().unwrap_or_else(|| code.clone());
-                                                                                let copy_label = if sql.is_some() { "SQL" } else { "code" };
-                                                                                move |event| {
-                                                                                    event.stop_propagation();
-                                                                                    copy_text_to_clipboard(panel_state, copy_value.clone(), copy_label);
-                                                                                }
-                                                                            },
-                                                                            if sql.is_some() { "Copy SQL" } else { "Copy" }
+                                                                        // Non-SQL code blocks keep a plain copy
+                                                                        // button; SQL blocks get the full action
+                                                                        // set from SqlActionButtons (which already
+                                                                        // includes copy), so no duplicate here.
+                                                                        if sql.is_none() {
+                                                                            button {
+                                                                                class: "button button--ghost button--tiny",
+                                                                                title: "Copy code to clipboard",
+                                                                                onclick: {
+                                                                                    let copy_value = code.clone();
+                                                                                    move |event| {
+                                                                                        event.stop_propagation();
+                                                                                        copy_text_to_clipboard(panel_state, copy_value.clone(), "code");
+                                                                                    }
+                                                                                },
+                                                                                "Copy"
+                                                                            }
                                                                         }
                                                                         if let Some(sql) = sql.clone() {
                                                                             SqlActionButtons {
@@ -556,7 +584,7 @@ pub fn AcpAgentPanel(
                                                                     allow_agent_read_sql_run,
                                                                     allow_agent_write_sql_run,
                                                                     sql,
-                                                                    run_label: { if sql_is_read_only { "Run again" } else { "Run SQL" } },
+                                                                    run_label: { if sql_is_read_only { "Run again" } else { "Run" } },
                                                                 }
                                                             }
                                                         }
@@ -740,7 +768,7 @@ pub fn AcpAgentPanel(
                                         select {
                                             class: "input",
                                             value: "{deepseek_settings.reasoning_effort}",
-                                            oninput: move |event| {
+                                            onchange: move |event| {
                                                 set_deepseek_reasoning_effort(event.value());
                                             },
                                             option { value: "low", "low" }
@@ -786,6 +814,23 @@ pub fn AcpAgentPanel(
                                         class: "agent-panel__hint",
                                         "Add a DeepSeek API key here or in Settings to enable this bridge."
                                     }
+                                }
+                            }
+                        },
+                        AgentSetupMode::OpenAi
+                        | AgentSetupMode::Groq
+                        | AgentSetupMode::OpenRouter
+                        | AgentSetupMode::XAi
+                        | AgentSetupMode::Mistral => {
+                            let provider = setup_mode()
+                                .openai_compat()
+                                .expect("openai-compat setup mode");
+                            rsx! {
+                                OpenAiCompatSetup {
+                                    provider,
+                                    busy: state.busy,
+                                    panel_state,
+                                    chat_revision,
                                 }
                             }
                         },
@@ -1048,6 +1093,110 @@ pub fn AcpAgentPanel(
     }
 }
 
+#[component]
+fn OpenAiCompatSetup(
+    provider: models::OpenAiCompatProvider,
+    busy: bool,
+    mut panel_state: Signal<AcpPanelState>,
+    mut chat_revision: Signal<u64>,
+) -> Element {
+    let settings = use_memo(move || APP_UI_SETTINGS().openai_compat(provider).clone());
+    let settings = settings();
+    let models = provider.models();
+    let model_is_listed = models.iter().any(|model| *model == settings.model);
+    rsx! {
+        div { class: "agent-panel__section",
+            div { class: "agent-panel__section-header",
+                div { class: "agent-panel__section-copy",
+                    h4 { class: "agent-panel__section-title", "{provider.label()}" }
+                    p {
+                        class: "agent-panel__hint",
+                        "OpenAI-compatible chat API. Same bridge as Zed's API providers."
+                    }
+                }
+                span { class: "agent-panel__badge", "API" }
+            }
+            label {
+                class: "settings-modal__toggle",
+                input {
+                    r#type: "checkbox",
+                    checked: settings.enabled,
+                    disabled: settings.api_key.trim().is_empty(),
+                    oninput: move |event| {
+                        set_openai_compat_enabled(provider, event.checked());
+                    },
+                }
+                span { "Use {provider.label()} as an automatic SQL agent" }
+            }
+            div { class: "agent-panel__field-grid",
+                div { class: "field",
+                    label { class: "field__label", "Base URL" }
+                    input {
+                        class: "input",
+                        value: "{settings.base_url}",
+                        placeholder: "{provider.default_base_url()}",
+                        oninput: move |event| {
+                            set_openai_compat_base_url(provider, event.value());
+                        }
+                    }
+                }
+                div { class: "field",
+                    label { class: "field__label", "Model" }
+                    select {
+                        class: "input",
+                        value: "{settings.model}",
+                        onchange: move |event| {
+                            set_openai_compat_model(provider, event.value());
+                        },
+                        for model in models {
+                            option { value: model.to_string(), {model.to_string()} }
+                        }
+                        if !model_is_listed && !settings.model.trim().is_empty() {
+                            option { value: "{settings.model}", "{settings.model}" }
+                        }
+                    }
+                }
+            }
+            div { class: "field",
+                label { class: "field__label", "API key" }
+                input {
+                    class: "input",
+                    r#type: "password",
+                    value: "{settings.api_key}",
+                    placeholder: "sk-...",
+                    oninput: move |event| {
+                        set_openai_compat_api_key(provider, event.value());
+                    }
+                }
+            }
+            button {
+                class: "button button--primary button--small",
+                disabled: busy
+                    || settings.api_key.trim().is_empty()
+                    || settings.model.trim().is_empty(),
+                onclick: move |_| {
+                    let settings = APP_UI_SETTINGS().openai_compat(provider).clone();
+                    spawn(async move {
+                        if let Err(err) = connect_embedded_openai_compat(
+                            panel_state,
+                            chat_revision,
+                            provider,
+                            settings,
+                        )
+                        .await
+                        {
+                            panel_state.with_mut(|state| {
+                                state.status = err;
+                            });
+                        }
+                    });
+                },
+                "Connect {provider.label()}"
+            }
+        }
+    }
+}
+
 /// Shared Copy / Insert / Run action row for a SQL snippet rendered in
 /// the transcript (code cards, artifacts, and extracted candidates).
 /// The caller wraps these buttons in the container that matches the
@@ -1061,11 +1210,12 @@ fn SqlActionButtons(
     allow_agent_read_sql_run: Signal<bool>,
     allow_agent_write_sql_run: Signal<bool>,
     sql: String,
-    #[props(default = "Run SQL")] run_label: &'static str,
+    #[props(default = "Run")] run_label: &'static str,
 ) -> Element {
     rsx! {
         button {
-            class: "button button--ghost button--small",
+            class: "button button--ghost button--tiny",
+            title: "Copy SQL to clipboard",
             onclick: {
                 let sql = sql.clone();
                 move |event| {
@@ -1073,10 +1223,11 @@ fn SqlActionButtons(
                     copy_text_to_clipboard(panel_state, sql.clone(), "SQL");
                 }
             },
-            "Copy SQL"
+            "Copy"
         }
         button {
-            class: "button button--ghost button--small",
+            class: "button button--ghost button--tiny",
+            title: "Insert SQL into the active editor",
             onclick: {
                 let sql = sql.clone();
                 move |event| {
@@ -1084,10 +1235,11 @@ fn SqlActionButtons(
                     insert_sql_into_editor(panel_state, store, store.active_tab_id, sql.clone());
                 }
             },
-            "Insert SQL"
+            "Insert"
         }
         button {
-            class: "button button--primary button--small",
+            class: "button button--primary button--tiny",
+            title: "Run this SQL against the active connection",
             disabled: !can_execute_agent_sql(
                 &sql,
                 allow_agent_read_sql_run(),

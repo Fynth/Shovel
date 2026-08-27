@@ -10,13 +10,13 @@ use crate::{
     app_state::{
         APP_STATE,
         activate_session,
-        context_menu::{ContextMenuItem, open_context_menu},
+        context_menu::{ContextMenuItem, open_confirm_dialog, open_context_menu},
         session_connection,
     },
     screens::workspace::{
         ActionIcon,
         actions::{
-            ensure_tab_for_session,
+            ensure_tab_for_table_preview,
             mark_table_deleted,
             mark_table_truncated,
             read_only_mode_enabled,
@@ -37,7 +37,6 @@ use models::{
 };
 
 use super::super::super::tab_store::TabStore;
-use rfd::{AsyncMessageDialog, MessageButtons, MessageDialogResult, MessageLevel};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum TableMutationKind {
@@ -56,8 +55,6 @@ pub(super) fn ExplorerConnectionView(
 ) -> Element {
     let mut expanded = use_signal(|| true);
     let object_count = count_objects(&section.nodes);
-    let connection_menu = connection_actions_context_menu(section.session_id, store, tree_reload);
-
     rsx! {
         div { class: if section.is_active {
                 "tree__connection tree__connection--active"
@@ -68,8 +65,14 @@ pub(super) fn ExplorerConnectionView(
                 class: "tree__connection-header",
                 oncontextmenu: move |event| {
                     event.prevent_default();
+                    event.stop_propagation();
                     let coords = event.client_coordinates();
-                    open_context_menu(coords.x, coords.y, connection_menu.clone());
+                    let connection_menu = connection_actions_context_menu(
+                        section.session_id,
+                        store,
+                        tree_reload,
+                    );
+                    open_context_menu(coords.x, coords.y, connection_menu);
                 },
                 button {
                     class: "tree__connection-toggle",
@@ -258,46 +261,9 @@ fn ExplorerObjectRow(
         qualified_name: node.qualified_name.clone(),
     };
     let selected = selected_node() == node.qualified_name;
-    let read_only_mode = read_only_mode_enabled();
     let kind_label = node.kind.display_label();
-
-    let items = build_explorer_context_menu(
-        connection_name.clone(),
-        preview_source.clone(),
-        node.kind,
-        read_only_mode,
-        store,
-        selected_node,
-        session_id,
-        connection_kind,
-        tree_reload,
-    );
-
-    // Add "Describe with AI" menu item for tables/views when AI features are on.
-    let mut menu_items = items;
-    if matches!(node.kind, ExplorerNodeKind::Table | ExplorerNodeKind::View)
-        && crate::app_state::APP_AI_FEATURES_ENABLED()
-    {
-        let qualified = preview_source.qualified_name.clone();
-        let panel_state = acp_ctx.acp_panel_state;
-        let chat_revision = acp_ctx.chat_revision;
-        let allow_db_read = acp_ctx.allow_agent_db_read;
-        let label = acp_ctx.connection_label.clone();
-        menu_items.push(
-            ContextMenuItem::new("Describe with AI", move || {
-                send_describe_object_request(
-                    panel_state,
-                    store,
-                    label.clone(),
-                    chat_revision,
-                    allow_db_read(),
-                    qualified.clone(),
-                );
-            })
-            .with_icon(ActionIcon::Agent)
-            .separator(),
-        );
-    }
+    let preview_source_for_menu = preview_source.clone();
+    let preview_source_for_click = preview_source.clone();
 
     rsx! {
         div {
@@ -308,8 +274,43 @@ fn ExplorerObjectRow(
             },
             oncontextmenu: move |event| {
                 event.prevent_default();
+                event.stop_propagation();
                 let coords = event.client_coordinates();
-                open_context_menu(coords.x, coords.y, menu_items.clone());
+                let mut menu_items = build_explorer_context_menu(
+                    connection_name.clone(),
+                    preview_source_for_menu.clone(),
+                    node.kind,
+                    read_only_mode_enabled(),
+                    store,
+                    selected_node,
+                    session_id,
+                    connection_kind,
+                    tree_reload,
+                );
+                if matches!(node.kind, ExplorerNodeKind::Table | ExplorerNodeKind::View)
+                    && crate::app_state::APP_AI_FEATURES_ENABLED()
+                {
+                    let qualified = preview_source_for_menu.qualified_name.clone();
+                    let panel_state = acp_ctx.acp_panel_state;
+                    let chat_revision = acp_ctx.chat_revision;
+                    let allow_db_read = acp_ctx.allow_agent_db_read;
+                    let label = acp_ctx.connection_label.clone();
+                    menu_items.push(
+                        ContextMenuItem::new("Describe with AI", move || {
+                            send_describe_object_request(
+                                panel_state,
+                                store,
+                                label.clone(),
+                                chat_revision,
+                                allow_db_read(),
+                                qualified.clone(),
+                            );
+                        })
+                        .with_icon(ActionIcon::Agent)
+                        .separator(),
+                    );
+                }
+                open_context_menu(coords.x, coords.y, menu_items);
             },
             button {
                 class: if selected {
@@ -318,13 +319,14 @@ fn ExplorerObjectRow(
                     "tree__object"
                 },
                 onclick: {
-                    let source = preview_source.clone();
+                    let source = preview_source_for_click.clone();
                     let qualified_name = node.qualified_name.clone();
                     move |_| {
                         selected_node.set(qualified_name.clone());
                         crate::app_state::set_explorer_selected_node(qualified_name.clone());
                         activate_session(session_id);
-                        let current_id = ensure_tab_for_session(store, session_id);
+                        let current_id =
+                            ensure_tab_for_table_preview(store, session_id, &source);
                         let current_tab = store
                             .result
                             .read()
@@ -355,12 +357,13 @@ fn ExplorerObjectRow(
                     }
                 },
                 ondoubleclick: {
-                    let source = preview_source.clone();
+                    let source = preview_source_for_click.clone();
                     let qualified_name = node.qualified_name.clone();
                     move |_| {
                         selected_node.set(qualified_name.clone());
                         crate::app_state::set_explorer_selected_node(qualified_name.clone());
-                        let current_id = ensure_tab_for_session(store, session_id);
+                        let current_id =
+                            ensure_tab_for_table_preview(store, session_id, &source);
                         let current_tab = store
                             .result
                             .read()
@@ -435,13 +438,6 @@ fn table_mutation_dialog_title(action: TableMutationKind) -> &'static str {
     match action {
         TableMutationKind::Truncate => "Truncate table",
         TableMutationKind::Drop => "Drop table",
-    }
-}
-
-fn table_mutation_error_title(action: TableMutationKind) -> &'static str {
-    match action {
-        TableMutationKind::Truncate => "Truncate table failed",
-        TableMutationKind::Drop => "Drop table failed",
     }
 }
 
@@ -637,7 +633,7 @@ fn menu_item_for_action(
         crate::app_state::actions::ACTION_TABLE_OPEN if kind.is_queryable() => Some(
             ContextMenuItem::new("Open in editor", move || {
                 let source = source.clone();
-                let current_id = ensure_tab_for_session(store, session_id);
+                let current_id = ensure_tab_for_table_preview(store, session_id, &source);
                 let Some(current_tab) = store.result.read().get(&current_id).cloned() else {
                     return;
                 };
@@ -675,14 +671,20 @@ fn menu_item_for_action(
 
         crate::app_state::actions::ACTION_OBJECT_COPY_NAME => Some(
             ContextMenuItem::new("Copy name", move || {
-                let _ = copy_to_clipboard(source.table_name.clone());
+                match copy_to_clipboard(source.table_name.clone()) {
+                    Ok(()) => crate::app_state::toast_success("Copied name"),
+                    Err(err) => crate::app_state::toast_error(err),
+                }
             })
             .with_icon(ActionIcon::Duplicate),
         ),
 
         crate::app_state::actions::ACTION_OBJECT_COPY_QUALIFIED => Some(
             ContextMenuItem::new("Copy qualified name", move || {
-                let _ = copy_to_clipboard(qualified.clone());
+                match copy_to_clipboard(qualified.clone()) {
+                    Ok(()) => crate::app_state::toast_success("Copied qualified name"),
+                    Err(err) => crate::app_state::toast_error(err),
+                }
             })
             .with_icon(ActionIcon::Duplicate),
         ),
@@ -821,12 +823,7 @@ fn menu_item_for_action(
         crate::app_state::actions::ACTION_TABLE_TRUNCATE if kind == ExplorerNodeKind::Table => {
             let source = preview_source.clone();
             let mut truncate_item = ContextMenuItem::new("Truncate table", move || {
-                spawn(confirm_and_truncate_table(
-                    source.clone(),
-                    session_id,
-                    connection_kind,
-                    store,
-                ));
+                confirm_and_truncate_table(source.clone(), session_id, connection_kind, store);
             })
             .with_icon(ActionIcon::Truncate)
             .danger();
@@ -839,7 +836,7 @@ fn menu_item_for_action(
         crate::app_state::actions::ACTION_TABLE_DROP if kind == ExplorerNodeKind::Table => {
             let source = preview_source.clone();
             let mut drop_item = ContextMenuItem::new("Drop table", move || {
-                spawn(confirm_and_drop_table(
+                confirm_and_drop_table(
                     source.clone(),
                     qualified.clone(),
                     session_id,
@@ -847,7 +844,7 @@ fn menu_item_for_action(
                     store,
                     Some(selected_node),
                     tree_reload,
-                ));
+                );
             })
             .with_icon(ActionIcon::Delete)
             .danger();
@@ -969,74 +966,59 @@ fn menu_item_for_action(
     }
 }
 
-// Shared by the inline IconButton onclick handlers, the context menu, and the
-// workspace F2/Delete keyboard handlers so the rfd confirmation + signal
-// orchestration stays in one place.
-#[allow(clippy::too_many_arguments)]
-pub(super) async fn confirm_and_truncate_table(
+pub(super) fn confirm_and_truncate_table(
     source: TablePreviewSource,
     session_id: u64,
     connection_kind: DatabaseKind,
     store: TabStore,
 ) {
+    let run = {
+        let source = source.clone();
+        move || {
+            let source = source.clone();
+            spawn(async move {
+                let Some(connection) = session_connection(session_id) else {
+                    crate::app_state::toast_error(table_mutation_connection_closed_description(
+                        TableMutationKind::Truncate,
+                    ));
+                    return;
+                };
+                let refresh_connection = connection.clone();
+                match services::truncate_table(connection, source.clone()).await {
+                    Ok(()) => {
+                        mark_table_truncated(store, session_id, refresh_connection, source.clone());
+                        crate::app_state::toast_success(format!("Truncated {}", source.table_name));
+                    }
+                    Err(err) => {
+                        crate::app_state::toast_error(format!(
+                            "Failed to truncate {}: {err}",
+                            source.qualified_name
+                        ));
+                    }
+                }
+            });
+        }
+    };
     let behavior = crate::app_state::APP_APP_BEHAVIOR.peek().clone();
-    let prompt = should_prompt_table_mutation(TableMutationKind::Truncate, &behavior);
-
-    if prompt {
-        let confirmation = AsyncMessageDialog::new()
-            .set_title(table_mutation_dialog_title(TableMutationKind::Truncate))
-            .set_description(table_mutation_confirmation_description(
+    if should_prompt_table_mutation(TableMutationKind::Truncate, &behavior) {
+        open_confirm_dialog(
+            table_mutation_dialog_title(TableMutationKind::Truncate),
+            table_mutation_confirmation_description(
                 TableMutationKind::Truncate,
                 connection_kind,
                 &source,
-            ))
-            .set_buttons(MessageButtons::YesNo)
-            .set_level(MessageLevel::Warning)
-            .show()
-            .await;
-
-        if confirmation != MessageDialogResult::Yes {
-            return;
-        }
-    }
-
-    let Some(connection) = session_connection(session_id) else {
-        let _ = AsyncMessageDialog::new()
-            .set_title(table_mutation_error_title(TableMutationKind::Truncate))
-            .set_description(table_mutation_connection_closed_description(
-                TableMutationKind::Truncate,
-            ))
-            .set_buttons(MessageButtons::Ok)
-            .set_level(MessageLevel::Error)
-            .show()
-            .await;
-        return;
-    };
-
-    let refresh_connection = connection.clone();
-    let result = services::truncate_table(connection, source.clone()).await;
-
-    match result {
-        Ok(()) => {
-            mark_table_truncated(store, session_id, refresh_connection, source.clone());
-        }
-        Err(err) => {
-            let _ = AsyncMessageDialog::new()
-                .set_title(table_mutation_error_title(TableMutationKind::Truncate))
-                .set_description(format!(
-                    "Failed to truncate {}.\n\n{}",
-                    source.qualified_name, err
-                ))
-                .set_buttons(MessageButtons::Ok)
-                .set_level(MessageLevel::Error)
-                .show()
-                .await;
-        }
+            ),
+            "Truncate",
+            true,
+            run,
+        );
+    } else {
+        run();
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) async fn confirm_and_drop_table(
+pub(super) fn confirm_and_drop_table(
     source: TablePreviewSource,
     selected_qualified_name: String,
     session_id: u64,
@@ -1045,64 +1027,56 @@ pub(super) async fn confirm_and_drop_table(
     local_selected_node: Option<Signal<String>>,
     mut tree_reload: Signal<u64>,
 ) {
+    let run = {
+        let source = source.clone();
+        let selected_qualified_name = selected_qualified_name.clone();
+        move || {
+            let source = source.clone();
+            let selected_qualified_name = selected_qualified_name.clone();
+            spawn(async move {
+                let Some(connection) = session_connection(session_id) else {
+                    crate::app_state::toast_error(table_mutation_connection_closed_description(
+                        TableMutationKind::Drop,
+                    ));
+                    return;
+                };
+                match services::drop_table(connection, source.clone()).await {
+                    Ok(()) => {
+                        if let Some(mut local_selected_node) = local_selected_node
+                            && local_selected_node() == selected_qualified_name
+                        {
+                            local_selected_node.set(String::new());
+                            crate::app_state::set_explorer_selected_node(String::new());
+                        }
+                        mark_table_deleted(store, session_id, source.clone());
+                        tree_reload += 1;
+                        crate::app_state::toast_success(format!("Dropped {}", source.table_name));
+                    }
+                    Err(err) => {
+                        crate::app_state::toast_error(format!(
+                            "Failed to drop {}: {err}",
+                            source.qualified_name
+                        ));
+                    }
+                }
+            });
+        }
+    };
     let behavior = crate::app_state::APP_APP_BEHAVIOR.peek().clone();
-    let prompt = should_prompt_table_mutation(TableMutationKind::Drop, &behavior);
-
-    if prompt {
-        let confirmation = AsyncMessageDialog::new()
-            .set_title(table_mutation_dialog_title(TableMutationKind::Drop))
-            .set_description(table_mutation_confirmation_description(
+    if should_prompt_table_mutation(TableMutationKind::Drop, &behavior) {
+        open_confirm_dialog(
+            table_mutation_dialog_title(TableMutationKind::Drop),
+            table_mutation_confirmation_description(
                 TableMutationKind::Drop,
                 connection_kind,
                 &source,
-            ))
-            .set_buttons(MessageButtons::YesNo)
-            .set_level(MessageLevel::Warning)
-            .show()
-            .await;
-
-        if confirmation != MessageDialogResult::Yes {
-            return;
-        }
-    }
-
-    let Some(connection) = session_connection(session_id) else {
-        let _ = AsyncMessageDialog::new()
-            .set_title(table_mutation_error_title(TableMutationKind::Drop))
-            .set_description(table_mutation_connection_closed_description(
-                TableMutationKind::Drop,
-            ))
-            .set_buttons(MessageButtons::Ok)
-            .set_level(MessageLevel::Error)
-            .show()
-            .await;
-        return;
-    };
-
-    let result = services::drop_table(connection, source.clone()).await;
-    match result {
-        Ok(()) => {
-            if let Some(mut local_selected_node) = local_selected_node
-                && local_selected_node() == selected_qualified_name
-            {
-                local_selected_node.set(String::new());
-                crate::app_state::set_explorer_selected_node(String::new());
-            }
-            mark_table_deleted(store, session_id, source.clone());
-            tree_reload += 1;
-        }
-        Err(err) => {
-            let _ = AsyncMessageDialog::new()
-                .set_title(table_mutation_error_title(TableMutationKind::Drop))
-                .set_description(format!(
-                    "Failed to drop {}.\n\n{}",
-                    source.qualified_name, err
-                ))
-                .set_buttons(MessageButtons::Ok)
-                .set_level(MessageLevel::Error)
-                .show()
-                .await;
-        }
+            ),
+            "Drop",
+            true,
+            run,
+        );
+    } else {
+        run();
     }
 }
 

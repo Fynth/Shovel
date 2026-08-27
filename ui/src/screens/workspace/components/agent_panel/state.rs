@@ -234,17 +234,6 @@ pub(super) fn message_kind_class(kind: &AcpMessageKind) -> &'static str {
     }
 }
 
-pub(super) fn message_kind_avatar(kind: &AcpMessageKind) -> &'static str {
-    match kind {
-        AcpMessageKind::User => "👤",
-        AcpMessageKind::Agent => "🤖",
-        AcpMessageKind::Thought => "💭",
-        AcpMessageKind::Tool => "🔧",
-        AcpMessageKind::System => "ℹ️",
-        AcpMessageKind::Error => "⚠️",
-    }
-}
-
 pub(super) fn permission_button_class(kind: &str) -> &'static str {
     if kind.contains("Allow") {
         "button button--primary button--small"

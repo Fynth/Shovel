@@ -182,6 +182,96 @@ pub fn ensure_tab_for_session(mut store: TabStore, session_id: u64) -> u64 {
     tab_id
 }
 
+/// Pick the tab that should host a table preview for `session_id`.
+///
+/// Prefers an existing preview of the same table so double-clicking an
+/// explorer node does not keep spawning empty Query tabs. Falls back to a
+/// scratch Query tab for the session, then to creating a new tab.
+pub fn ensure_tab_for_table_preview(
+    mut store: TabStore,
+    session_id: u64,
+    source: &TablePreviewSource,
+) -> u64 {
+    activate_session(session_id);
+    let mut active_tab_id = store.active_tab_id;
+    let mut next_tab_id = store.next_tab_id;
+
+    let metas = store
+        .meta
+        .read()
+        .iter()
+        .map(|(id, meta)| (*id, meta.session_id, meta.tab_kind))
+        .collect::<Vec<_>>();
+    let candidates = metas
+        .into_iter()
+        .map(|(id, tab_session_id, tab_kind)| {
+            let preview_qualified_name = store
+                .result
+                .read()
+                .get(&id)
+                .and_then(|res| res.preview_source.as_ref())
+                .map(|preview| preview.qualified_name.clone());
+            PreviewTabCandidate {
+                id,
+                session_id: tab_session_id,
+                tab_kind,
+                preview_qualified_name,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if let Some(existing_id) =
+        resolve_table_preview_tab_id(&candidates, session_id, &source.qualified_name)
+    {
+        active_tab_id.set(existing_id);
+        return existing_id;
+    }
+
+    let tab_id = next_tab_id();
+    next_tab_id += 1;
+    let (meta, editor, result, pending) =
+        new_query_tab(tab_id, session_id, source.table_name.clone(), String::new());
+    store.meta.with_mut(|m| {
+        m.insert(tab_id, meta);
+    });
+    store.editor.with_mut(|m| {
+        m.insert(tab_id, editor);
+    });
+    store.result.with_mut(|m| {
+        m.insert(tab_id, result);
+    });
+    store.pending.with_mut(|m| {
+        m.insert(tab_id, pending);
+    });
+    active_tab_id.set(tab_id);
+    tab_id
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PreviewTabCandidate {
+    pub id: u64,
+    pub session_id: u64,
+    pub tab_kind: WorkspaceTabKind,
+    pub preview_qualified_name: Option<String>,
+}
+
+pub(crate) fn resolve_table_preview_tab_id(
+    tabs: &[PreviewTabCandidate],
+    session_id: u64,
+    qualified_name: &str,
+) -> Option<u64> {
+    tabs.iter()
+        .find(|tab| {
+            tab.session_id == session_id
+                && tab.preview_qualified_name.as_deref() == Some(qualified_name)
+        })
+        .or_else(|| {
+            tabs.iter()
+                .find(|tab| tab.session_id == session_id && tab.tab_kind == WorkspaceTabKind::Query)
+        })
+        .map(|tab| tab.id)
+}
+
 pub fn update_active_tab_sql(mut store: TabStore, active_tab_id: u64, sql: String, status: String) {
     store.editor.with_mut(|m| {
         if let Some(ed) = m.get_mut(&active_tab_id) {
@@ -997,6 +1087,13 @@ pub fn run_explain_for_tab(
     });
 }
 
+fn clear_query_chrome_for_preview(res: &mut TabResultState) {
+    res.batch_results = None;
+    res.batch_outputs.clear();
+    res.show_execution_plan = false;
+    res.execution_plan = None;
+}
+
 pub fn run_table_preview_for_tab(
     mut store: TabStore,
     current_id: u64,
@@ -1026,6 +1123,7 @@ pub fn run_table_preview_for_tab(
             };
             store.result.with_mut(|m| {
                 if let Some(res) = m.get_mut(&current_id) {
+                    clear_query_chrome_for_preview(res);
                     res.preview_source = Some(source.clone());
                     res.result = Some(output);
                     res.status = status;
@@ -1041,6 +1139,7 @@ pub fn run_table_preview_for_tab(
             store.meta.with_mut(|m| {
                 if let Some(meta) = m.get_mut(&current_id) {
                     meta.tab_kind = WorkspaceTabKind::TablePreview;
+                    meta.title = source.table_name.clone();
                 }
             });
             let _ = connection;
@@ -1064,6 +1163,7 @@ pub fn run_table_preview_for_tab(
 
     store.result.with_mut(|m| {
         if let Some(res) = m.get_mut(&current_id) {
+            clear_query_chrome_for_preview(res);
             res.status = format!("Loading rows from {}...", source.table_name);
             if res.preview_source.as_ref() != Some(&source) {
                 res.filter = None;
@@ -1081,6 +1181,7 @@ pub fn run_table_preview_for_tab(
     store.meta.with_mut(|m| {
         if let Some(meta) = m.get_mut(&current_id) {
             meta.tab_kind = WorkspaceTabKind::TablePreview;
+            meta.title = source.table_name.clone();
         }
     });
 
@@ -1107,6 +1208,7 @@ pub fn run_table_preview_for_tab(
 
                 store.result.with_mut(|m| {
                     if let Some(res) = m.get_mut(&current_id) {
+                        clear_query_chrome_for_preview(res);
                         res.result = Some(output);
                         res.status = status;
                         res.current_offset = offset;
@@ -2162,6 +2264,7 @@ pub fn apply_optimized_sql_impl(sql: &str) -> Result<(), String> {
 mod tests {
     use super::{
         IndentDirection,
+        PreviewTabCandidate,
         append_query_page,
         apply_indent,
         apply_optimized_sql_impl,
@@ -2172,6 +2275,7 @@ mod tests {
         maybe_format_sql,
         preview_statement,
         redact_sql,
+        resolve_table_preview_tab_id,
         rows_toolbar_summary,
         strip_line_comment,
         sync_tab_sql_draft,
@@ -2241,6 +2345,47 @@ mod tests {
             &models::SqlFormatSettings::default(),
         );
         assert_eq!(out, "select 1");
+    }
+
+    #[test]
+    fn preview_tab_reuses_existing_table_preview() {
+        let tabs = vec![
+            PreviewTabCandidate {
+                id: 1,
+                session_id: 7,
+                tab_kind: WorkspaceTabKind::Query,
+                preview_qualified_name: None,
+            },
+            PreviewTabCandidate {
+                id: 2,
+                session_id: 7,
+                tab_kind: WorkspaceTabKind::TablePreview,
+                preview_qualified_name: Some("employees".to_string()),
+            },
+        ];
+        assert_eq!(resolve_table_preview_tab_id(&tabs, 7, "employees"), Some(2));
+    }
+
+    #[test]
+    fn preview_tab_falls_back_to_query_tab_for_session() {
+        let tabs = vec![PreviewTabCandidate {
+            id: 1,
+            session_id: 7,
+            tab_kind: WorkspaceTabKind::Query,
+            preview_qualified_name: None,
+        }];
+        assert_eq!(resolve_table_preview_tab_id(&tabs, 7, "employees"), Some(1));
+    }
+
+    #[test]
+    fn preview_tab_does_not_reuse_other_session() {
+        let tabs = vec![PreviewTabCandidate {
+            id: 1,
+            session_id: 3,
+            tab_kind: WorkspaceTabKind::TablePreview,
+            preview_qualified_name: Some("employees".to_string()),
+        }];
+        assert_eq!(resolve_table_preview_tab_id(&tabs, 7, "employees"), None);
     }
 
     #[test]

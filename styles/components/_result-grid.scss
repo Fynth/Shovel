@@ -8,24 +8,9 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--glass-border) 72%, var(--color-border));
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--color-primary) 7%, transparent), transparent 26%),
-    linear-gradient(
-      180deg,
-      color-mix(
-        in srgb,
-        var(--color-surface-contrast, var(--color-panel-2)) 22%,
-        transparent
-      ),
-      transparent 120px
-    ),
-    color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 90%, var(--glass-tint));
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    0 18px 46px rgba(8, 10, 20, 0.13);
-  backdrop-filter: blur(18px) saturate(135%);
+  border: 0;
+  border-radius: 0;
+  background: var(--color-surface-main, var(--color-panel));
 }
 
 .results__layout {
@@ -55,14 +40,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  padding: 5px 8px;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 76%, transparent);
-  background: color-mix(
-    in srgb,
-    var(--color-surface-contrast, var(--color-panel-2)) 58%,
-    transparent
-  );
-  backdrop-filter: blur(16px) saturate(135%);
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-contrast, var(--color-panel-2));
 }
 
 .results__toolbar-copy {
@@ -398,17 +378,7 @@
   border-collapse: separate;
   border-spacing: 0;
   font-size: 11px;
-  background: color-mix(
-    in srgb,
-    var(--color-surface-main, var(--color-panel)) 72%,
-    var(--color-surface-elevated, var(--color-panel-2))
-  );
-  border: 1px solid color-mix(in srgb, var(--glass-border) 56%, var(--color-border));
-  border-radius: 14px;
-  overflow: hidden;
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    0 16px 36px rgba(2, 8, 18, 0.1);
+  background: var(--color-surface-main, var(--color-panel));
 }
 
 .results__head {
@@ -416,15 +386,10 @@
   top: 0;
   z-index: 1;
   padding: 0;
-  background: color-mix(
-    in srgb,
-    var(--grid-header) 82%,
-    var(--color-surface-main, var(--color-panel))
-  );
-  border-bottom: 1px solid var(--color-border-strong);
-  border-right: 1px solid color-mix(in srgb, var(--color-border) 76%, transparent);
+  background: var(--grid-header);
+  border-bottom: 1px solid var(--color-border);
+  border-right: 1px solid var(--color-border);
   text-align: left;
-  backdrop-filter: blur(18px) saturate(145%);
 }
 
 .results__head:last-child {
@@ -588,7 +553,6 @@ tr.results__row--stripe {
   transition: opacity $motion-fast ease,
               background $motion-fast ease,
               border-color $motion-fast ease;
-  backdrop-filter: blur(6px);
 }
 
 .results__cell-filter .button__icon {
@@ -648,16 +612,8 @@ tr.results__row--stripe {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-left: 1px solid color-mix(in srgb, var(--color-border) 74%, transparent);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-primary) 10%, transparent),
-      transparent 140px
-    ),
-    color-mix(in srgb, var(--color-surface-inspector, var(--color-panel-2)) 82%, var(--glass-tint));
-  box-shadow: inset 1px 0 0 var(--glass-highlight);
-  backdrop-filter: blur(20px) saturate(145%);
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface-inspector, var(--color-panel-2));
 }
 
 .results__details-header {

@@ -14,33 +14,19 @@
   align-items: flex-start;
   justify-content: center;
   padding: clamp(48px, 12vh, 110px) $spacing-lg 0;
-  background: color-mix(in srgb, var(--color-backdrop, #000) 55%, transparent);
-  backdrop-filter: blur(18px) saturate(140%);
+  background: var(--color-backdrop);
   animation: command-palette-in $motion-fast ease-out;
 }
 
 .command-palette {
-  width: min(640px, 100%);
-  max-height: min(60vh, 460px);
+  width: min(560px, 100%);
+  max-height: min(52vh, 420px);
   display: flex;
   flex-direction: column;
-  border: 1px solid color-mix(in srgb, var(--glass-border) 78%, var(--color-border));
-  border-radius: var(--radius-lg, #{$radius-lg});
-  background:
-    radial-gradient(
-      circle at 8% 0%,
-      color-mix(in srgb, var(--color-primary) 14%, transparent),
-      transparent 32%
-    ),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface-contrast, var(--color-panel-2)) 62%, transparent),
-      transparent 140px
-    ),
-    color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 94%, var(--glass-tint));
-  box-shadow:
-    var(--shadow-panel, 0 18px 40px rgba(8, 10, 20, 0.32)),
-    inset 0 1px 0 var(--glass-highlight);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, #{$radius-md});
+  background: var(--color-surface-elevated, var(--color-panel-2));
+  box-shadow: $shadow-md;
   overflow: hidden;
   outline: none;
 }

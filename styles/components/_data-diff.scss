@@ -4,36 +4,14 @@
 .data-diff {
   display: flex;
   flex-direction: column;
-  gap: $spacing-md;
+  gap: $spacing-sm;
   min-height: 0;
   width: min(1080px, 100%);
   max-height: 100%;
-  padding: 14px 16px 16px;
-  border: 1px solid color-mix(in srgb, var(--glass-border) 72%, var(--color-border));
-  border-radius: $radius-lg;
-  background:
-    radial-gradient(
-      circle at 0% 0%,
-      color-mix(in srgb, var(--color-info) 8%, transparent),
-      transparent 36%
-    ),
-    linear-gradient(
-      180deg,
-      color-mix(
-        in srgb,
-        var(--color-surface-elevated, var(--color-panel-2)) 90%,
-        var(--glass-tint)
-      ),
-      color-mix(
-        in srgb,
-        var(--color-surface-main, var(--color-panel)) 92%,
-        transparent
-      )
-    );
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    0 22px 60px rgba(2, 8, 20, 0.32);
-  backdrop-filter: blur(20px) saturate(145%);
+  padding: 10px 12px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-md;
+  background: var(--color-surface-elevated, var(--color-panel-2));
   overflow: hidden;
 }
 

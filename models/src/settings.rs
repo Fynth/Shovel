@@ -434,6 +434,137 @@ impl Default for AppBehaviorSettings {
     }
 }
 
+/// Built-in OpenAI-compatible chat providers, matching Zed's agent
+/// panel catalog (API key + base URL + model list).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum OpenAiCompatProvider {
+    OpenAi,
+    Groq,
+    OpenRouter,
+    XAi,
+    Mistral,
+}
+
+impl OpenAiCompatProvider {
+    pub const ALL: [Self; 5] = [
+        Self::OpenAi,
+        Self::Groq,
+        Self::OpenRouter,
+        Self::XAi,
+        Self::Mistral,
+    ];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::OpenAi => "openai",
+            Self::Groq => "groq",
+            Self::OpenRouter => "openrouter",
+            Self::XAi => "xai",
+            Self::Mistral => "mistral",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::OpenAi => "OpenAI",
+            Self::Groq => "Groq",
+            Self::OpenRouter => "OpenRouter",
+            Self::XAi => "xAI",
+            Self::Mistral => "Mistral",
+        }
+    }
+
+    pub fn default_base_url(self) -> &'static str {
+        match self {
+            Self::OpenAi => "https://api.openai.com",
+            Self::Groq => "https://api.groq.com/openai",
+            Self::OpenRouter => "https://openrouter.ai/api",
+            Self::XAi => "https://api.x.ai",
+            Self::Mistral => "https://api.mistral.ai",
+        }
+    }
+
+    pub fn default_model(self) -> &'static str {
+        self.models().first().copied().unwrap_or("gpt-4o-mini")
+    }
+
+    pub fn models(self) -> &'static [&'static str] {
+        match self {
+            Self::OpenAi => &[
+                "gpt-4.1",
+                "gpt-4.1-mini",
+                "gpt-4o",
+                "gpt-4o-mini",
+                "o4-mini",
+            ],
+            Self::Groq => &[
+                "llama-3.3-70b-versatile",
+                "openai/gpt-oss-120b",
+                "qwen/qwen3-32b",
+            ],
+            Self::OpenRouter => &[
+                "openai/gpt-4o",
+                "anthropic/claude-sonnet-4",
+                "google/gemini-2.5-pro",
+            ],
+            Self::XAi => &["grok-4", "grok-3", "grok-3-mini"],
+            Self::Mistral => &[
+                "mistral-large-latest",
+                "codestral-latest",
+                "mistral-small-latest",
+            ],
+        }
+    }
+
+    pub fn keyring_service(self) -> &'static str {
+        match self {
+            Self::OpenAi => "shovel.openai",
+            Self::Groq => "shovel.groq",
+            Self::OpenRouter => "shovel.openrouter",
+            Self::XAi => "shovel.xai",
+            Self::Mistral => "shovel.mistral",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OpenAiCompatSettings {
+    pub enabled: bool,
+    #[serde(skip_serializing)]
+    pub api_key: String,
+    pub base_url: String,
+    pub model: String,
+}
+
+impl OpenAiCompatSettings {
+    fn for_provider(provider: OpenAiCompatProvider) -> Self {
+        Self {
+            enabled: false,
+            api_key: String::new(),
+            base_url: provider.default_base_url().to_string(),
+            model: provider.default_model().to_string(),
+        }
+    }
+
+    pub fn to_deepseek_bridge(self) -> DeepSeekSettings {
+        DeepSeekSettings {
+            enabled: self.enabled,
+            api_key: self.api_key,
+            base_url: self.base_url,
+            model: self.model,
+            thinking_enabled: false,
+            reasoning_effort: "medium".to_string(),
+        }
+    }
+}
+
+impl Default for OpenAiCompatSettings {
+    fn default() -> Self {
+        Self::for_provider(OpenAiCompatProvider::OpenAi)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppUiSettings {
@@ -454,6 +585,11 @@ pub struct AppUiSettings {
     pub codestral: CodeStralSettings,
     pub deepseek: DeepSeekSettings,
     pub ollama: OllamaSettings,
+    pub openai: OpenAiCompatSettings,
+    pub groq: OpenAiCompatSettings,
+    pub openrouter: OpenAiCompatSettings,
+    pub xai: OpenAiCompatSettings,
+    pub mistral: OpenAiCompatSettings,
     pub ai_response_language: String,
     /// When `true`, inline AI completions are inserted automatically
     /// after the user stops typing for a short idle pause; otherwise
@@ -503,6 +639,11 @@ impl Default for AppUiSettings {
             codestral: CodeStralSettings::default(),
             deepseek: DeepSeekSettings::default(),
             ollama: OllamaSettings::default(),
+            openai: OpenAiCompatSettings::for_provider(OpenAiCompatProvider::OpenAi),
+            groq: OpenAiCompatSettings::for_provider(OpenAiCompatProvider::Groq),
+            openrouter: OpenAiCompatSettings::for_provider(OpenAiCompatProvider::OpenRouter),
+            xai: OpenAiCompatSettings::for_provider(OpenAiCompatProvider::XAi),
+            mistral: OpenAiCompatSettings::for_provider(OpenAiCompatProvider::Mistral),
             ai_response_language: "English".to_string(),
             ai_auto_apply_completions: true,
             explorer: ExplorerViewSettings::default(),
@@ -514,6 +655,31 @@ impl Default for AppUiSettings {
             editor: EditorSettings::default(),
             grid: GridSettings::default(),
             behavior: AppBehaviorSettings::default(),
+        }
+    }
+}
+
+impl AppUiSettings {
+    pub fn openai_compat(&self, provider: OpenAiCompatProvider) -> &OpenAiCompatSettings {
+        match provider {
+            OpenAiCompatProvider::OpenAi => &self.openai,
+            OpenAiCompatProvider::Groq => &self.groq,
+            OpenAiCompatProvider::OpenRouter => &self.openrouter,
+            OpenAiCompatProvider::XAi => &self.xai,
+            OpenAiCompatProvider::Mistral => &self.mistral,
+        }
+    }
+
+    pub fn openai_compat_mut(
+        &mut self,
+        provider: OpenAiCompatProvider,
+    ) -> &mut OpenAiCompatSettings {
+        match provider {
+            OpenAiCompatProvider::OpenAi => &mut self.openai,
+            OpenAiCompatProvider::Groq => &mut self.groq,
+            OpenAiCompatProvider::OpenRouter => &mut self.openrouter,
+            OpenAiCompatProvider::XAi => &mut self.xai,
+            OpenAiCompatProvider::Mistral => &mut self.mistral,
         }
     }
 }
@@ -541,6 +707,18 @@ mod tests {
     #[test]
     fn fresh_default_ai_response_language_is_english() {
         assert_eq!(AppUiSettings::default().ai_response_language, "English");
+    }
+
+    #[test]
+    fn openai_compat_catalog_has_stable_ids_and_models() {
+        for provider in super::OpenAiCompatProvider::ALL {
+            assert!(!provider.id().is_empty());
+            assert!(!provider.models().is_empty());
+            assert!(provider.models().contains(&provider.default_model()));
+            let settings = super::OpenAiCompatSettings::for_provider(provider);
+            assert_eq!(settings.base_url, provider.default_base_url());
+            assert_eq!(settings.model, provider.default_model());
+        }
     }
 
     #[test]

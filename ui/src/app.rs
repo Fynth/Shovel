@@ -13,7 +13,7 @@ use crate::{
     },
     components::{
         command_palette::CommandPalette,
-        context_menu::{ContextMenu, TextInputMenuInit},
+        context_menu::{ConfirmDialog, ContextMenu, TextInputMenuInit},
         global_search::GlobalSearch,
     },
     layout::{StatusBar, ToastContainer, Toolbar},
@@ -222,6 +222,7 @@ pub fn App() -> Element {
             StatusBar {}
             TextInputMenuInit {}
             ContextMenu {}
+            ConfirmDialog {}
             CommandPalette {}
             GlobalSearch {}
         }
