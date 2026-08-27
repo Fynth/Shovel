@@ -2436,10 +2436,8 @@ name = "explorer"
 version = "0.1.0"
 dependencies = [
  "database",
- "driver-clickhouse",
  "models",
- "serde_json",
- "sqlx",
+ "tokio",
 ]
 
 [[package]]

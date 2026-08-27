@@ -1,6 +1,7 @@
 mod explain;
 mod mutate;
 mod rows;
+mod schema;
 mod session;
 
 pub use session::PostgresSession;

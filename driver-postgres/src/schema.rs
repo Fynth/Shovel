@@ -1,7 +1,51 @@
+// async-trait boxes Result-returning futures and adds `#[must_use]`, which
+// trips clippy::double_must_use on every exec-trait method.
+#![allow(clippy::double_must_use)]
+
+use async_trait::async_trait;
+use database::{SchemaExec, quote_ident_double};
 use models::{DatabaseError, ExplorerNode, ExplorerNodeKind, QueryOutput, TableForeignKey};
 use sqlx::Row;
 
-pub async fn describe_table_postgres(
+use crate::session::PostgresSession;
+
+#[async_trait]
+impl SchemaExec for PostgresSession {
+    async fn describe_table(
+        &self,
+        schema: Option<String>,
+        table: String,
+    ) -> Result<QueryOutput, DatabaseError> {
+        describe_table(&self.pool, schema, table).await
+    }
+
+    async fn load_table_columns(
+        &self,
+        schema: Option<String>,
+        table: String,
+    ) -> Result<Vec<String>, DatabaseError> {
+        load_table_columns(&self.pool, schema, table).await
+    }
+
+    async fn load_connection_tree(&self) -> Result<Vec<ExplorerNode>, DatabaseError> {
+        load_connection_tree(&self.pool).await
+    }
+
+    async fn load_foreign_keys(&self) -> Result<Vec<TableForeignKey>, DatabaseError> {
+        load_foreign_keys(&self.pool).await
+    }
+
+    async fn load_object_ddl(
+        &self,
+        schema: Option<String>,
+        object: String,
+        kind: ExplorerNodeKind,
+    ) -> Result<Option<String>, DatabaseError> {
+        load_object_ddl(&self.pool, schema, object, kind).await
+    }
+}
+
+async fn describe_table(
     pool: &sqlx::PgPool,
     schema: Option<String>,
     table: String,
@@ -168,7 +212,7 @@ pub async fn describe_table_postgres(
         rows.push(structure_row(
             "trigger",
             trigger_name,
-            super::join_non_empty([
+            join_non_empty([
                 (!timing.is_empty()).then_some(timing),
                 (!events.is_empty()).then_some(events),
             ]),
@@ -184,9 +228,7 @@ pub async fn describe_table_postgres(
 /// Разбираем `conkey`/`confkey` через `unnest ... with ordinality`,
 /// чтобы получить по строке на каждую пару колонок (корректно для
 /// составных FK). Системные схемы отбрасываем.
-pub async fn load_foreign_keys_postgres(
-    pool: &sqlx::PgPool,
-) -> Result<Vec<TableForeignKey>, DatabaseError> {
+async fn load_foreign_keys(pool: &sqlx::PgPool) -> Result<Vec<TableForeignKey>, DatabaseError> {
     let rows = sqlx::query(
         r#"
         select
@@ -240,7 +282,7 @@ pub async fn load_foreign_keys_postgres(
 /// нет встроенного `SHOW CREATE`. Для последовательностей, функций,
 /// процедур и триггеров — соответствующие `pg_get_*def`. Возвращает
 /// `None`, если объект не найден.
-pub async fn load_object_ddl_postgres(
+async fn load_object_ddl(
     pool: &sqlx::PgPool,
     schema: Option<String>,
     object: String,
@@ -340,8 +382,8 @@ async fn reconstruct_postgres_table_ddl(
 ) -> Result<String, DatabaseError> {
     let qualified = format!(
         "{}.{}",
-        super::quote_identifier(schema_name),
-        super::quote_identifier(table)
+        quote_ident_double(schema_name),
+        quote_ident_double(table)
     );
 
     let mut lines: Vec<String> = Vec::new();
@@ -378,7 +420,7 @@ async fn reconstruct_postgres_table_ddl(
             .ok()
             .flatten();
 
-        let mut col = format!("    {} {}", super::quote_identifier(&name), data_type);
+        let mut col = format!("    {} {}", quote_ident_double(&name), data_type);
         if is_nullable.eq_ignore_ascii_case("NO") {
             col.push_str(" NOT NULL");
         }
@@ -449,7 +491,7 @@ async fn reconstruct_postgres_table_ddl(
     Ok(lines.join("\n"))
 }
 
-pub async fn load_table_columns_postgres(
+async fn load_table_columns(
     pool: &sqlx::PgPool,
     schema: Option<String>,
     table: String,
@@ -478,9 +520,7 @@ pub async fn load_table_columns_postgres(
         .collect()
 }
 
-pub async fn load_connection_tree_postgres(
-    pool: &sqlx::PgPool,
-) -> Result<Vec<ExplorerNode>, DatabaseError> {
+async fn load_connection_tree(pool: &sqlx::PgPool) -> Result<Vec<ExplorerNode>, DatabaseError> {
     let mut grouped: std::collections::BTreeMap<String, Vec<ExplorerNode>> =
         std::collections::BTreeMap::new();
 
@@ -491,8 +531,8 @@ pub async fn load_connection_tree_postgres(
                      row_count: Option<u64>| {
         let qualified_name = format!(
             "{}.{}",
-            super::quote_identifier(&schema),
-            super::quote_identifier(&name)
+            quote_ident_double(&schema),
+            quote_ident_double(&name)
         );
         grouped
             .entry(schema.clone())
@@ -639,7 +679,7 @@ pub async fn load_connection_tree_postgres(
     Ok(grouped
         .into_iter()
         .map(|(schema, children)| ExplorerNode {
-            qualified_name: super::quote_identifier(&schema),
+            qualified_name: quote_ident_double(&schema),
             schema: Some(schema.clone()),
             name: schema,
             kind: ExplorerNodeKind::Schema,
@@ -725,8 +765,17 @@ fn structure_page(rows: Vec<Vec<String>>) -> models::QueryPage {
     }
 }
 
+fn join_non_empty(parts: impl IntoIterator<Item = Option<String>>) -> String {
+    parts
+        .into_iter()
+        .flatten()
+        .filter(|part| !part.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
 fn postgres_column_details(is_nullable: &str, default_value: Option<String>) -> String {
-    super::join_non_empty([
+    join_non_empty([
         is_nullable
             .eq_ignore_ascii_case("NO")
             .then(|| "NOT NULL".to_string()),

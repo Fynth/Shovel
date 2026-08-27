@@ -12,18 +12,14 @@ use database::{
     LiveConnection,
     MutateExec,
     QueryExec,
-    SchemaExec,
     quote_ident_double,
 };
 use models::{
     Capabilities,
     DatabaseError,
     DatabaseKind,
-    ExplorerNode,
-    ExplorerNodeKind,
     QueryFilterOperator,
     QueryOutput,
-    TableForeignKey,
     TablePreviewSource,
 };
 use sqlx::{Column, Row};
@@ -65,52 +61,6 @@ impl QueryExec for PostgresSession {
             .await
             .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         Ok(QueryOutput::AffectedRows(result.rows_affected()))
-    }
-}
-
-#[async_trait]
-impl SchemaExec for PostgresSession {
-    async fn describe_table(
-        &self,
-        _schema: Option<String>,
-        _table: String,
-    ) -> Result<QueryOutput, DatabaseError> {
-        Err(DatabaseError::Unsupported(
-            "postgres schema exec is not implemented yet".into(),
-        ))
-    }
-
-    async fn load_table_columns(
-        &self,
-        _schema: Option<String>,
-        _table: String,
-    ) -> Result<Vec<String>, DatabaseError> {
-        Err(DatabaseError::Unsupported(
-            "postgres schema exec is not implemented yet".into(),
-        ))
-    }
-
-    async fn load_connection_tree(&self) -> Result<Vec<ExplorerNode>, DatabaseError> {
-        Err(DatabaseError::Unsupported(
-            "postgres schema exec is not implemented yet".into(),
-        ))
-    }
-
-    async fn load_foreign_keys(&self) -> Result<Vec<TableForeignKey>, DatabaseError> {
-        Err(DatabaseError::Unsupported(
-            "postgres schema exec is not implemented yet".into(),
-        ))
-    }
-
-    async fn load_object_ddl(
-        &self,
-        _schema: Option<String>,
-        _object: String,
-        _kind: ExplorerNodeKind,
-    ) -> Result<Option<String>, DatabaseError> {
-        Err(DatabaseError::Unsupported(
-            "postgres schema exec is not implemented yet".into(),
-        ))
     }
 }
 

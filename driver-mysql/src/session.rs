@@ -12,18 +12,14 @@ use database::{
     LiveConnection,
     MutateExec,
     QueryExec,
-    SchemaExec,
     quote_ident_backtick,
 };
 use models::{
     Capabilities,
     DatabaseError,
     DatabaseKind,
-    ExplorerNode,
-    ExplorerNodeKind,
     QueryFilterOperator,
     QueryOutput,
-    TableForeignKey,
     TablePreviewSource,
 };
 use sqlx::{Column, Row};
@@ -80,52 +76,6 @@ impl QueryExec for MysqlSession {
         } else {
             Ok(Some(mysql_locator_expression(&primary_key_columns)))
         }
-    }
-}
-
-#[async_trait]
-impl SchemaExec for MysqlSession {
-    async fn describe_table(
-        &self,
-        _schema: Option<String>,
-        _table: String,
-    ) -> Result<QueryOutput, DatabaseError> {
-        Err(DatabaseError::Unsupported(
-            "mysql schema exec is not implemented yet".into(),
-        ))
-    }
-
-    async fn load_table_columns(
-        &self,
-        _schema: Option<String>,
-        _table: String,
-    ) -> Result<Vec<String>, DatabaseError> {
-        Err(DatabaseError::Unsupported(
-            "mysql schema exec is not implemented yet".into(),
-        ))
-    }
-
-    async fn load_connection_tree(&self) -> Result<Vec<ExplorerNode>, DatabaseError> {
-        Err(DatabaseError::Unsupported(
-            "mysql schema exec is not implemented yet".into(),
-        ))
-    }
-
-    async fn load_foreign_keys(&self) -> Result<Vec<TableForeignKey>, DatabaseError> {
-        Err(DatabaseError::Unsupported(
-            "mysql schema exec is not implemented yet".into(),
-        ))
-    }
-
-    async fn load_object_ddl(
-        &self,
-        _schema: Option<String>,
-        _object: String,
-        _kind: ExplorerNodeKind,
-    ) -> Result<Option<String>, DatabaseError> {
-        Err(DatabaseError::Unsupported(
-            "mysql schema exec is not implemented yet".into(),
-        ))
     }
 }
 

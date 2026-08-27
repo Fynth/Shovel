@@ -12,7 +12,6 @@ use database::{
     LiveConnection,
     MutateExec,
     QueryExec,
-    SchemaExec,
     quote_ident_backtick,
 };
 use models::{
@@ -20,11 +19,8 @@ use models::{
     ClickHouseFormData,
     DatabaseError,
     DatabaseKind,
-    ExplorerNode,
-    ExplorerNodeKind,
     QueryFilterOperator,
     QueryOutput,
-    TableForeignKey,
 };
 
 use crate::rows::{clickhouse_rows_to_page, clickhouse_rows_to_paginated_page};
@@ -57,52 +53,6 @@ impl QueryExec for ClickHouseSession {
             .await
             .map_err(DatabaseError::Driver)?;
         Ok(QueryOutput::AffectedRows(0))
-    }
-}
-
-#[async_trait]
-impl SchemaExec for ClickHouseSession {
-    async fn describe_table(
-        &self,
-        _schema: Option<String>,
-        _table: String,
-    ) -> Result<QueryOutput, DatabaseError> {
-        Err(DatabaseError::Unsupported(
-            "clickhouse schema exec is not implemented yet".into(),
-        ))
-    }
-
-    async fn load_table_columns(
-        &self,
-        _schema: Option<String>,
-        _table: String,
-    ) -> Result<Vec<String>, DatabaseError> {
-        Err(DatabaseError::Unsupported(
-            "clickhouse schema exec is not implemented yet".into(),
-        ))
-    }
-
-    async fn load_connection_tree(&self) -> Result<Vec<ExplorerNode>, DatabaseError> {
-        Err(DatabaseError::Unsupported(
-            "clickhouse schema exec is not implemented yet".into(),
-        ))
-    }
-
-    async fn load_foreign_keys(&self) -> Result<Vec<TableForeignKey>, DatabaseError> {
-        Err(DatabaseError::Unsupported(
-            "clickhouse schema exec is not implemented yet".into(),
-        ))
-    }
-
-    async fn load_object_ddl(
-        &self,
-        _schema: Option<String>,
-        _object: String,
-        _kind: ExplorerNodeKind,
-    ) -> Result<Option<String>, DatabaseError> {
-        Err(DatabaseError::Unsupported(
-            "clickhouse schema exec is not implemented yet".into(),
-        ))
     }
 }
 
