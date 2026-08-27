@@ -1,6 +1,6 @@
-use database::DatabaseDriver;
+use database::{DatabaseDriver, LiveConnection};
 use driver_clickhouse::ClickHouseDriver;
-use models::{DatabaseConnection, DatabaseError, TablePreviewSource};
+use models::{DatabaseError, TablePreviewSource};
 
 use super::{
     load_clickhouse_create_statement,
@@ -14,7 +14,7 @@ use super::{
 };
 
 pub async fn create_table(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     schema: Option<String>,
     table_name: String,
     columns_sql: String,
@@ -40,7 +40,7 @@ pub async fn create_table(
     };
 
     match connection {
-        DatabaseConnection::Sqlite(pool) => {
+        LiveConnection::Sqlite(pool) => {
             let qualified_name = qualified_sqlite_table_name(schema.as_deref(), table_name);
             let sql = format!("create table {qualified_name} {columns_sql}");
             sqlx::query(&sql)
@@ -49,7 +49,7 @@ pub async fn create_table(
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::Postgres(pool) => {
+        LiveConnection::Postgres(pool) => {
             let qualified_name = qualified_postgres_table_name(schema.as_deref(), table_name);
             let sql = format!("create table {qualified_name} {columns_sql}");
             sqlx::query(&sql)
@@ -58,7 +58,7 @@ pub async fn create_table(
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::MySql(pool) => {
+        LiveConnection::MySql(pool) => {
             let qualified_name = qualified_mysql_table_name(schema.as_deref(), table_name);
             let sql = format!("create table {qualified_name} {columns_sql}");
             sqlx::query(&sql)
@@ -67,7 +67,7 @@ pub async fn create_table(
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::ClickHouse(config) => {
+        LiveConnection::ClickHouse(config) => {
             let engine = clickhouse_engine
                 .map(|engine| engine.trim().trim_end_matches(';').trim().to_string())
                 .filter(|engine| !engine.is_empty())
@@ -87,7 +87,7 @@ pub async fn create_table(
 }
 
 pub async fn drop_table(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     source: TablePreviewSource,
 ) -> Result<(), DatabaseError> {
     let sql = format!(
@@ -96,28 +96,28 @@ pub async fn drop_table(
     );
 
     match connection {
-        DatabaseConnection::Sqlite(pool) => {
+        LiveConnection::Sqlite(pool) => {
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::Postgres(pool) => {
+        LiveConnection::Postgres(pool) => {
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::MySql(pool) => {
+        LiveConnection::MySql(pool) => {
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::ClickHouse(config) => {
+        LiveConnection::ClickHouse(config) => {
             ClickHouseDriver.execute_text_query(&config, &sql).await?;
             Ok(())
         }
@@ -125,13 +125,13 @@ pub async fn drop_table(
 }
 
 pub async fn truncate_table(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     source: TablePreviewSource,
 ) -> Result<(), DatabaseError> {
     let qualified_name = source.qualified_name.trim().trim_end_matches(';');
 
     match connection {
-        DatabaseConnection::Sqlite(pool) => {
+        LiveConnection::Sqlite(pool) => {
             let sql = format!("delete from {qualified_name}");
             sqlx::query(&sql)
                 .execute(&pool)
@@ -139,7 +139,7 @@ pub async fn truncate_table(
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::Postgres(pool) => {
+        LiveConnection::Postgres(pool) => {
             let sql = format!("truncate table {qualified_name}");
             sqlx::query(&sql)
                 .execute(&pool)
@@ -147,7 +147,7 @@ pub async fn truncate_table(
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::MySql(pool) => {
+        LiveConnection::MySql(pool) => {
             let sql = format!("truncate table {qualified_name}");
             sqlx::query(&sql)
                 .execute(&pool)
@@ -155,7 +155,7 @@ pub async fn truncate_table(
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::ClickHouse(config) => {
+        LiveConnection::ClickHouse(config) => {
             let sql = format!("truncate table {qualified_name}");
             ClickHouseDriver.execute_text_query(&config, &sql).await?;
             Ok(())
@@ -164,7 +164,7 @@ pub async fn truncate_table(
 }
 
 pub async fn rename_table(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     source: TablePreviewSource,
     new_table_name: String,
 ) -> Result<(), DatabaseError> {
@@ -183,7 +183,7 @@ pub async fn rename_table(
     let source_qualified_name = source.qualified_name.trim().trim_end_matches(';');
 
     match connection {
-        DatabaseConnection::Sqlite(pool) => {
+        LiveConnection::Sqlite(pool) => {
             let sql = format!(
                 "alter table {source_qualified_name} rename to {}",
                 quote_identifier(new_table_name)
@@ -194,7 +194,7 @@ pub async fn rename_table(
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::Postgres(pool) => {
+        LiveConnection::Postgres(pool) => {
             let sql = format!(
                 "alter table {source_qualified_name} rename to {}",
                 quote_identifier(new_table_name)
@@ -205,7 +205,7 @@ pub async fn rename_table(
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::MySql(pool) => {
+        LiveConnection::MySql(pool) => {
             let target_qualified_name =
                 qualified_mysql_table_name(source.schema.as_deref(), new_table_name);
             let sql = format!("rename table {source_qualified_name} to {target_qualified_name}");
@@ -215,7 +215,7 @@ pub async fn rename_table(
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::ClickHouse(config) => {
+        LiveConnection::ClickHouse(config) => {
             let target_qualified_name = qualified_clickhouse_table_name(
                 source.schema.as_deref(),
                 new_table_name,
@@ -229,7 +229,7 @@ pub async fn rename_table(
 }
 
 pub async fn duplicate_table(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     source: TablePreviewSource,
     new_table_name: String,
     copy_data: bool,
@@ -249,7 +249,7 @@ pub async fn duplicate_table(
     let source_qualified_name = source.qualified_name.trim().trim_end_matches(';');
 
     match connection {
-        DatabaseConnection::Sqlite(pool) => {
+        LiveConnection::Sqlite(pool) => {
             let schema_name = source
                 .schema
                 .as_deref()
@@ -280,7 +280,7 @@ pub async fn duplicate_table(
 
             Ok(())
         }
-        DatabaseConnection::Postgres(pool) => {
+        LiveConnection::Postgres(pool) => {
             let target_qualified_name =
                 qualified_postgres_table_name(source.schema.as_deref(), new_table_name);
             let create_sql = format!(
@@ -303,7 +303,7 @@ pub async fn duplicate_table(
 
             Ok(())
         }
-        DatabaseConnection::MySql(pool) => {
+        LiveConnection::MySql(pool) => {
             let target_qualified_name =
                 qualified_mysql_table_name(source.schema.as_deref(), new_table_name);
             let create_sql =
@@ -325,7 +325,7 @@ pub async fn duplicate_table(
 
             Ok(())
         }
-        DatabaseConnection::ClickHouse(config) => {
+        LiveConnection::ClickHouse(config) => {
             let target_qualified_name = qualified_clickhouse_table_name(
                 source.schema.as_deref(),
                 new_table_name,

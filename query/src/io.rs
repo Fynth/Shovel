@@ -1,5 +1,6 @@
+use database::LiveConnection;
 use driver_clickhouse::execute_text_query;
-use models::{DatabaseConnection, QueryPage, TablePreviewSource};
+use models::{QueryPage, TablePreviewSource};
 use rust_xlsxwriter::Workbook;
 use serde_json::{Map, Value};
 use std::{
@@ -65,7 +66,7 @@ pub async fn export_query_page_sql_dump(
 }
 
 pub async fn import_csv_into_table(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     source: TablePreviewSource,
     path: PathBuf,
 ) -> Result<u64, String> {
@@ -78,7 +79,7 @@ pub async fn import_csv_into_table(
     }
 
     match connection {
-        DatabaseConnection::Sqlite(pool) => {
+        LiveConnection::Sqlite(pool) => {
             let mut transaction = pool
                 .begin()
                 .await
@@ -103,7 +104,7 @@ pub async fn import_csv_into_table(
                 .await
                 .map_err(|err| format!("failed to commit SQLite import: {err}"))?;
         }
-        DatabaseConnection::Postgres(pool) => {
+        LiveConnection::Postgres(pool) => {
             let mut transaction = pool
                 .begin()
                 .await
@@ -128,7 +129,7 @@ pub async fn import_csv_into_table(
                 .await
                 .map_err(|err| format!("failed to commit PostgreSQL import: {err}"))?;
         }
-        DatabaseConnection::MySql(pool) => {
+        LiveConnection::MySql(pool) => {
             let mut transaction = pool
                 .begin()
                 .await
@@ -153,7 +154,7 @@ pub async fn import_csv_into_table(
                 .await
                 .map_err(|err| format!("failed to commit MySQL import: {err}"))?;
         }
-        DatabaseConnection::ClickHouse(config) => {
+        LiveConnection::ClickHouse(config) =>
             for chunk in import.rows.chunks(IMPORT_BATCH_SIZE) {
                 let sql = build_insert_sql(
                     &source,
@@ -165,8 +166,7 @@ pub async fn import_csv_into_table(
                 execute_text_query(&config, &sql)
                     .await
                     .map_err(|err| format!("ClickHouse import failed: {err}"))?;
-            }
-        }
+            },
     }
 
     Ok(import.rows.len() as u64)

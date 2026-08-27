@@ -9,7 +9,7 @@
 //! - whether to commit or rollback on success/failure.
 //!
 //! The actual execution is performed by callers (typically the UI layer),
-//! which already has a live `DatabaseConnection` and can call
+//! which already has a live `LiveConnection` and can call
 //! `execute_query_page` for each statement. This module is pure: it does
 //! not touch IO, drivers, or the database.
 //!

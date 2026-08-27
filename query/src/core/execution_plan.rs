@@ -1,6 +1,6 @@
-use database::DatabaseDriver;
+use database::{DatabaseDriver, LiveConnection};
 use driver_clickhouse::ClickHouseDriver;
-use models::{DatabaseConnection, DatabaseError, ExecutionPlan, ExecutionPlanNode};
+use models::{DatabaseError, ExecutionPlan, ExecutionPlanNode};
 use sqlx::Row;
 
 /// Execute an EXPLAIN query and return a parsed execution plan.
@@ -11,19 +11,17 @@ use sqlx::Row;
 /// For MySQL, runs `EXPLAIN FORMAT=JSON {sql}`.
 /// For ClickHouse, runs `EXPLAIN {sql}`.
 pub async fn execute_explain(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     sql: &str,
     analyze: bool,
 ) -> Result<ExecutionPlan, DatabaseError> {
     let trimmed = sql.trim().trim_end_matches(';').trim();
 
     match connection {
-        DatabaseConnection::Sqlite(pool) => execute_sqlite_explain(&pool, trimmed).await,
-        DatabaseConnection::Postgres(pool) =>
-            execute_postgres_explain(&pool, trimmed, analyze).await,
-        DatabaseConnection::MySql(pool) => execute_mysql_explain(&pool, trimmed).await,
-        DatabaseConnection::ClickHouse(config) =>
-            execute_clickhouse_explain(&config, trimmed).await,
+        LiveConnection::Sqlite(pool) => execute_sqlite_explain(&pool, trimmed).await,
+        LiveConnection::Postgres(pool) => execute_postgres_explain(&pool, trimmed, analyze).await,
+        LiveConnection::MySql(pool) => execute_mysql_explain(&pool, trimmed).await,
+        LiveConnection::ClickHouse(config) => execute_clickhouse_explain(&config, trimmed).await,
     }
 }
 
@@ -1002,7 +1000,7 @@ mod tests {
             .unwrap();
 
         let plan = execute_explain(
-            DatabaseConnection::Sqlite(pool),
+            LiveConnection::Sqlite(pool),
             "EXPLAIN select * from users",
             false,
         )

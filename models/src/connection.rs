@@ -111,51 +111,6 @@ impl SshTunnelConfig {
     }
 }
 
-#[derive(Clone, Debug)]
-pub enum DatabaseConnection {
-    Sqlite(sqlx::SqlitePool),
-    Postgres(sqlx::PgPool),
-    MySql(sqlx::MySqlPool),
-    ClickHouse(ClickHouseFormData),
-}
-
-impl DatabaseConnection {
-    /// Returns the [`DatabaseKind`] for this connection without inspecting the pool.
-    pub fn kind(&self) -> DatabaseKind {
-        match self {
-            DatabaseConnection::Sqlite(_) => DatabaseKind::Sqlite,
-            DatabaseConnection::Postgres(_) => DatabaseKind::Postgres,
-            DatabaseConnection::MySql(_) => DatabaseKind::MySql,
-            DatabaseConnection::ClickHouse(_) => DatabaseKind::ClickHouse,
-        }
-    }
-
-    /// Returns `true` if this is a SQLite connection.
-    pub fn is_sqlite(&self) -> bool {
-        matches!(self, DatabaseConnection::Sqlite(_))
-    }
-
-    /// Returns `true` if this is a PostgreSQL connection.
-    pub fn is_postgres(&self) -> bool {
-        matches!(self, DatabaseConnection::Postgres(_))
-    }
-
-    /// Returns `true` if this is a MySQL connection.
-    pub fn is_mysql(&self) -> bool {
-        matches!(self, DatabaseConnection::MySql(_))
-    }
-
-    /// Returns `true` if this is a ClickHouse connection.
-    pub fn is_clickhouse(&self) -> bool {
-        matches!(self, DatabaseConnection::ClickHouse(_))
-    }
-
-    /// Returns the human-facing name of the database kind (e.g. "SQLite", "PostgreSQL").
-    pub fn kind_name(&self) -> &'static str {
-        self.kind().display_name()
-    }
-}
-
 #[derive(Debug)]
 pub enum DatabaseError {
     Driver(String),

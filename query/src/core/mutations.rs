@@ -1,6 +1,6 @@
-use database::DatabaseDriver;
+use database::{DatabaseDriver, LiveConnection};
 use driver_clickhouse::ClickHouseDriver;
-use models::{DatabaseConnection, DatabaseError, TablePreviewSource};
+use models::{DatabaseError, TablePreviewSource};
 use sqlx::Row;
 
 use super::{
@@ -25,7 +25,7 @@ use super::{
 };
 
 pub async fn update_table_cell(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     source: TablePreviewSource,
     locator: String,
     column_name: String,
@@ -35,7 +35,7 @@ pub async fn update_table_cell(
     let value_literal = sql_literal(&value);
 
     match connection {
-        DatabaseConnection::Sqlite(pool) => {
+        LiveConnection::Sqlite(pool) => {
             let rowid = locator
                 .parse::<i64>()
                 .map_err(|_| invalid_sqlite_locator())?;
@@ -49,7 +49,7 @@ pub async fn update_table_cell(
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::Postgres(pool) => {
+        LiveConnection::Postgres(pool) => {
             let sql = format!(
                 "update {} set {} = {} where ctid = {}::tid",
                 source.qualified_name,
@@ -63,7 +63,7 @@ pub async fn update_table_cell(
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::MySql(pool) => {
+        LiveConnection::MySql(pool) => {
             let schema_name = mysql_effective_schema_name(&pool, source.schema.as_deref()).await?;
             let primary_key_columns =
                 mysql_primary_key_columns(&pool, &schema_name, &source.table_name).await?;
@@ -86,7 +86,7 @@ pub async fn update_table_cell(
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::ClickHouse(config) => {
+        LiveConnection::ClickHouse(config) => {
             let schema_name = source
                 .schema
                 .clone()
@@ -129,11 +129,11 @@ pub async fn update_table_cell(
 }
 
 pub async fn insert_table_row(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     source: TablePreviewSource,
 ) -> Result<(), DatabaseError> {
     match connection {
-        DatabaseConnection::Sqlite(pool) => {
+        LiveConnection::Sqlite(pool) => {
             let sql = format!("insert into {} default values", source.qualified_name);
             sqlx::query(&sql)
                 .execute(&pool)
@@ -141,7 +141,7 @@ pub async fn insert_table_row(
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::Postgres(pool) => {
+        LiveConnection::Postgres(pool) => {
             let sql = format!("insert into {} default values", source.qualified_name);
             sqlx::query(&sql)
                 .execute(&pool)
@@ -149,7 +149,7 @@ pub async fn insert_table_row(
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::MySql(pool) => {
+        LiveConnection::MySql(pool) => {
             let sql = format!("insert into {} values ()", source.qualified_name);
             sqlx::query(&sql)
                 .execute(&pool)
@@ -157,19 +157,19 @@ pub async fn insert_table_row(
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::ClickHouse(_) => Err(DatabaseError::Unsupported(
+        LiveConnection::ClickHouse(_) => Err(DatabaseError::Unsupported(
             "ClickHouse row inserts are not supported yet".to_string(),
         )),
     }
 }
 
 pub async fn insert_table_row_with_values(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     source: TablePreviewSource,
     column_values: Vec<(String, String)>,
 ) -> Result<(), DatabaseError> {
     match connection {
-        DatabaseConnection::Sqlite(pool) => {
+        LiveConnection::Sqlite(pool) => {
             let sql = build_insert_row_sql(&source, &column_values, quote_identifier);
             sqlx::query(&sql)
                 .execute(&pool)
@@ -177,7 +177,7 @@ pub async fn insert_table_row_with_values(
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::Postgres(pool) => {
+        LiveConnection::Postgres(pool) => {
             let sql = build_insert_row_sql(&source, &column_values, quote_identifier);
             sqlx::query(&sql)
                 .execute(&pool)
@@ -185,7 +185,7 @@ pub async fn insert_table_row_with_values(
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::MySql(pool) => {
+        LiveConnection::MySql(pool) => {
             let sql = build_insert_row_sql(&source, &column_values, quote_identifier_clickhouse);
             sqlx::query(&sql)
                 .execute(&pool)
@@ -193,7 +193,7 @@ pub async fn insert_table_row_with_values(
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::ClickHouse(config) => {
+        LiveConnection::ClickHouse(config) => {
             let sql = build_clickhouse_insert_sql(&source, &column_values);
 
             ClickHouseDriver.execute_text_query(&config, &sql).await?;
@@ -214,11 +214,11 @@ fn build_clickhouse_insert_sql(
 }
 
 pub async fn next_table_primary_key_id(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     source: TablePreviewSource,
 ) -> Result<Option<(String, i64)>, DatabaseError> {
     match connection {
-        DatabaseConnection::Sqlite(pool) => {
+        LiveConnection::Sqlite(pool) => {
             let schema_name = source.schema.clone().unwrap_or_else(|| "main".to_string());
             let Some((column_name, data_type)) =
                 sqlite_single_primary_key_column(&pool, &schema_name, &source.table_name).await?
@@ -247,7 +247,7 @@ pub async fn next_table_primary_key_id(
                 )?,
             )))
         }
-        DatabaseConnection::Postgres(pool) => {
+        LiveConnection::Postgres(pool) => {
             let schema_name = source
                 .schema
                 .clone()
@@ -279,7 +279,7 @@ pub async fn next_table_primary_key_id(
                 )?,
             )))
         }
-        DatabaseConnection::MySql(pool) => {
+        LiveConnection::MySql(pool) => {
             let schema_name = mysql_effective_schema_name(&pool, source.schema.as_deref()).await?;
             let Some((column_name, data_type)) =
                 mysql_single_primary_key_column(&pool, &schema_name, &source.table_name).await?
@@ -308,7 +308,7 @@ pub async fn next_table_primary_key_id(
                 )?,
             )))
         }
-        DatabaseConnection::ClickHouse(config) => {
+        LiveConnection::ClickHouse(config) => {
             let schema_name = source
                 .schema
                 .clone()
@@ -362,12 +362,12 @@ pub async fn next_table_primary_key_id(
 }
 
 pub async fn delete_table_row(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     source: TablePreviewSource,
     locator: String,
 ) -> Result<(), DatabaseError> {
     match connection {
-        DatabaseConnection::Sqlite(pool) => {
+        LiveConnection::Sqlite(pool) => {
             let rowid = locator
                 .parse::<i64>()
                 .map_err(|_| invalid_sqlite_locator())?;
@@ -381,7 +381,7 @@ pub async fn delete_table_row(
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::Postgres(pool) => {
+        LiveConnection::Postgres(pool) => {
             let sql = format!(
                 "delete from {} where ctid = {}::tid",
                 source.qualified_name,
@@ -393,7 +393,7 @@ pub async fn delete_table_row(
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::MySql(pool) => {
+        LiveConnection::MySql(pool) => {
             let schema_name = mysql_effective_schema_name(&pool, source.schema.as_deref()).await?;
             let primary_key_columns =
                 mysql_primary_key_columns(&pool, &schema_name, &source.table_name).await?;
@@ -415,7 +415,7 @@ pub async fn delete_table_row(
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::ClickHouse(config) => {
+        LiveConnection::ClickHouse(config) => {
             let schema_name = source
                 .schema
                 .clone()

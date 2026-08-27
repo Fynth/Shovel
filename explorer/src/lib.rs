@@ -1,6 +1,6 @@
-use database::DatabaseDriver;
+use database::{DatabaseDriver, LiveConnection};
 use driver_clickhouse::ClickHouseDriver;
-use models::{DatabaseConnection, DatabaseError, ExplorerNode, ExplorerNodeKind, QueryOutput};
+use models::{DatabaseError, ExplorerNode, ExplorerNodeKind, QueryOutput};
 use sqlx::Row;
 
 mod mysql;
@@ -30,15 +30,15 @@ pub use sqlite::{
 };
 
 pub async fn describe_table(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     schema: Option<String>,
     table: String,
 ) -> Result<QueryOutput, DatabaseError> {
     match connection {
-        DatabaseConnection::Sqlite(pool) => describe_table_sqlite(&pool, schema, table).await,
-        DatabaseConnection::Postgres(pool) => describe_table_postgres(&pool, schema, table).await,
-        DatabaseConnection::MySql(pool) => describe_table_mysql(&pool, schema, table).await,
-        DatabaseConnection::ClickHouse(config) => {
+        LiveConnection::Sqlite(pool) => describe_table_sqlite(&pool, schema, table).await,
+        LiveConnection::Postgres(pool) => describe_table_postgres(&pool, schema, table).await,
+        LiveConnection::MySql(pool) => describe_table_mysql(&pool, schema, table).await,
+        LiveConnection::ClickHouse(config) => {
             let schema_name = schema.unwrap_or_else(|| config.database.clone());
             let mut rows = Vec::new();
 
@@ -159,16 +159,15 @@ pub async fn describe_table(
 }
 
 pub async fn load_table_columns(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     schema: Option<String>,
     table: String,
 ) -> Result<Vec<String>, DatabaseError> {
     match connection {
-        DatabaseConnection::Sqlite(pool) => load_table_columns_sqlite(&pool, schema, table).await,
-        DatabaseConnection::Postgres(pool) =>
-            load_table_columns_postgres(&pool, schema, table).await,
-        DatabaseConnection::MySql(pool) => load_table_columns_mysql(&pool, schema, table).await,
-        DatabaseConnection::ClickHouse(config) => {
+        LiveConnection::Sqlite(pool) => load_table_columns_sqlite(&pool, schema, table).await,
+        LiveConnection::Postgres(pool) => load_table_columns_postgres(&pool, schema, table).await,
+        LiveConnection::MySql(pool) => load_table_columns_mysql(&pool, schema, table).await,
+        LiveConnection::ClickHouse(config) => {
             let schema_name = schema.unwrap_or_else(|| config.database.clone());
             let sql = format!(
                 "select name from system.columns where database = {} and table = {} order by position",
@@ -187,13 +186,13 @@ pub async fn load_table_columns(
 }
 
 pub async fn load_connection_tree(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
 ) -> Result<Vec<ExplorerNode>, DatabaseError> {
     match connection {
-        DatabaseConnection::Sqlite(pool) => load_connection_tree_sqlite(&pool).await,
-        DatabaseConnection::Postgres(pool) => load_connection_tree_postgres(&pool).await,
-        DatabaseConnection::MySql(pool) => load_connection_tree_mysql(&pool).await,
-        DatabaseConnection::ClickHouse(config) => {
+        LiveConnection::Sqlite(pool) => load_connection_tree_sqlite(&pool).await,
+        LiveConnection::Postgres(pool) => load_connection_tree_postgres(&pool).await,
+        LiveConnection::MySql(pool) => load_connection_tree_mysql(&pool).await,
+        LiveConnection::ClickHouse(config) => {
             let response = ClickHouseDriver
                 .execute_json_query(
                     &config,
@@ -263,13 +262,13 @@ pub async fn load_connection_tree(
 /// Загружает внешние ключи подключения для ER-диаграммы.
 /// ClickHouse не поддерживает FK — возвращаем пустой список.
 pub async fn load_foreign_keys(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
 ) -> Result<Vec<models::TableForeignKey>, DatabaseError> {
     match connection {
-        DatabaseConnection::Sqlite(pool) => load_foreign_keys_sqlite(&pool).await,
-        DatabaseConnection::Postgres(pool) => load_foreign_keys_postgres(&pool).await,
-        DatabaseConnection::MySql(pool) => load_foreign_keys_mysql(&pool).await,
-        DatabaseConnection::ClickHouse(_) => Ok(Vec::new()),
+        LiveConnection::Sqlite(pool) => load_foreign_keys_sqlite(&pool).await,
+        LiveConnection::Postgres(pool) => load_foreign_keys_postgres(&pool).await,
+        LiveConnection::MySql(pool) => load_foreign_keys_mysql(&pool).await,
+        LiveConnection::ClickHouse(_) => Ok(Vec::new()),
     }
 }
 
@@ -277,18 +276,17 @@ pub async fn load_foreign_keys(
 /// не найден. Для PG таблиц DDL реконструируется, для остальных — точный
 /// текст из системного каталога.
 pub async fn load_object_ddl(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     schema: Option<String>,
     object: String,
     kind: models::ExplorerNodeKind,
 ) -> Result<Option<String>, DatabaseError> {
     match connection {
-        DatabaseConnection::Sqlite(pool) =>
-            load_object_ddl_sqlite(&pool, schema, object, kind).await,
-        DatabaseConnection::Postgres(pool) =>
+        LiveConnection::Sqlite(pool) => load_object_ddl_sqlite(&pool, schema, object, kind).await,
+        LiveConnection::Postgres(pool) =>
             load_object_ddl_postgres(&pool, schema, object, kind).await,
-        DatabaseConnection::MySql(pool) => load_object_ddl_mysql(&pool, schema, object, kind).await,
-        DatabaseConnection::ClickHouse(config) => {
+        LiveConnection::MySql(pool) => load_object_ddl_mysql(&pool, schema, object, kind).await,
+        LiveConnection::ClickHouse(config) => {
             let schema_name = schema.unwrap_or_else(|| config.database.clone());
             let sql = format!(
                 "select create_table_query from system.tables where database = {} and name = {}",

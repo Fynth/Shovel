@@ -3,7 +3,7 @@
 //! These tests exercise the public API surface that the rest of the workspace
 //! depends on, including:
 //!
-//! - `DatabaseConnection` / `ConnectionRequest` serde roundtrips
+//! - `ConnectionRequest` serde roundtrips
 //! - `DatabaseError` display
 //! - `DatabaseKind` <-> `ConnectionRequest` conversions
 //! - Form-data construction
@@ -196,4 +196,16 @@ fn capabilities_for_kind_match_current_product() {
     assert!(ch.schemas);
     assert!(ch.import_csv);
     assert!(ch.ssh_tunnel);
+}
+
+#[test]
+fn models_connection_session_has_no_live_pool_field() {
+    let session = models::ConnectionSession {
+        id: 1,
+        name: "s".into(),
+        kind: DatabaseKind::Sqlite,
+        request: sqlite_request(),
+        capabilities: Capabilities::for_kind(DatabaseKind::Sqlite),
+    };
+    assert!(session.capabilities.row_editing);
 }

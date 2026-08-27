@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
+use database::LiveConnection;
 use models::{
-    DatabaseConnection,
     DatabaseError,
     ExecutionPlan,
     ExplorerNode,
@@ -13,7 +13,7 @@ use models::{
     TablePreviewSource,
 };
 
-fn live_connection(session_id: u64) -> Result<DatabaseConnection, DatabaseError> {
+fn live_connection(session_id: u64) -> Result<LiveConnection, DatabaseError> {
     let handle =
         connection::session(session_id).ok_or(DatabaseError::SessionNotFound(session_id))?;
     handle

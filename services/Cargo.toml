@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 acp.workspace = true
 connection.workspace = true
+database.workspace = true
 dirs.workspace = true
 explorer.workspace = true
 futures-util.workspace = true

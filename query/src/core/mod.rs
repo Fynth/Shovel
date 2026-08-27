@@ -8,16 +8,9 @@ mod preview;
 mod rows;
 pub mod splitter;
 
-use database::DatabaseDriver;
+use database::{DatabaseDriver, LiveConnection};
 use driver_clickhouse::ClickHouseDriver;
-use models::{
-    DatabaseConnection,
-    DatabaseError,
-    QueryFilter,
-    QueryOutput,
-    QuerySort,
-    TablePreviewSource,
-};
+use models::{DatabaseError, QueryFilter, QueryOutput, QuerySort, TablePreviewSource};
 use sqlx::Row;
 
 pub use ddl::{create_table, drop_table, duplicate_table, rename_table, truncate_table};
@@ -81,7 +74,7 @@ const CLICKHOUSE_DIALECT: SqlBuildDialect = SqlBuildDialect {
 pub(crate) use self::rows::{postgres_rows_to_page, sqlite_rows_to_page};
 
 pub async fn execute_query(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     sql: String,
 ) -> Result<QueryOutput, DatabaseError> {
     execute_query_page(connection, sql, 100, 0, None, None).await
@@ -103,7 +96,7 @@ pub fn preview_source_for_sql(sql: &str) -> Option<TablePreviewSource> {
 }
 
 pub async fn execute_query_page(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     sql: String,
     page_size: u32,
     offset: u64,
@@ -111,13 +104,13 @@ pub async fn execute_query_page(
     sort: Option<QuerySort>,
 ) -> Result<QueryOutput, DatabaseError> {
     match connection {
-        DatabaseConnection::Sqlite(pool) =>
+        LiveConnection::Sqlite(pool) =>
             execute_sqlite_query_page(&sql, &pool, page_size, offset, filter, sort).await,
-        DatabaseConnection::Postgres(pool) =>
+        LiveConnection::Postgres(pool) =>
             execute_postgres_query_page(&sql, &pool, page_size, offset, filter, sort).await,
-        DatabaseConnection::MySql(pool) =>
+        LiveConnection::MySql(pool) =>
             execute_mysql_query_page(&sql, &pool, page_size, offset, filter, sort).await,
-        DatabaseConnection::ClickHouse(config) =>
+        LiveConnection::ClickHouse(config) =>
             execute_clickhouse_query_page(&sql, &config, page_size, offset, filter, sort).await,
     }
 }
@@ -713,6 +706,7 @@ mod round_trip;
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{
+        LiveConnection,
         create_table,
         drop_table,
         duplicate_table,
@@ -727,7 +721,7 @@ mod tests {
         reorder_clickhouse_primary_key_columns,
         truncate_table,
     };
-    use models::{DatabaseConnection, QueryOutput, TablePreviewSource};
+    use models::{QueryOutput, TablePreviewSource};
     use sqlx::SqlitePool;
 
     #[test]
@@ -790,7 +784,7 @@ mod tests {
         .unwrap();
 
         let result = execute_query_page(
-            DatabaseConnection::Sqlite(pool),
+            LiveConnection::Sqlite(pool),
             r#"select * from "products" limit 100;"#.to_string(),
             100,
             0,
@@ -816,7 +810,7 @@ mod tests {
         let pool = SqlitePool::connect(":memory:").await.unwrap();
 
         create_table(
-            DatabaseConnection::Sqlite(pool.clone()),
+            LiveConnection::Sqlite(pool.clone()),
             Some("main".to_string()),
             "products".to_string(),
             "id integer primary key,\nname text not null".to_string(),
@@ -857,7 +851,7 @@ mod tests {
         .unwrap();
 
         drop_table(
-            DatabaseConnection::Sqlite(pool.clone()),
+            LiveConnection::Sqlite(pool.clone()),
             TablePreviewSource {
                 schema: Some("main".to_string()),
                 table_name: "products".to_string(),
@@ -904,7 +898,7 @@ mod tests {
             .unwrap();
 
         truncate_table(
-            DatabaseConnection::Sqlite(pool.clone()),
+            LiveConnection::Sqlite(pool.clone()),
             TablePreviewSource {
                 schema: Some("main".to_string()),
                 table_name: "products".to_string(),
@@ -951,7 +945,7 @@ mod tests {
         .unwrap();
 
         rename_table(
-            DatabaseConnection::Sqlite(pool.clone()),
+            LiveConnection::Sqlite(pool.clone()),
             TablePreviewSource {
                 schema: Some("main".to_string()),
                 table_name: "products".to_string(),
@@ -1011,7 +1005,7 @@ mod tests {
             .unwrap();
 
         duplicate_table(
-            DatabaseConnection::Sqlite(pool.clone()),
+            LiveConnection::Sqlite(pool.clone()),
             TablePreviewSource {
                 schema: Some("main".to_string()),
                 table_name: "products".to_string(),
@@ -1066,7 +1060,7 @@ mod tests {
             .unwrap();
 
         duplicate_table(
-            DatabaseConnection::Sqlite(pool.clone()),
+            LiveConnection::Sqlite(pool.clone()),
             TablePreviewSource {
                 schema: Some("main".to_string()),
                 table_name: "products".to_string(),

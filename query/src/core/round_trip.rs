@@ -9,20 +9,20 @@
 #![allow(unused_imports)]
 
 use super::*;
-use models::DatabaseConnection;
+use database::LiveConnection;
 use sqlx::sqlite::SqlitePool;
 
 /// Connects to a fresh `:memory:` SQLite database and returns it as a
-/// `DatabaseConnection` that the public `query` API can consume.
-async fn fresh_sqlite() -> DatabaseConnection {
+/// `LiveConnection` that the public `query` API can consume.
+async fn fresh_sqlite() -> LiveConnection {
     let pool = SqlitePool::connect(":memory:")
         .await
         .expect("connect to in-memory sqlite");
-    DatabaseConnection::Sqlite(pool)
+    LiveConnection::Sqlite(pool)
 }
 
 /// Creates a small test schema used by the round-trip tests.
-async fn seed_two_rows(conn: &DatabaseConnection) {
+async fn seed_two_rows(conn: &LiveConnection) {
     execute_query(
         conn.clone(),
         "create table widgets (id integer primary key, name text not null, qty integer not null)"

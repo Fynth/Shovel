@@ -13,7 +13,8 @@
 
 use std::time::Duration;
 
-use models::{ClickHouseFormData, ConnectionRequest, DatabaseConnection, DatabaseKind};
+use database::LiveConnection;
+use models::{ClickHouseFormData, ConnectionRequest, DatabaseKind};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tokio::time::{Instant, Interval, interval};
@@ -52,7 +53,7 @@ impl Default for IntrospectionConfig {
 /// - 5-second timeout on all introspection queries
 /// - Separate pool from user connection pool
 pub struct IntrospectionPool {
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     #[allow(dead_code)]
     config: IntrospectionConfig,
 }
@@ -244,9 +245,7 @@ impl IntrospectionPool {
     }
 
     /// Create a dedicated pool with max 2 connections and 5s timeout
-    async fn create_dedicated_pool(
-        request: &ConnectionRequest,
-    ) -> Result<DatabaseConnection, String> {
+    async fn create_dedicated_pool(request: &ConnectionRequest) -> Result<LiveConnection, String> {
         match request {
             ConnectionRequest::Sqlite(data) => {
                 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous};
@@ -259,7 +258,7 @@ impl IntrospectionPool {
                 let pool = sqlx::SqlitePool::connect_with(options)
                     .await
                     .map_err(|e| format!("Failed to create introspection pool: {e}"))?;
-                Ok(DatabaseConnection::Sqlite(pool))
+                Ok(LiveConnection::Sqlite(pool))
             }
             ConnectionRequest::Postgres(data) => {
                 use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
@@ -276,7 +275,7 @@ impl IntrospectionPool {
                     .connect_with(options)
                     .await
                     .map_err(|e| format!("Failed to create introspection pool: {e}"))?;
-                Ok(DatabaseConnection::Postgres(pool))
+                Ok(LiveConnection::Postgres(pool))
             }
             ConnectionRequest::MySql(data) => {
                 use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions, MySqlSslMode};
@@ -293,11 +292,11 @@ impl IntrospectionPool {
                     .connect_with(options)
                     .await
                     .map_err(|e| format!("Failed to create introspection pool: {e}"))?;
-                Ok(DatabaseConnection::MySql(pool))
+                Ok(LiveConnection::MySql(pool))
             }
             ConnectionRequest::ClickHouse(data) => {
                 // ClickHouse uses HTTP, not a pool - just clone the config
-                Ok(DatabaseConnection::ClickHouse(data.clone()))
+                Ok(LiveConnection::ClickHouse(data.clone()))
             }
         }
     }
@@ -305,10 +304,10 @@ impl IntrospectionPool {
     /// Get the database kind
     pub fn database_kind(&self) -> DatabaseKind {
         match &self.connection {
-            DatabaseConnection::Sqlite(_) => DatabaseKind::Sqlite,
-            DatabaseConnection::Postgres(_) => DatabaseKind::Postgres,
-            DatabaseConnection::MySql(_) => DatabaseKind::MySql,
-            DatabaseConnection::ClickHouse(_) => DatabaseKind::ClickHouse,
+            LiveConnection::Sqlite(_) => DatabaseKind::Sqlite,
+            LiveConnection::Postgres(_) => DatabaseKind::Postgres,
+            LiveConnection::MySql(_) => DatabaseKind::MySql,
+            LiveConnection::ClickHouse(_) => DatabaseKind::ClickHouse,
         }
     }
 
@@ -337,65 +336,62 @@ impl IntrospectionPool {
     /// Collect lock information
     async fn collect_locks(&self) -> Result<Vec<LockInfo>, String> {
         match &self.connection {
-            DatabaseConnection::Postgres(pool) => self.collect_pg_locks(pool).await,
-            DatabaseConnection::MySql(pool) => self.collect_mysql_locks(pool).await,
-            DatabaseConnection::ClickHouse(config) => self.collect_clickhouse_locks(config).await,
-            DatabaseConnection::Sqlite(pool) => self.collect_sqlite_locks(pool).await,
+            LiveConnection::Postgres(pool) => self.collect_pg_locks(pool).await,
+            LiveConnection::MySql(pool) => self.collect_mysql_locks(pool).await,
+            LiveConnection::ClickHouse(config) => self.collect_clickhouse_locks(config).await,
+            LiveConnection::Sqlite(pool) => self.collect_sqlite_locks(pool).await,
         }
     }
 
     /// Collect active query information
     async fn collect_active_queries(&self) -> Result<Vec<ActiveQueryInfo>, String> {
         match &self.connection {
-            DatabaseConnection::Postgres(pool) => self.collect_pg_active_queries(pool).await,
-            DatabaseConnection::MySql(pool) => self.collect_mysql_active_queries(pool).await,
-            DatabaseConnection::ClickHouse(config) =>
+            LiveConnection::Postgres(pool) => self.collect_pg_active_queries(pool).await,
+            LiveConnection::MySql(pool) => self.collect_mysql_active_queries(pool).await,
+            LiveConnection::ClickHouse(config) =>
                 self.collect_clickhouse_active_queries(config).await,
-            DatabaseConnection::Sqlite(pool) => self.collect_sqlite_active_queries(pool).await,
+            LiveConnection::Sqlite(pool) => self.collect_sqlite_active_queries(pool).await,
         }
     }
 
     /// Collect query history (slowest queries)
     async fn collect_query_history(&self) -> Result<Vec<QueryHistoryEntry>, String> {
         match &self.connection {
-            DatabaseConnection::Postgres(pool) => self.collect_pg_query_history(pool).await,
-            DatabaseConnection::MySql(pool) => self.collect_mysql_query_history(pool).await,
-            DatabaseConnection::ClickHouse(config) =>
+            LiveConnection::Postgres(pool) => self.collect_pg_query_history(pool).await,
+            LiveConnection::MySql(pool) => self.collect_mysql_query_history(pool).await,
+            LiveConnection::ClickHouse(config) =>
                 self.collect_clickhouse_query_history(config).await,
-            DatabaseConnection::Sqlite(pool) => self.collect_sqlite_query_history(pool).await,
+            LiveConnection::Sqlite(pool) => self.collect_sqlite_query_history(pool).await,
         }
     }
 
     /// Collect index statistics
     async fn collect_index_stats(&self) -> Result<Vec<IndexStat>, String> {
         match &self.connection {
-            DatabaseConnection::Postgres(pool) => self.collect_pg_index_stats(pool).await,
-            DatabaseConnection::MySql(pool) => self.collect_mysql_index_stats(pool).await,
-            DatabaseConnection::ClickHouse(config) =>
-                self.collect_clickhouse_index_stats(config).await,
-            DatabaseConnection::Sqlite(pool) => self.collect_sqlite_index_stats(pool).await,
+            LiveConnection::Postgres(pool) => self.collect_pg_index_stats(pool).await,
+            LiveConnection::MySql(pool) => self.collect_mysql_index_stats(pool).await,
+            LiveConnection::ClickHouse(config) => self.collect_clickhouse_index_stats(config).await,
+            LiveConnection::Sqlite(pool) => self.collect_sqlite_index_stats(pool).await,
         }
     }
 
     /// Collect table statistics
     async fn collect_table_stats(&self) -> Result<Vec<TableStat>, String> {
         match &self.connection {
-            DatabaseConnection::Postgres(pool) => self.collect_pg_table_stats(pool).await,
-            DatabaseConnection::MySql(pool) => self.collect_mysql_table_stats(pool).await,
-            DatabaseConnection::ClickHouse(config) =>
-                self.collect_clickhouse_table_stats(config).await,
-            DatabaseConnection::Sqlite(pool) => self.collect_sqlite_table_stats(pool).await,
+            LiveConnection::Postgres(pool) => self.collect_pg_table_stats(pool).await,
+            LiveConnection::MySql(pool) => self.collect_mysql_table_stats(pool).await,
+            LiveConnection::ClickHouse(config) => self.collect_clickhouse_table_stats(config).await,
+            LiveConnection::Sqlite(pool) => self.collect_sqlite_table_stats(pool).await,
         }
     }
 
     /// Collect schema information
     async fn collect_schema_info(&self) -> Result<SchemaInfo, String> {
         match &self.connection {
-            DatabaseConnection::Postgres(pool) => self.collect_pg_schema_info(pool).await,
-            DatabaseConnection::MySql(pool) => self.collect_mysql_schema_info(pool).await,
-            DatabaseConnection::ClickHouse(config) =>
-                self.collect_clickhouse_schema_info(config).await,
-            DatabaseConnection::Sqlite(pool) => self.collect_sqlite_schema_info(pool).await,
+            LiveConnection::Postgres(pool) => self.collect_pg_schema_info(pool).await,
+            LiveConnection::MySql(pool) => self.collect_mysql_schema_info(pool).await,
+            LiveConnection::ClickHouse(config) => self.collect_clickhouse_schema_info(config).await,
+            LiveConnection::Sqlite(pool) => self.collect_sqlite_schema_info(pool).await,
         }
     }
 }

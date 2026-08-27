@@ -1,13 +1,6 @@
-use database::DatabaseDriver;
+use database::{DatabaseDriver, LiveConnection};
 use driver_clickhouse::ClickHouseDriver;
-use models::{
-    DatabaseConnection,
-    DatabaseError,
-    QueryFilter,
-    QueryOutput,
-    QuerySort,
-    TablePreviewSource,
-};
+use models::{DatabaseError, QueryFilter, QueryOutput, QuerySort, TablePreviewSource};
 
 use super::{
     CLICKHOUSE_DIALECT,
@@ -32,7 +25,7 @@ use super::{
 };
 
 pub async fn load_table_preview_page(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     source: TablePreviewSource,
     page_size: u32,
     offset: u64,
@@ -40,7 +33,7 @@ pub async fn load_table_preview_page(
     sort: Option<QuerySort>,
 ) -> Result<QueryOutput, DatabaseError> {
     match connection {
-        DatabaseConnection::Sqlite(pool) => {
+        LiveConnection::Sqlite(pool) => {
             let sql = build_outer_paginated_query(
                 format!(
                     r#"select rowid as "{LOCATOR_COLUMN}", * from {}"#,
@@ -60,7 +53,7 @@ pub async fn load_table_preview_page(
                 rows, source, page_size, offset,
             )))
         }
-        DatabaseConnection::Postgres(pool) => {
+        LiveConnection::Postgres(pool) => {
             let sql = build_outer_paginated_query(
                 format!(
                     r#"select ctid::text as "{LOCATOR_COLUMN}", * from {}"#,
@@ -80,7 +73,7 @@ pub async fn load_table_preview_page(
                 rows, source, page_size, offset,
             )))
         }
-        DatabaseConnection::MySql(pool) => {
+        LiveConnection::MySql(pool) => {
             let schema_name = mysql_effective_schema_name(&pool, source.schema.as_deref()).await?;
             let primary_key_columns =
                 mysql_primary_key_columns(&pool, &schema_name, &source.table_name).await?;
@@ -127,7 +120,7 @@ pub async fn load_table_preview_page(
                 )))
             }
         }
-        DatabaseConnection::ClickHouse(config) => {
+        LiveConnection::ClickHouse(config) => {
             let schema_name = source
                 .schema
                 .clone()

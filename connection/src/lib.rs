@@ -12,6 +12,7 @@ use connection_ssh::{OpenedSshTunnel, open_ssh_tunnel, register_ssh_tunnel};
     feature = "clickhouse"
 ))]
 use database::DatabaseDriver;
+use database::LiveConnection;
 #[cfg(feature = "clickhouse")]
 use driver_clickhouse::ClickHouseDriver;
 #[cfg(feature = "mysql")]
@@ -20,13 +21,7 @@ use driver_mysql::{MySqlConfig, MySqlDriver};
 use driver_postgres::{PgConfig, PgDriver};
 #[cfg(feature = "sqlite")]
 use driver_sqlite::SqliteDriver;
-use models::{
-    ClickHouseFormData,
-    ConnectionRequest,
-    DatabaseConnection,
-    DatabaseError,
-    SshTunnelConfig,
-};
+use models::{ClickHouseFormData, ConnectionRequest, DatabaseError, SshTunnelConfig};
 #[cfg(feature = "clickhouse")]
 use reqwest::Url;
 
@@ -205,7 +200,7 @@ pub async fn connect_to_db(request: ConnectionRequest) -> Result<SessionHandle, 
             let pool = SqliteDriver::connect(data.path)
                 .await
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-            Ok(SessionHandle::from_legacy(DatabaseConnection::Sqlite(pool)))
+            Ok(SessionHandle::from_legacy(LiveConnection::Sqlite(pool)))
         }
         #[cfg(feature = "postgres")]
         ConnectionRequest::Postgres(mut data) => {
@@ -235,7 +230,7 @@ pub async fn connect_to_db(request: ConnectionRequest) -> Result<SessionHandle, 
                 PgDriver::connect(config)
                     .await
                     .map_err(|e| DatabaseError::Driver(e.to_string()))
-                    .map(DatabaseConnection::Postgres)
+                    .map(LiveConnection::Postgres)
             }
             .await;
 
@@ -274,7 +269,7 @@ pub async fn connect_to_db(request: ConnectionRequest) -> Result<SessionHandle, 
                 MySqlDriver::connect(config)
                     .await
                     .map_err(|e| DatabaseError::Driver(e.to_string()))
-                    .map(DatabaseConnection::MySql)
+                    .map(LiveConnection::MySql)
             }
             .await;
 
@@ -313,7 +308,7 @@ pub async fn connect_to_db(request: ConnectionRequest) -> Result<SessionHandle, 
                 ClickHouseDriver::connect(data.clone())
                     .await
                     .map_err(DatabaseError::Driver)
-                    .map(DatabaseConnection::ClickHouse)
+                    .map(LiveConnection::ClickHouse)
             }
             .await;
 

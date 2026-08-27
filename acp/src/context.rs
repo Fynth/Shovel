@@ -4,8 +4,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use database::LiveConnection;
 use models::{
-    DatabaseConnection,
     DatabaseError,
     ExplorerNode,
     ExplorerNodeKind,
@@ -143,7 +143,7 @@ async fn append_execution_history(lines: &mut Vec<String>) {
 
 /// Append performance metrics placeholder.
 /// For full introspection metrics, use `build_full_ai_context` with introspection data.
-async fn append_performance_metrics(_lines: &mut Vec<String>, _connection: &DatabaseConnection) {
+async fn append_performance_metrics(_lines: &mut Vec<String>, _connection: &LiveConnection) {
     // This is a placeholder - actual introspection metrics are added via
     // `append_introspection_metrics` when calling `build_full_ai_context`
 }
@@ -238,7 +238,7 @@ pub fn append_introspection_metrics(
 }
 
 pub async fn build_acp_database_context(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     connection_label: String,
     focus_source: Option<TablePreviewSource>,
 ) -> Result<String, DatabaseError> {
@@ -303,7 +303,7 @@ pub async fn build_acp_database_context(
 /// Build full AI context combining schema, history, metrics, and introspection data.
 /// This function includes caching with 90s TTL.
 pub async fn build_full_ai_context(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     connection_label: String,
     focus_source: Option<TablePreviewSource>,
     introspection: Option<&crate::introspection::IntrospectionResult>,
@@ -397,7 +397,7 @@ pub async fn build_full_ai_context(
 }
 
 pub async fn warm_acp_database_schema_context(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     connection_label: String,
 ) -> Result<(), DatabaseError> {
     let tree = load_connection_tree(connection.clone()).await?;
@@ -408,7 +408,7 @@ pub async fn warm_acp_database_schema_context(
 }
 
 async fn load_or_build_schema_context_lines(
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     connection_label: &str,
     tree: &[ExplorerNode],
     sources: &[TablePreviewSource],
@@ -451,7 +451,7 @@ async fn load_or_build_schema_context_lines(
 
 async fn append_relation_schema_profile(
     lines: &mut Vec<String>,
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     source: TablePreviewSource,
 ) {
     lines.push(format!("- {}", source.qualified_name));
@@ -475,7 +475,7 @@ async fn append_relation_schema_profile(
 
 async fn append_relation_preview_profile(
     lines: &mut Vec<String>,
-    connection: DatabaseConnection,
+    connection: LiveConnection,
     source: TablePreviewSource,
     is_active_focus: bool,
 ) {

@@ -7,7 +7,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use models::{
     Capabilities,
-    DatabaseConnection,
     DatabaseError,
     DatabaseKind,
     ExecutionPlan,
@@ -18,7 +17,7 @@ use models::{
     TablePreviewSource,
 };
 
-use crate::{Dialect, FormatFlavor, quote_ident_double};
+use crate::{Dialect, FormatFlavor, LiveConnection, quote_ident_double};
 
 #[async_trait]
 pub trait QueryExec: Send + Sync {
@@ -81,7 +80,7 @@ pub trait DriverSession: QueryExec + SchemaExec + Send + Sync {
     fn as_mutate(&self) -> Option<&dyn MutateExec>;
     fn as_explain(&self) -> Option<&dyn ExplainExec>;
     fn as_introspect(&self) -> Option<&dyn IntrospectExec>;
-    fn as_legacy(&self) -> Option<DatabaseConnection> {
+    fn as_legacy(&self) -> Option<LiveConnection> {
         None
     }
 }
@@ -104,11 +103,11 @@ impl SessionHandle {
         Self { inner }
     }
 
-    pub fn from_legacy(connection: DatabaseConnection) -> Self {
+    pub fn from_legacy(connection: LiveConnection) -> Self {
         Self::wrap(Arc::new(LegacyDriver { connection }))
     }
 
-    pub fn legacy(&self) -> Option<DatabaseConnection> {
+    pub fn legacy(&self) -> Option<LiveConnection> {
         self.inner.as_legacy()
     }
 
@@ -153,7 +152,7 @@ fn legacy_unsupported<T>() -> Result<T, DatabaseError> {
 
 #[derive(Clone)]
 struct LegacyDriver {
-    connection: DatabaseConnection,
+    connection: LiveConnection,
 }
 
 #[async_trait]
@@ -228,7 +227,7 @@ impl DriverSession for LegacyDriver {
         None
     }
 
-    fn as_legacy(&self) -> Option<DatabaseConnection> {
+    fn as_legacy(&self) -> Option<LiveConnection> {
         Some(self.connection.clone())
     }
 }
