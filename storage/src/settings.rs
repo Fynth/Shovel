@@ -10,9 +10,17 @@ const CODESTRAL_KEYRING_SERVICE: &str = "shovel.codestral";
 const CODESTRAL_KEYRING_ACCOUNT: &str = "default";
 const DEEPSEEK_KEYRING_SERVICE: &str = "shovel.deepseek";
 const DEEPSEEK_KEYRING_ACCOUNT: &str = "default";
+const LM_KEYRING_ACCOUNT: &str = "default";
+
+/// Keyring service name for a catalog provider (`shovel.lm.<provider_id>`).
+pub fn lm_service_name(provider_id: &str) -> String {
+    format!("shovel.lm.{provider_id}")
+}
 
 pub async fn load_app_ui_settings() -> Result<AppUiSettings, String> {
-    read_json_file(app_ui_settings_path()).await
+    let mut settings: AppUiSettings = read_json_file(app_ui_settings_path()).await?;
+    settings.migrate_legacy_ai_fields();
+    Ok(settings)
 }
 
 pub async fn save_app_ui_settings(settings: AppUiSettings) -> Result<(), String> {
@@ -63,6 +71,27 @@ pub async fn save_deepseek_api_key(api_key: String) -> Result<(), String> {
     .map_err(|err| format!("failed to join DeepSeek secret task: {err}"))?
 }
 
+/// Load an LM API key for an arbitrary keyring service name.
+///
+/// Prefers the system keyring, then the local fallback secret store.
+pub async fn load_lm_api_key(service: &str) -> Result<String, String> {
+    let service = service.to_string();
+    tokio::task::spawn_blocking(move || load_api_key_sync(&service, LM_KEYRING_ACCOUNT))
+        .await
+        .map_err(|err| format!("failed to join LM secret load task: {err}"))?
+}
+
+/// Save an LM API key for an arbitrary keyring service name.
+///
+/// On keyring failure, writes the fallback store and still returns `Ok(())`
+/// when the fallback succeeds — callers treat hard errors as post-JSON warnings.
+pub async fn save_lm_api_key(service: &str, api_key: String) -> Result<(), String> {
+    let service = service.to_string();
+    tokio::task::spawn_blocking(move || save_api_key_sync(&service, LM_KEYRING_ACCOUNT, &api_key))
+        .await
+        .map_err(|err| format!("failed to join LM secret save task: {err}"))?
+}
+
 fn load_api_key_sync(service: &str, account: &str) -> Result<String, String> {
     let entry = Entry::new(service, account);
     match entry {
@@ -100,5 +129,14 @@ fn save_api_key_sync(service: &str, account: &str, api_key: &str) -> Result<(), 
         }
     } else {
         save_fallback_secret(service, account, api_key)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn lm_keyring_service_name_is_stable() {
+        assert_eq!(super::lm_service_name("deepseek"), "shovel.lm.deepseek");
+        assert_eq!(super::lm_service_name("custom:abc"), "shovel.lm.custom:abc");
     }
 }

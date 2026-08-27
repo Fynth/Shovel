@@ -63,13 +63,16 @@ pub use semantic_cache::{CacheStats, SemanticCacheStore};
 /// (CodeStral and DeepSeek). API keys are stored in the system keyring
 /// with a fallback to the local secret store.
 pub use settings::{
+    lm_service_name,
     load_app_ui_settings,
     load_codestral_api_key,
     load_deepseek_api_key,
+    load_lm_api_key,
     load_sql_format_settings,
     save_app_ui_settings,
     save_codestral_api_key,
     save_deepseek_api_key,
+    save_lm_api_key,
     save_sql_format_settings,
 };
 

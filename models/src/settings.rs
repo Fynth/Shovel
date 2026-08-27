@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -510,6 +512,10 @@ pub struct AppUiSettings {
     pub mistral: OpenAiCompatSettings,
     #[serde(default)]
     pub ai_catalog: crate::AiCatalogSettings,
+    /// In-memory LM API keys keyed by provider id (`deepseek`, `custom:…`).
+    /// Never written to JSON — persisted via keyring `shovel.lm.<id>`.
+    #[serde(skip)]
+    pub lm_keys: BTreeMap<String, String>,
     pub ai_response_language: String,
     /// When `true`, inline AI completions are inserted automatically
     /// after the user stops typing for a short idle pause; otherwise
@@ -559,6 +565,7 @@ impl Default for AppUiSettings {
             xai: OpenAiCompatSettings::for_provider(OpenAiCompatProvider::XAi),
             mistral: OpenAiCompatSettings::for_provider(OpenAiCompatProvider::Mistral),
             ai_catalog: crate::AiCatalogSettings::default(),
+            lm_keys: BTreeMap::new(),
             ai_response_language: "English".to_string(),
             ai_auto_apply_completions: true,
             explorer: ExplorerViewSettings::default(),
@@ -1416,5 +1423,25 @@ mod tests {
         settings.deepseek.api_key = "sk-legacy".into();
         let dumped = serde_json::to_string(&settings).unwrap();
         assert!(!dumped.contains("sk-legacy"));
+    }
+
+    #[test]
+    fn lm_keys_are_omitted_from_json() {
+        let mut settings = AppUiSettings::default();
+        settings
+            .lm_keys
+            .insert("deepseek".into(), "sk-in-memory".into());
+        settings
+            .lm_keys
+            .insert("custom:abc".into(), "sk-custom".into());
+        let dumped = serde_json::to_value(&settings).unwrap();
+        let obj = dumped.as_object().expect("object");
+        assert!(
+            !obj.contains_key("lm_keys"),
+            "lm_keys must not appear in JSON"
+        );
+        let text = serde_json::to_string(&settings).unwrap();
+        assert!(!text.contains("sk-in-memory"));
+        assert!(!text.contains("sk-custom"));
     }
 }

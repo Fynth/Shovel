@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use futures_util::future::join_all;
 use models::{
     AppBehavior,
@@ -11,6 +13,17 @@ use models::{
     SqlFormatSettings,
     ThemeOverrides,
 };
+
+/// Legacy keyring service names for builtin LM providers (pre-`shovel.lm.<id>`).
+const LEGACY_LM_KEYRING: &[(&str, &str)] = &[
+    ("deepseek", "shovel.deepseek"),
+    ("openai", "shovel.openai"),
+    ("groq", "shovel.groq"),
+    ("openrouter", "shovel.openrouter"),
+    ("xai", "shovel.xai"),
+    ("mistral", "shovel.mistral"),
+    ("ollama", "shovel.ollama"),
+];
 
 #[derive(Clone, Debug, Default)]
 pub struct AppStartupSettings {
@@ -72,12 +85,8 @@ pub async fn load_app_startup_settings() -> Result<AppStartupSettings, String> {
         storage::save_codestral_api_key,
     )
     .await?;
-    hydrate_secret(
-        &mut ui_settings.deepseek.api_key,
-        storage::load_deepseek_api_key().await?,
-        storage::save_deepseek_api_key,
-    )
-    .await?;
+
+    hydrate_lm_keys(&mut ui_settings).await?;
 
     Ok(AppStartupSettings {
         ui_settings,
@@ -123,7 +132,7 @@ fn load_shovel_config() -> Result<Option<ShovelConfig>, String> {
 
 pub async fn save_app_ui_settings_with_secrets(settings: AppUiSettings) -> Result<(), String> {
     let codestral_api_key = settings.codestral.api_key.clone();
-    let deepseek_api_key = settings.deepseek.api_key.clone();
+    let lm_keys = collect_lm_keys_for_save(&settings);
 
     storage::save_app_ui_settings(settings)
         .await
@@ -135,8 +144,11 @@ pub async fn save_app_ui_settings_with_secrets(settings: AppUiSettings) -> Resul
     if let Err(err) = storage::save_codestral_api_key(codestral_api_key).await {
         secret_errors.push(format!("CodeStral: {err}"));
     }
-    if let Err(err) = storage::save_deepseek_api_key(deepseek_api_key).await {
-        secret_errors.push(format!("DeepSeek: {err}"));
+    for (provider_id, api_key) in lm_keys {
+        let service = storage::lm_service_name(&provider_id);
+        if let Err(err) = storage::save_lm_api_key(&service, api_key).await {
+            secret_errors.push(format!("{provider_id}: {err}"));
+        }
     }
 
     if secret_errors.is_empty() {
@@ -147,6 +159,88 @@ pub async fn save_app_ui_settings_with_secrets(settings: AppUiSettings) -> Resul
             secret_errors.join("; ")
         ))
     }
+}
+
+/// Copy legacy `shovel.<slug>` keys into `shovel.lm.<slug>` when the new
+/// service is empty, then hydrate `lm_keys` (and legacy vendor `api_key`
+/// fields for one-release UI compat).
+async fn hydrate_lm_keys(settings: &mut AppUiSettings) -> Result<(), String> {
+    for &(slug, legacy_service) in LEGACY_LM_KEYRING {
+        let new_service = storage::lm_service_name(slug);
+        let mut key = storage::load_lm_api_key(&new_service).await?;
+        if key.trim().is_empty() {
+            let legacy = storage::load_lm_api_key(legacy_service).await?;
+            if !legacy.trim().is_empty() {
+                // Best-effort copy; fallback inside save_lm_api_key handles
+                // dead keyrings. Do not fail startup if the copy warns.
+                let _ = storage::save_lm_api_key(&new_service, legacy.clone()).await;
+                key = legacy;
+            }
+        }
+        if key.trim().is_empty() {
+            // Plaintext leftover from older JSON (skip_serializing only).
+            key = legacy_vendor_api_key(settings, slug).to_string();
+            if !key.trim().is_empty() {
+                let _ = storage::save_lm_api_key(&new_service, key.clone()).await;
+            }
+        }
+        if !key.trim().is_empty() {
+            settings.lm_keys.insert(slug.to_string(), key.clone());
+            set_legacy_vendor_api_key(settings, slug, key);
+        }
+    }
+
+    for custom in &settings.ai_catalog.custom_native {
+        let service = storage::lm_service_name(&custom.id);
+        let key = storage::load_lm_api_key(&service).await?;
+        if !key.trim().is_empty() {
+            settings.lm_keys.insert(custom.id.clone(), key);
+        }
+    }
+
+    Ok(())
+}
+
+fn legacy_vendor_api_key<'a>(settings: &'a AppUiSettings, slug: &str) -> &'a str {
+    match slug {
+        "deepseek" => settings.deepseek.api_key.as_str(),
+        "openai" => settings.openai.api_key.as_str(),
+        "groq" => settings.groq.api_key.as_str(),
+        "openrouter" => settings.openrouter.api_key.as_str(),
+        "xai" => settings.xai.api_key.as_str(),
+        "mistral" => settings.mistral.api_key.as_str(),
+        "ollama" => settings.ollama.api_key.as_str(),
+        _ => "",
+    }
+}
+
+fn set_legacy_vendor_api_key(settings: &mut AppUiSettings, slug: &str, key: String) {
+    match slug {
+        "deepseek" => settings.deepseek.api_key = key,
+        "openai" => settings.openai.api_key = key,
+        "groq" => settings.groq.api_key = key,
+        "openrouter" => settings.openrouter.api_key = key,
+        "xai" => settings.xai.api_key = key,
+        "mistral" => settings.mistral.api_key = key,
+        "ollama" => settings.ollama.api_key = key,
+        _ => {}
+    }
+}
+
+/// Merge in-memory `lm_keys` with legacy vendor `api_key` fields so the
+/// settings modal (still editing per-vendor blobs) keeps working until Task 6.
+fn collect_lm_keys_for_save(settings: &AppUiSettings) -> BTreeMap<String, String> {
+    let mut keys = settings.lm_keys.clone();
+    for &(slug, _) in LEGACY_LM_KEYRING {
+        let legacy = legacy_vendor_api_key(settings, slug).to_string();
+        // Overlay when the UI still owns the vendor blob, including empty
+        // (clear). Skip untouched providers so a theme-only save does not
+        // delete unrelated keyring entries.
+        if !legacy.trim().is_empty() || keys.contains_key(slug) {
+            keys.insert(slug.to_string(), legacy);
+        }
+    }
+    keys
 }
 
 async fn hydrate_secret<Fut>(
