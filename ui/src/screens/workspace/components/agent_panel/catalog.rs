@@ -10,8 +10,9 @@ use models::{
     is_native_http_ready,
     native_http_provider_enabled,
     needs_acp_reconnect,
-    provider_group,
+    provider_backend,
     provider_kind,
+    provider_offers_chat,
     resolve_picker_models,
 };
 
@@ -545,7 +546,10 @@ fn model_display_label(settings: &AppUiSettings, active: &ActiveModel) -> String
 fn native_picker_sections(settings: &AppUiSettings) -> Vec<NativePickerSection> {
     let mut sections = Vec::new();
     for spec in builtin_providers() {
-        if spec.kind != AiProviderKind::NativeHttp {
+        if spec.kind() != AiProviderKind::NativeHttp {
+            continue;
+        }
+        if !provider_offers_chat(spec.slug, &settings.ai_catalog) {
             continue;
         }
         if !native_http_provider_enabled(&settings.ai_catalog, spec.slug) {
@@ -574,11 +578,14 @@ fn native_picker_sections(settings: &AppUiSettings) -> Vec<NativePickerSection> 
         sections.push(NativePickerSection {
             slug: spec.slug.to_string(),
             label: spec.label.to_string(),
-            supports_refresh: spec.supports_model_refresh,
+            supports_refresh: spec.supports_model_refresh(),
             models: resolve_picker_models(&builtin, extra, hidden),
         });
     }
     for custom in &settings.ai_catalog.custom_native {
+        if !provider_offers_chat(&custom.id, &settings.ai_catalog) {
+            continue;
+        }
         let label = if custom.name.trim().is_empty() {
             custom.id.clone()
         } else {
@@ -598,6 +605,11 @@ fn provider_switch_rows(settings: &AppUiSettings) -> Vec<ProviderSwitchRowData> 
     let active = settings.ai_catalog.active.as_ref();
     let mut rows = Vec::new();
     for spec in builtin_providers() {
+        if spec.kind() == AiProviderKind::NativeHttp
+            && !provider_offers_chat(spec.slug, &settings.ai_catalog)
+        {
+            continue;
+        }
         let extra = settings
             .ai_catalog
             .overrides
@@ -618,7 +630,7 @@ fn provider_switch_rows(settings: &AppUiSettings) -> Vec<ProviderSwitchRowData> 
                 label: (*label).to_string(),
             })
             .collect();
-        let models = if spec.kind == AiProviderKind::NativeHttp {
+        let models = if spec.kind() == AiProviderKind::NativeHttp {
             resolve_picker_models(&builtin, extra, hidden)
         } else {
             Vec::new()
@@ -632,16 +644,19 @@ fn provider_switch_rows(settings: &AppUiSettings) -> Vec<ProviderSwitchRowData> 
         rows.push(ProviderSwitchRowData {
             slug: spec.slug.to_string(),
             label: spec.label.to_string(),
-            group: provider_group(spec.slug),
-            kind: spec.kind,
+            group: spec.group,
+            kind: spec.kind(),
             enabled: native_http_provider_enabled(&settings.ai_catalog, spec.slug),
             api_key: settings.lm_api_key(spec.slug),
-            supports_refresh: spec.supports_model_refresh,
+            supports_refresh: spec.supports_model_refresh(),
             models,
             active_model,
         });
     }
     for custom in &settings.ai_catalog.custom_native {
+        if !provider_offers_chat(&custom.id, &settings.ai_catalog) {
+            continue;
+        }
         let label = if custom.name.trim().is_empty() {
             custom.id.clone()
         } else {
@@ -671,7 +686,7 @@ fn provider_switch_rows(settings: &AppUiSettings) -> Vec<ProviderSwitchRowData> 
 fn acp_picker_agents() -> Vec<(String, String)> {
     builtin_providers()
         .iter()
-        .filter(|spec| spec.kind == AiProviderKind::Acp)
+        .filter(|spec| spec.kind() == AiProviderKind::Acp)
         .map(|spec| (spec.slug.to_string(), spec.label.to_string()))
         .collect()
 }
@@ -719,8 +734,12 @@ fn refresh_picker_models(slug: String) {
     let settings = crate::app_state::APP_UI_SETTINGS();
     let base_url = native_base_url(&settings, &slug);
     let api_key = settings.lm_api_key(&slug);
+    let Some(backend) = provider_backend(&slug, &settings.ai_catalog) else {
+        crate::app_state::toast_error("This provider cannot refresh models.");
+        return;
+    };
     spawn(async move {
-        match services::refresh_provider_models(&slug, &base_url, &api_key).await {
+        match services::refresh_provider_models(backend, &base_url, &api_key).await {
             Ok(models) => merge_refreshed_models(&slug, models),
             Err(err) => crate::app_state::toast_error(err),
         }
@@ -844,8 +863,8 @@ async fn connect_acp_provider(
 
 #[cfg(test)]
 mod tests {
-    use super::{native_picker_sections, picker_trigger_label};
-    use models::{ActiveModel, AiProviderOverride, AppUiSettings};
+    use super::{native_picker_sections, picker_trigger_label, provider_switch_rows};
+    use models::{ActiveModel, AiProviderKind, AiProviderOverride, AppUiSettings};
 
     #[test]
     fn native_picker_skips_disabled_builtins() {
@@ -863,6 +882,33 @@ mod tests {
             .collect();
         assert!(slugs.iter().any(|slug| slug == "openai"));
         assert!(!slugs.iter().any(|slug| slug == "deepseek"));
+    }
+
+    #[test]
+    fn native_picker_omits_complete_only_backends() {
+        let mut settings = AppUiSettings::default();
+        for slug in ["openai", "codestral"] {
+            settings.ai_catalog.overrides.insert(
+                slug.into(),
+                AiProviderOverride {
+                    enabled: true,
+                    ..Default::default()
+                },
+            );
+        }
+        let slugs: Vec<_> = native_picker_sections(&settings)
+            .into_iter()
+            .map(|section| section.slug)
+            .collect();
+        assert!(slugs.iter().any(|slug| slug == "openai"));
+        assert!(!slugs.iter().any(|slug| slug == "codestral"));
+        let switch_slugs: Vec<_> = provider_switch_rows(&settings)
+            .into_iter()
+            .filter(|row| row.kind == AiProviderKind::NativeHttp)
+            .map(|row| row.slug)
+            .collect();
+        assert!(switch_slugs.iter().any(|slug| slug == "openai"));
+        assert!(!switch_slugs.iter().any(|slug| slug == "codestral"));
     }
 
     #[test]

@@ -1607,10 +1607,7 @@ mod tests {
 
     #[test]
     fn cancel_acp_prompt_succeeds_without_connected_agent_for_native() {
-        // Arming the process-wide native cancel flag races with the
-        // streaming test in `native_chat`, so take the same lock and
-        // disarm before returning.
-        let _guard = crate::native_chat::test_cancel_flag_lock().blocking_lock();
+        let _guard = crate::native_chat::native_chat_cancel_test_lock();
         let result = super::cancel_acp_prompt();
         assert!(result.is_ok());
         crate::native_chat::clear_native_chat_cancel();

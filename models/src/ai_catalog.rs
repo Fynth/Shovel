@@ -48,18 +48,25 @@ impl Default for AiProviderOverride {
     }
 }
 
+fn default_custom_backend() -> AiBackendId {
+    AiBackendId::OpenAiCompat
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CustomNativeProvider {
     pub id: String,
     pub name: String,
     pub base_url: String,
     pub models: Vec<AiModelEntry>,
+    #[serde(default = "default_custom_backend")]
+    pub backend: AiBackendId,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AiCatalogSettings {
     pub active: Option<ActiveModel>,
+    pub active_completion: Option<ActiveModel>,
     pub overrides: BTreeMap<String, AiProviderOverride>,
     pub custom_native: Vec<CustomNativeProvider>,
 }
@@ -91,12 +98,46 @@ impl AiProviderGroup {
 
 /// Catalog grouping for the agent-panel picker and provider popover.
 pub fn provider_group(provider: &str) -> AiProviderGroup {
-    match provider {
-        "opencode-go" | "opencode-zen" | "nanogpt" | "zai-coding" | "xiaomi-plan" =>
-            AiProviderGroup::Subscription,
-        "ollama" => AiProviderGroup::Local,
-        slug if slug.starts_with("acp:") => AiProviderGroup::Agent,
-        _ => AiProviderGroup::Cloud,
+    if let Some(spec) = builtin_providers()
+        .iter()
+        .find(|spec| spec.slug == provider)
+    {
+        return spec.group;
+    }
+    if provider.starts_with("acp:") {
+        AiProviderGroup::Agent
+    } else {
+        AiProviderGroup::Cloud
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AiBackendId {
+    OpenAiCompat,
+    Ollama,
+    MistralFim,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AiCapabilities {
+    pub chat: bool,
+    pub complete: bool,
+    pub list_models: bool,
+}
+
+pub fn backend_capabilities(id: AiBackendId) -> AiCapabilities {
+    match id {
+        AiBackendId::OpenAiCompat | AiBackendId::Ollama => AiCapabilities {
+            chat: true,
+            complete: true,
+            list_models: true,
+        },
+        AiBackendId::MistralFim => AiCapabilities {
+            chat: false,
+            complete: true,
+            list_models: false,
+        },
     }
 }
 
@@ -104,10 +145,26 @@ pub fn provider_group(provider: &str) -> AiProviderGroup {
 pub struct BuiltinProviderSpec {
     pub slug: &'static str,
     pub label: &'static str,
-    pub kind: AiProviderKind,
+    pub backend: Option<AiBackendId>,
+    pub group: AiProviderGroup,
     pub default_base_url: &'static str,
     pub builtin_models: &'static [(&'static str, &'static str)],
-    pub supports_model_refresh: bool,
+    pub supports_thinking: bool,
+}
+
+impl BuiltinProviderSpec {
+    pub fn kind(self) -> AiProviderKind {
+        if self.backend.is_some() {
+            AiProviderKind::NativeHttp
+        } else {
+            AiProviderKind::Acp
+        }
+    }
+
+    pub fn supports_model_refresh(self) -> bool {
+        self.backend
+            .is_some_and(|id| backend_capabilities(id).list_models)
+    }
 }
 
 pub fn builtin_providers() -> &'static [BuiltinProviderSpec] {
@@ -307,299 +364,361 @@ pub fn builtin_providers() -> &'static [BuiltinProviderSpec] {
         ("qwen/qwen3.8-max", "Qwen3.8 Max"),
         ("minimaxai/minimax-m3", "MiniMax M3"),
     ];
+    const CODESTRAL_MODELS: &[(&str, &str)] = &[("codestral-latest", "Codestral")];
     const EMPTY_MODELS: &[(&str, &str)] = &[];
 
+    const fn http(
+        slug: &'static str,
+        label: &'static str,
+        backend: AiBackendId,
+        group: AiProviderGroup,
+        default_base_url: &'static str,
+        builtin_models: &'static [(&'static str, &'static str)],
+        supports_thinking: bool,
+    ) -> BuiltinProviderSpec {
+        BuiltinProviderSpec {
+            slug,
+            label,
+            backend: Some(backend),
+            group,
+            default_base_url,
+            builtin_models,
+            supports_thinking,
+        }
+    }
+
+    const fn acp(slug: &'static str, label: &'static str) -> BuiltinProviderSpec {
+        BuiltinProviderSpec {
+            slug,
+            label,
+            backend: None,
+            group: AiProviderGroup::Agent,
+            default_base_url: "",
+            builtin_models: EMPTY_MODELS,
+            supports_thinking: false,
+        }
+    }
+
     const PROVIDERS: &[BuiltinProviderSpec] = &[
-        BuiltinProviderSpec {
-            slug: "deepseek",
-            label: "DeepSeek",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://api.deepseek.com",
-            builtin_models: DEEPSEEK_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "openai",
-            label: "OpenAI",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://api.openai.com",
-            builtin_models: OPENAI_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "groq",
-            label: "Groq",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://api.groq.com/openai",
-            builtin_models: GROQ_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "openrouter",
-            label: "OpenRouter",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://openrouter.ai/api",
-            builtin_models: OPENROUTER_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "xai",
-            label: "xAI",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://api.x.ai",
-            builtin_models: XAI_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "mistral",
-            label: "Mistral",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://api.mistral.ai",
-            builtin_models: MISTRAL_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "google",
-            label: "Google Gemini",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
-            builtin_models: GOOGLE_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "nvidia",
-            label: "NVIDIA NIM",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://integrate.api.nvidia.com/v1",
-            builtin_models: NVIDIA_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "ollama",
-            label: "Ollama",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "http://localhost:11434",
-            builtin_models: EMPTY_MODELS,
-            supports_model_refresh: true,
-        },
+        http(
+            "deepseek",
+            "DeepSeek",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://api.deepseek.com",
+            DEEPSEEK_MODELS,
+            true,
+        ),
+        http(
+            "openai",
+            "OpenAI",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://api.openai.com",
+            OPENAI_MODELS,
+            false,
+        ),
+        http(
+            "groq",
+            "Groq",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://api.groq.com/openai",
+            GROQ_MODELS,
+            false,
+        ),
+        http(
+            "openrouter",
+            "OpenRouter",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://openrouter.ai/api",
+            OPENROUTER_MODELS,
+            false,
+        ),
+        http(
+            "xai",
+            "xAI",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://api.x.ai",
+            XAI_MODELS,
+            false,
+        ),
+        http(
+            "mistral",
+            "Mistral",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://api.mistral.ai",
+            MISTRAL_MODELS,
+            false,
+        ),
+        http(
+            "google",
+            "Google Gemini",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            GOOGLE_MODELS,
+            false,
+        ),
+        http(
+            "nvidia",
+            "NVIDIA NIM",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://integrate.api.nvidia.com/v1",
+            NVIDIA_MODELS,
+            false,
+        ),
+        http(
+            "ollama",
+            "Ollama",
+            AiBackendId::Ollama,
+            AiProviderGroup::Local,
+            "http://localhost:11434",
+            EMPTY_MODELS,
+            false,
+        ),
         // Chinese OpenAI-compatible providers
-        BuiltinProviderSpec {
-            slug: "moonshot",
-            label: "Moonshot (Kimi)",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://api.moonshot.cn",
-            builtin_models: MOONSHOT_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "zhipu",
-            label: "Zhipu (GLM)",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://open.bigmodel.cn/api/paas/v4",
-            builtin_models: ZHIPU_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "zai",
-            label: "Z.AI",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://api.z.ai/api/paas/v4",
-            builtin_models: ZAI_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "zai-coding",
-            label: "Z.AI Coding Plan",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://api.z.ai/api/coding/paas/v4",
-            builtin_models: ZAI_CODING_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "qwen",
-            label: "Qwen (DashScope)",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://dashscope.aliyuncs.com/compatible-mode",
-            builtin_models: QWEN_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "siliconflow",
-            label: "SiliconFlow",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://api.siliconflow.cn",
-            builtin_models: SILICONFLOW_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "minimax",
-            label: "MiniMax",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://api.minimax.chat/v1",
-            builtin_models: MINIMAX_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "yi",
-            label: "01.AI (Yi)",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://api.lingyiwanwu.com",
-            builtin_models: YI_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "bytedance",
-            label: "ByteDance (Doubao)",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://ark.cn-beijing.volces.com/api/v3",
-            builtin_models: BYTEDANCE_MODELS,
-            supports_model_refresh: true,
-        },
+        http(
+            "moonshot",
+            "Moonshot (Kimi)",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://api.moonshot.cn",
+            MOONSHOT_MODELS,
+            false,
+        ),
+        http(
+            "zhipu",
+            "Zhipu (GLM)",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://open.bigmodel.cn/api/paas/v4",
+            ZHIPU_MODELS,
+            false,
+        ),
+        http(
+            "zai",
+            "Z.AI",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://api.z.ai/api/paas/v4",
+            ZAI_MODELS,
+            false,
+        ),
+        http(
+            "zai-coding",
+            "Z.AI Coding Plan",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Subscription,
+            "https://api.z.ai/api/coding/paas/v4",
+            ZAI_CODING_MODELS,
+            false,
+        ),
+        http(
+            "qwen",
+            "Qwen (DashScope)",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://dashscope.aliyuncs.com/compatible-mode",
+            QWEN_MODELS,
+            false,
+        ),
+        http(
+            "siliconflow",
+            "SiliconFlow",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://api.siliconflow.cn",
+            SILICONFLOW_MODELS,
+            false,
+        ),
+        http(
+            "minimax",
+            "MiniMax",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://api.minimax.chat/v1",
+            MINIMAX_MODELS,
+            false,
+        ),
+        http(
+            "yi",
+            "01.AI (Yi)",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://api.lingyiwanwu.com",
+            YI_MODELS,
+            false,
+        ),
+        http(
+            "bytedance",
+            "ByteDance (Doubao)",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://ark.cn-beijing.volces.com/api/v3",
+            BYTEDANCE_MODELS,
+            false,
+        ),
         // Gateways and OpenAI-compatible hosts (Claude/Gemini via OpenRouter)
-        BuiltinProviderSpec {
-            slug: "together",
-            label: "Together",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://api.together.xyz",
-            builtin_models: TOGETHER_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "fireworks",
-            label: "Fireworks",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://api.fireworks.ai/inference",
-            builtin_models: FIREWORKS_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "perplexity",
-            label: "Perplexity",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://api.perplexity.ai",
-            builtin_models: PERPLEXITY_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "cerebras",
-            label: "Cerebras",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://api.cerebras.ai",
-            builtin_models: CEREBRAS_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "deepinfra",
-            label: "DeepInfra",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://api.deepinfra.com",
-            builtin_models: DEEPINFRA_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "opencode-go",
-            label: "OpenCode Go",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://opencode.ai/zen/go",
-            builtin_models: OPENCODE_GO_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "opencode-zen",
-            label: "OpenCode Zen",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://opencode.ai/zen",
-            builtin_models: OPENCODE_ZEN_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "nanogpt",
-            label: "NanoGPT",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://nano-gpt.com/api",
-            builtin_models: NANOGPT_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "xiaomi",
-            label: "Xiaomi MiMo",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://api.xiaomimimo.com",
-            builtin_models: XIAOMI_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "xiaomi-plan",
-            label: "Xiaomi Token Plan",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://token-plan-cn.xiaomimimo.com",
-            builtin_models: XIAOMI_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "huggingface",
-            label: "Hugging Face",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://router.huggingface.co",
-            builtin_models: HUGGINGFACE_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "sambanova",
-            label: "SambaNova",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://api.sambanova.ai",
-            builtin_models: SAMBANOVA_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "hyperbolic",
-            label: "Hyperbolic",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://api.hyperbolic.xyz",
-            builtin_models: HYPERBOLIC_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "venice",
-            label: "Venice",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://api.venice.ai/api",
-            builtin_models: VENICE_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "longcat",
-            label: "LongCat",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://api.longcat.chat/openai",
-            builtin_models: LONGCAT_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "novita",
-            label: "Novita",
-            kind: AiProviderKind::NativeHttp,
-            default_base_url: "https://api.novita.ai/v3/openai",
-            builtin_models: NOVITA_MODELS,
-            supports_model_refresh: true,
-        },
-        BuiltinProviderSpec {
-            slug: "acp:opencode",
-            label: "OpenCode",
-            kind: AiProviderKind::Acp,
-            default_base_url: "",
-            builtin_models: EMPTY_MODELS,
-            supports_model_refresh: false,
-        },
-        BuiltinProviderSpec {
-            slug: "acp:codex",
-            label: "Codex",
-            kind: AiProviderKind::Acp,
-            default_base_url: "",
-            builtin_models: EMPTY_MODELS,
-            supports_model_refresh: false,
-        },
+        http(
+            "together",
+            "Together",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://api.together.xyz",
+            TOGETHER_MODELS,
+            false,
+        ),
+        http(
+            "fireworks",
+            "Fireworks",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://api.fireworks.ai/inference",
+            FIREWORKS_MODELS,
+            false,
+        ),
+        http(
+            "perplexity",
+            "Perplexity",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://api.perplexity.ai",
+            PERPLEXITY_MODELS,
+            false,
+        ),
+        http(
+            "cerebras",
+            "Cerebras",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://api.cerebras.ai",
+            CEREBRAS_MODELS,
+            false,
+        ),
+        http(
+            "deepinfra",
+            "DeepInfra",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://api.deepinfra.com",
+            DEEPINFRA_MODELS,
+            false,
+        ),
+        http(
+            "opencode-go",
+            "OpenCode Go",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Subscription,
+            "https://opencode.ai/zen/go",
+            OPENCODE_GO_MODELS,
+            false,
+        ),
+        http(
+            "opencode-zen",
+            "OpenCode Zen",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Subscription,
+            "https://opencode.ai/zen",
+            OPENCODE_ZEN_MODELS,
+            false,
+        ),
+        http(
+            "nanogpt",
+            "NanoGPT",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Subscription,
+            "https://nano-gpt.com/api",
+            NANOGPT_MODELS,
+            false,
+        ),
+        http(
+            "xiaomi",
+            "Xiaomi MiMo",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://api.xiaomimimo.com",
+            XIAOMI_MODELS,
+            false,
+        ),
+        http(
+            "xiaomi-plan",
+            "Xiaomi Token Plan",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Subscription,
+            "https://token-plan-cn.xiaomimimo.com",
+            XIAOMI_MODELS,
+            false,
+        ),
+        http(
+            "huggingface",
+            "Hugging Face",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://router.huggingface.co",
+            HUGGINGFACE_MODELS,
+            false,
+        ),
+        http(
+            "sambanova",
+            "SambaNova",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://api.sambanova.ai",
+            SAMBANOVA_MODELS,
+            false,
+        ),
+        http(
+            "hyperbolic",
+            "Hyperbolic",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://api.hyperbolic.xyz",
+            HYPERBOLIC_MODELS,
+            false,
+        ),
+        http(
+            "venice",
+            "Venice",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://api.venice.ai/api",
+            VENICE_MODELS,
+            false,
+        ),
+        http(
+            "longcat",
+            "LongCat",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://api.longcat.chat/openai",
+            LONGCAT_MODELS,
+            false,
+        ),
+        http(
+            "novita",
+            "Novita",
+            AiBackendId::OpenAiCompat,
+            AiProviderGroup::Cloud,
+            "https://api.novita.ai/v3/openai",
+            NOVITA_MODELS,
+            false,
+        ),
+        http(
+            "codestral",
+            "Codestral",
+            AiBackendId::MistralFim,
+            AiProviderGroup::Cloud,
+            "https://codestral.mistral.ai",
+            CODESTRAL_MODELS,
+            false,
+        ),
+        acp("acp:opencode", "OpenCode"),
+        acp("acp:codex", "Codex"),
     ];
 
     PROVIDERS
@@ -633,7 +752,7 @@ pub fn provider_kind(provider: &str) -> Option<AiProviderKind> {
         .iter()
         .find(|spec| spec.slug == provider)
     {
-        return Some(spec.kind);
+        return Some(spec.kind());
     }
     if provider.starts_with("custom:") {
         return Some(AiProviderKind::NativeHttp);
@@ -687,7 +806,63 @@ pub fn needs_acp_reconnect(from: &str, to: &str) -> bool {
             && from != to)
 }
 
-/// Remove a custom native provider. If it was the active model, clear `active`.
+pub fn provider_backend(provider: &str, catalog: &AiCatalogSettings) -> Option<AiBackendId> {
+    if let Some(spec) = builtin_providers()
+        .iter()
+        .find(|spec| spec.slug == provider)
+    {
+        return spec.backend;
+    }
+    if let Some(custom) = catalog
+        .custom_native
+        .iter()
+        .find(|custom| custom.id == provider)
+    {
+        return Some(custom.backend);
+    }
+    if provider.starts_with("custom:") {
+        return Some(AiBackendId::OpenAiCompat);
+    }
+    None
+}
+
+pub fn provider_offers_chat(provider: &str, catalog: &AiCatalogSettings) -> bool {
+    provider_backend(provider, catalog).is_some_and(|id| backend_capabilities(id).chat)
+}
+
+pub fn provider_offers_complete(provider: &str, catalog: &AiCatalogSettings) -> bool {
+    provider_backend(provider, catalog).is_some_and(|id| backend_capabilities(id).complete)
+}
+
+pub fn completion_picker_ids(catalog: &AiCatalogSettings) -> Vec<String> {
+    let mut ids = Vec::new();
+    for spec in builtin_providers() {
+        if provider_offers_complete(spec.slug, catalog)
+            && native_http_provider_enabled(catalog, spec.slug)
+        {
+            ids.push(spec.slug.to_string());
+        }
+    }
+    for custom in &catalog.custom_native {
+        if provider_offers_complete(&custom.id, catalog) {
+            ids.push(custom.id.clone());
+        }
+    }
+    ids
+}
+
+pub fn chat_picker_native_ids(catalog: &AiCatalogSettings) -> Vec<String> {
+    builtin_providers()
+        .iter()
+        .filter(|spec| {
+            provider_offers_chat(spec.slug, catalog)
+                && native_http_provider_enabled(catalog, spec.slug)
+        })
+        .map(|spec| spec.slug.to_string())
+        .collect()
+}
+
+/// Remove a custom native provider. Clears `active` / `active_completion` when they point at it.
 pub fn delete_custom_provider(cat: &mut AiCatalogSettings, id: &str) {
     cat.custom_native.retain(|provider| provider.id != id);
     if cat
@@ -696,6 +871,13 @@ pub fn delete_custom_provider(cat: &mut AiCatalogSettings, id: &str) {
         .is_some_and(|active| active.provider == id)
     {
         cat.active = None;
+    }
+    if cat
+        .active_completion
+        .as_ref()
+        .is_some_and(|active| active.provider == id)
+    {
+        cat.active_completion = None;
     }
 }
 
@@ -722,6 +904,7 @@ mod tests {
                 provider: "custom:1".into(),
                 model: "m".into(),
             }),
+            active_completion: None,
             overrides: BTreeMap::new(),
             custom_native: vec![CustomNativeProvider {
                 id: "custom:1".into(),
@@ -731,11 +914,75 @@ mod tests {
                     id: "m".into(),
                     label: String::new(),
                 }],
+                backend: AiBackendId::OpenAiCompat,
             }],
         };
         delete_custom_provider(&mut cat, "custom:1");
         assert!(cat.custom_native.is_empty());
         assert!(cat.active.is_none());
+    }
+
+    #[test]
+    fn default_custom_backend_is_openai_compat() {
+        let json = r#"{"id":"custom:1","name":"Mine","base_url":"http://localhost","models":[]}"#;
+        let custom: CustomNativeProvider = serde_json::from_str(json).unwrap();
+        assert_eq!(custom.backend, AiBackendId::OpenAiCompat);
+    }
+
+    #[test]
+    fn provider_backend_reads_spec_and_custom() {
+        let mut cat = AiCatalogSettings::default();
+        cat.custom_native.push(CustomNativeProvider {
+            id: "custom:1".into(),
+            name: "Mine".into(),
+            base_url: "http://localhost".into(),
+            models: vec![],
+            backend: AiBackendId::OpenAiCompat,
+        });
+        assert_eq!(
+            provider_backend("deepseek", &cat),
+            Some(AiBackendId::OpenAiCompat)
+        );
+        assert_eq!(provider_backend("ollama", &cat), Some(AiBackendId::Ollama));
+        assert_eq!(
+            provider_backend("codestral", &cat),
+            Some(AiBackendId::MistralFim)
+        );
+        assert_eq!(
+            provider_backend("custom:1", &cat),
+            Some(AiBackendId::OpenAiCompat)
+        );
+        assert_eq!(provider_backend("acp:codex", &cat), None);
+        assert!(provider_offers_chat("openai", &cat));
+        assert!(!provider_offers_chat("codestral", &cat));
+        assert!(provider_offers_complete("codestral", &cat));
+        assert!(!provider_offers_complete("acp:codex", &cat));
+    }
+
+    #[test]
+    fn delete_custom_clears_completion_slot() {
+        let mut cat = AiCatalogSettings {
+            active: Some(ActiveModel {
+                provider: "openai".into(),
+                model: "m".into(),
+            }),
+            active_completion: Some(ActiveModel {
+                provider: "custom:1".into(),
+                model: "m".into(),
+            }),
+            overrides: BTreeMap::new(),
+            custom_native: vec![CustomNativeProvider {
+                id: "custom:1".into(),
+                name: "Mine".into(),
+                base_url: "http://localhost".into(),
+                models: vec![],
+                backend: AiBackendId::OpenAiCompat,
+            }],
+        };
+        delete_custom_provider(&mut cat, "custom:1");
+        assert!(cat.custom_native.is_empty());
+        assert_eq!(cat.active.as_ref().unwrap().provider, "openai");
+        assert!(cat.active_completion.is_none());
     }
 
     #[test]
@@ -778,6 +1025,27 @@ mod tests {
         let got = resolve_picker_models(&builtin, &extra, &hidden);
         let ids: Vec<_> = got.iter().map(|m| m.id.as_str()).collect();
         assert_eq!(ids, ["gpt-4o", "my-ft"]);
+    }
+
+    #[test]
+    fn pickers_split_chat_and_complete() {
+        let mut cat = AiCatalogSettings::default();
+        for slug in ["openai", "codestral", "ollama"] {
+            cat.overrides.insert(
+                slug.into(),
+                AiProviderOverride {
+                    enabled: true,
+                    ..Default::default()
+                },
+            );
+        }
+        let complete = completion_picker_ids(&cat);
+        assert!(complete.contains(&"codestral".into()));
+        assert!(complete.contains(&"openai".into()));
+        let chat = chat_picker_native_ids(&cat);
+        assert!(chat.contains(&"openai".into()));
+        assert!(!chat.contains(&"codestral".into()));
+        assert!(!chat.iter().any(|id| id.starts_with("acp:")));
     }
 
     #[test]
@@ -949,13 +1217,80 @@ mod tests {
     }
 
     #[test]
-    fn provider_group_classifies_subscription_and_agents() {
+    fn backend_capabilities_match_protocol() {
+        let openai = backend_capabilities(AiBackendId::OpenAiCompat);
+        assert!(openai.chat && openai.complete && openai.list_models);
+        let ollama = backend_capabilities(AiBackendId::Ollama);
+        assert!(ollama.chat && ollama.complete && ollama.list_models);
+        let fim = backend_capabilities(AiBackendId::MistralFim);
+        assert!(!fim.chat && fim.complete && !fim.list_models);
+    }
+
+    #[test]
+    fn codestral_is_mistral_fim_complete_only() {
+        let spec = builtin_providers()
+            .iter()
+            .find(|p| p.slug == "codestral")
+            .expect("codestral");
+        assert_eq!(spec.backend, Some(AiBackendId::MistralFim));
+        assert_eq!(spec.group, AiProviderGroup::Cloud);
+        assert_eq!(spec.default_base_url, "https://codestral.mistral.ai");
+        assert!(!spec.supports_thinking);
+        assert_eq!(spec.kind(), AiProviderKind::NativeHttp);
+        assert!(!spec.supports_model_refresh());
+        assert!(
+            spec.builtin_models
+                .iter()
+                .any(|(id, _)| *id == "codestral-latest")
+        );
+    }
+
+    #[test]
+    fn spec_fields_replace_slug_tables() {
+        let deepseek = builtin_providers()
+            .iter()
+            .find(|p| p.slug == "deepseek")
+            .unwrap();
+        assert_eq!(deepseek.backend, Some(AiBackendId::OpenAiCompat));
+        assert!(deepseek.supports_thinking);
+        assert_eq!(deepseek.group, AiProviderGroup::Cloud);
+
+        let ollama = builtin_providers()
+            .iter()
+            .find(|p| p.slug == "ollama")
+            .unwrap();
+        assert_eq!(ollama.backend, Some(AiBackendId::Ollama));
+        assert_eq!(ollama.group, AiProviderGroup::Local);
+        assert!(!ollama.supports_thinking);
+
+        let go = builtin_providers()
+            .iter()
+            .find(|p| p.slug == "opencode-go")
+            .unwrap();
+        assert_eq!(go.group, AiProviderGroup::Subscription);
+        assert_eq!(go.backend, Some(AiBackendId::OpenAiCompat));
+
+        let acp = builtin_providers()
+            .iter()
+            .find(|p| p.slug == "acp:codex")
+            .unwrap();
+        assert_eq!(acp.backend, None);
+        assert_eq!(acp.kind(), AiProviderKind::Acp);
+        assert_eq!(acp.group, AiProviderGroup::Agent);
+        assert!(!acp.supports_model_refresh());
+    }
+
+    #[test]
+    fn provider_group_reads_spec_not_slug_table() {
         assert_eq!(provider_group("opencode-go"), AiProviderGroup::Subscription);
         assert_eq!(provider_group("nanogpt"), AiProviderGroup::Subscription);
         assert_eq!(provider_group("zai-coding"), AiProviderGroup::Subscription);
+        assert_eq!(provider_group("xiaomi-plan"), AiProviderGroup::Subscription);
         assert_eq!(provider_group("openai"), AiProviderGroup::Cloud);
         assert_eq!(provider_group("ollama"), AiProviderGroup::Local);
         assert_eq!(provider_group("acp:codex"), AiProviderGroup::Agent);
+        assert_eq!(provider_group("acp:unknown"), AiProviderGroup::Agent);
+        assert_eq!(provider_group("custom:1"), AiProviderGroup::Cloud);
     }
 
     #[test]

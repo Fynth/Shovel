@@ -2,6 +2,8 @@ use crate::{components::tooltip_target::TooltipTarget, screens::SqlFormatSetting
 use dioxus::prelude::*;
 use models::{
     ActiveModel,
+    AiBackendId,
+    AiCatalogSettings,
     AiModelEntry,
     AiProviderKind,
     AppThemePreference,
@@ -13,7 +15,10 @@ use models::{
     UiDensity,
     WorkspaceSplitMode,
     builtin_providers,
+    completion_picker_ids,
     normalize_native_chat_url,
+    provider_backend,
+    provider_offers_chat,
     resolve_picker_models,
 };
 use std::collections::BTreeMap;
@@ -954,7 +959,7 @@ pub(super) fn LanguageModelsSection(props: SettingsSectionProps) -> Element {
     let native_specs: Vec<BuiltinProviderSpec> = builtin_providers()
         .iter()
         .copied()
-        .filter(|spec| spec.kind == AiProviderKind::NativeHttp)
+        .filter(|spec| spec.kind() == AiProviderKind::NativeHttp)
         .collect();
     let active_label = match settings.ai_catalog.active.as_ref() {
         Some(active) if !active.model.trim().is_empty() => {
@@ -979,6 +984,9 @@ pub(super) fn LanguageModelsSection(props: SettingsSectionProps) -> Element {
                 {
                     native_http_provider_card(spec, &settings, section, on_change, extra_drafts)
                 }
+            }
+            {
+                sql_autocomplete_group(&settings, section, on_change)
             }
             div { class: "settings-modal__group",
                 span { class: "settings-modal__group-title", "Custom providers" }
@@ -1040,6 +1048,7 @@ pub(super) fn LanguageModelsSection(props: SettingsSectionProps) -> Element {
                                     name,
                                     base_url,
                                     models: Vec::new(),
+                                    backend: AiBackendId::OpenAiCompat,
                                 });
                             });
                             custom_name.set(String::new());
@@ -1547,8 +1556,12 @@ fn refresh_catalog_models(
     let settings = section.peek().settings.clone();
     let api_key = settings.lm_api_key(&slug);
     let base_url = catalog_refresh_base_url(&settings, &slug, &default_base);
+    let Some(backend) = provider_backend(&slug, &settings.ai_catalog) else {
+        crate::app_state::toast_error("This provider cannot refresh models.");
+        return;
+    };
     spawn(async move {
-        match services::refresh_provider_models(&slug, &base_url, &api_key).await {
+        match services::refresh_provider_models(backend, &base_url, &api_key).await {
             Ok(models) => {
                 let sql = section.peek().sql_settings.clone();
                 let mut next = section.peek().settings.clone();
@@ -1563,6 +1576,177 @@ fn refresh_catalog_models(
 
 fn extra_draft_value(drafts: Signal<BTreeMap<String, String>>, slug: &str) -> String {
     drafts.read().get(slug).cloned().unwrap_or_default()
+}
+
+fn completion_picker_label(settings: &AppUiSettings, id: &str) -> String {
+    if let Some(spec) = builtin_providers().iter().find(|spec| spec.slug == id) {
+        return spec.label.to_string();
+    }
+    settings
+        .ai_catalog
+        .custom_native
+        .iter()
+        .find(|custom| custom.id == id)
+        .map(|custom| {
+            if custom.name.trim().is_empty() {
+                custom.id.clone()
+            } else {
+                custom.name.clone()
+            }
+        })
+        .unwrap_or_else(|| id.to_string())
+}
+
+fn resolved_models_for_provider(settings: &AppUiSettings, provider: &str) -> Vec<AiModelEntry> {
+    if let Some(spec) = builtin_providers()
+        .iter()
+        .find(|spec| spec.slug == provider)
+    {
+        let builtin: Vec<AiModelEntry> = spec
+            .builtin_models
+            .iter()
+            .map(|(id, label)| AiModelEntry {
+                id: (*id).to_string(),
+                label: (*label).to_string(),
+            })
+            .collect();
+        let extra = settings
+            .ai_catalog
+            .overrides
+            .get(provider)
+            .map(|over| over.extra_models.as_slice())
+            .unwrap_or(&[]);
+        let hidden = settings
+            .ai_catalog
+            .overrides
+            .get(provider)
+            .map(|over| over.hidden_builtin_ids.as_slice())
+            .unwrap_or(&[]);
+        return resolve_picker_models(&builtin, extra, hidden);
+    }
+    settings
+        .ai_catalog
+        .custom_native
+        .iter()
+        .find(|custom| custom.id == provider)
+        .map(|custom| custom.models.clone())
+        .unwrap_or_default()
+}
+
+fn sql_autocomplete_group(
+    settings: &AppUiSettings,
+    section: Signal<SettingsSectionProps>,
+    on_change: Callback<(AppUiSettings, SqlFormatSettings)>,
+) -> Element {
+    let provider_options: Vec<(String, String)> = completion_picker_ids(&settings.ai_catalog)
+        .into_iter()
+        .map(|id| {
+            let label = completion_picker_label(settings, &id);
+            (id, label)
+        })
+        .collect();
+    let selected_provider = settings
+        .ai_catalog
+        .active_completion
+        .as_ref()
+        .map(|active| active.provider.clone())
+        .unwrap_or_default();
+    let selected_model = settings
+        .ai_catalog
+        .active_completion
+        .as_ref()
+        .map(|active| active.model.clone())
+        .unwrap_or_default();
+    let model_options = if selected_provider.is_empty() {
+        Vec::new()
+    } else {
+        resolved_models_for_provider(settings, &selected_provider)
+    };
+    let provider_empty = selected_provider.is_empty();
+
+    rsx! {
+        div { class: "settings-modal__group",
+            span { class: "settings-modal__group-title", "SQL autocomplete" }
+            p {
+                class: "settings-modal__section-hint",
+                "Ghost text uses this slot, not the chat model. Enable Codestral on its Language models card above — there is no separate CodeStral section."
+            }
+            div { class: "settings-modal__grid",
+                div { class: "field",
+                    span { class: "field__label", "Provider" }
+                    select {
+                        class: "input",
+                        value: selected_provider.clone(),
+                        onchange: move |event| {
+                            let provider = event.value();
+                            if provider.is_empty() {
+                                emit_ui_update(section, on_change, |next| {
+                                    next.ai_catalog.active_completion = None;
+                                });
+                                return;
+                            }
+                            let snapshot = section.peek().settings.clone();
+                            let model = resolved_models_for_provider(&snapshot, &provider)
+                                .into_iter()
+                                .next()
+                                .map(|entry| entry.id)
+                                .unwrap_or_default();
+                            emit_ui_update(section, on_change, move |next| {
+                                next.ai_catalog.active_completion = Some(ActiveModel {
+                                    provider,
+                                    model,
+                                });
+                            });
+                        },
+                        option {
+                            value: "",
+                            "Off"
+                        }
+                        for (id, label) in provider_options {
+                            option {
+                                value: id,
+                                {label}
+                            }
+                        }
+                    }
+                }
+                div { class: "field",
+                    span { class: "field__label", "Model" }
+                    select {
+                        class: "input",
+                        value: selected_model.clone(),
+                        disabled: provider_empty,
+                        onchange: move |event| {
+                            let model = event.value();
+                            let provider = section
+                                .peek()
+                                .settings
+                                .ai_catalog
+                                .active_completion
+                                .as_ref()
+                                .map(|active| active.provider.clone())
+                                .unwrap_or_default();
+                            if provider.is_empty() {
+                                return;
+                            }
+                            emit_ui_update(section, on_change, move |next| {
+                                next.ai_catalog.active_completion = Some(ActiveModel {
+                                    provider,
+                                    model,
+                                });
+                            });
+                        },
+                        for model in model_options {
+                            option {
+                                value: "{model.id}",
+                                {model.display_label().to_string()}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn native_http_provider_card(
@@ -1752,7 +1936,7 @@ fn native_http_provider_card(
                     },
                     "Add extra model"
                 }
-                if spec.supports_model_refresh {
+                if spec.supports_model_refresh() {
                     button {
                         class: "button button--ghost button--small",
                         onclick: move |_| {
@@ -1769,6 +1953,10 @@ fn native_http_provider_card(
             }
         }
     }
+}
+
+fn show_use_as_chat_default(provider: &str, catalog: &AiCatalogSettings) -> bool {
+    provider_offers_chat(provider, catalog)
 }
 
 fn builtin_model_row(
@@ -1791,6 +1979,7 @@ fn builtin_model_row(
     let hide_id = model_id.clone();
     let default_slug = slug;
     let default_id = model_id.clone();
+    let offers_chat = show_use_as_chat_default(&default_slug, &settings.ai_catalog);
     let is_default = settings
         .ai_catalog
         .active
@@ -1832,16 +2021,18 @@ fn builtin_model_row(
                 }
                 span { "Hide" }
             }
-            button {
-                class: "button button--ghost button--small",
-                onclick: move |_| {
-                    let provider = default_slug.clone();
-                    let model = default_id.clone();
-                    emit_ui_update(section, on_change, move |next| {
-                        next.ai_catalog.active = Some(ActiveModel { provider, model });
-                    });
-                },
-                {default_label}
+            if offers_chat {
+                button {
+                    class: "button button--ghost button--small",
+                    onclick: move |_| {
+                        let provider = default_slug.clone();
+                        let model = default_id.clone();
+                        emit_ui_update(section, on_change, move |next| {
+                            next.ai_catalog.active = Some(ActiveModel { provider, model });
+                        });
+                    },
+                    {default_label}
+                }
             }
         }
     }
@@ -1861,6 +2052,7 @@ fn extra_model_row(
     let default_id = model_id.clone();
     let remove_slug = slug;
     let remove_id = model_id.clone();
+    let offers_chat = show_use_as_chat_default(&default_slug, &settings.ai_catalog);
     let is_default = settings
         .ai_catalog
         .active
@@ -1875,16 +2067,18 @@ fn extra_model_row(
     rsx! {
         div { class: "settings-modal__grid",
             span { class: "field__label", {display} }
-            button {
-                class: "button button--ghost button--small",
-                onclick: move |_| {
-                    let provider = default_slug.clone();
-                    let model = default_id.clone();
-                    emit_ui_update(section, on_change, move |next| {
-                        next.ai_catalog.active = Some(ActiveModel { provider, model });
-                    });
-                },
-                {default_label}
+            if offers_chat {
+                button {
+                    class: "button button--ghost button--small",
+                    onclick: move |_| {
+                        let provider = default_slug.clone();
+                        let model = default_id.clone();
+                        emit_ui_update(section, on_change, move |next| {
+                            next.ai_catalog.active = Some(ActiveModel { provider, model });
+                        });
+                    },
+                    {default_label}
+                }
             }
             button {
                 class: "button button--ghost button--small",
@@ -2072,16 +2266,18 @@ fn custom_native_provider_card(
                     },
                     "Refresh"
                 }
-                button {
-                    class: "button button--ghost button--small",
-                    onclick: move |_| {
-                        let provider = default_id.clone();
-                        let model = default_model.clone();
-                        emit_ui_update(section, on_change, move |next| {
-                            next.ai_catalog.active = Some(ActiveModel { provider, model });
-                        });
-                    },
-                    "Use as default"
+                if show_use_as_chat_default(&id, &settings.ai_catalog) {
+                    button {
+                        class: "button button--ghost button--small",
+                        onclick: move |_| {
+                            let provider = default_id.clone();
+                            let model = default_model.clone();
+                            emit_ui_update(section, on_change, move |next| {
+                                next.ai_catalog.active = Some(ActiveModel { provider, model });
+                            });
+                        },
+                        "Use as default"
+                    }
                 }
                 button {
                     class: "button button--ghost button--small",
@@ -2145,5 +2341,12 @@ mod tests {
         assert_eq!(parse_u32_in_range("5", 50, 10, 1000), 10);
         assert_eq!(parse_u32_in_range("9999", 50, 10, 1000), 1000);
         assert_eq!(parse_u32_in_range("250", 50, 10, 1000), 250);
+    }
+
+    #[test]
+    fn use_as_chat_default_hidden_for_complete_only_codestral() {
+        let catalog = AiCatalogSettings::default();
+        assert!(!show_use_as_chat_default("codestral", &catalog));
+        assert!(show_use_as_chat_default("openai", &catalog));
     }
 }

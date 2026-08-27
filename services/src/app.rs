@@ -25,6 +25,7 @@ const LEGACY_LM_KEYRING: &[(&str, &str)] = &[
     ("xai", "shovel.xai"),
     ("mistral", "shovel.mistral"),
     ("ollama", "shovel.ollama"),
+    ("codestral", "shovel.codestral"),
 ];
 
 #[derive(Clone, Debug, Default)]
@@ -169,7 +170,7 @@ pub async fn save_app_ui_settings_with_secrets(settings: AppUiSettings) -> Resul
 async fn hydrate_lm_keys(settings: &mut AppUiSettings) -> Result<(), String> {
     let mut ids: Vec<String> = builtin_providers()
         .iter()
-        .filter(|spec| spec.kind == AiProviderKind::NativeHttp)
+        .filter(|spec| spec.kind() == AiProviderKind::NativeHttp)
         .map(|spec| spec.slug.to_string())
         .collect();
     for custom in &settings.ai_catalog.custom_native {
@@ -327,6 +328,15 @@ pub async fn connect_and_save_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_keyring_includes_codestral() {
+        assert!(
+            LEGACY_LM_KEYRING
+                .iter()
+                .any(|(slug, service)| *slug == "codestral" && *service == "shovel.codestral")
+        );
+    }
 
     #[test]
     fn collect_lm_keys_does_not_let_legacy_override_explicit_entry() {

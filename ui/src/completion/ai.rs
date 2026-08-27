@@ -1,4 +1,4 @@
-use models::{AppUiSettings, builtin_providers, normalize_native_chat_url};
+use models::{AppUiSettings, builtin_providers, normalize_native_chat_url, provider_backend};
 use services::{CompletionToken, NativeChatMessage, NativeChatRequest};
 
 pub fn stream_sql_ghost(
@@ -8,19 +8,25 @@ pub fn stream_sql_ghost(
     schema_context: String,
     avoid: &[String],
 ) -> tokio::sync::mpsc::UnboundedReceiver<CompletionToken> {
-    if !settings.sql_ghost_ready() {
+    let provider_slug = settings.sql_completion.provider.clone();
+    let Some(backend) = provider_backend(&provider_slug, &settings.ai_catalog)
+        .filter(|_| settings.sql_ghost_ready())
+    else {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let _ = tx.send(CompletionToken::Done);
         return rx;
-    }
+    };
 
-    let provider_slug = settings.sql_completion.provider.clone();
     let req = NativeChatRequest {
         base_url: ghost_base_url(settings, &provider_slug),
         api_key: settings.lm_api_key(&provider_slug),
         model: settings.sql_completion.model.clone(),
         messages: ghost_messages(&prefix, suffix.as_deref(), &schema_context, avoid),
-        provider_slug,
+        backend,
+        supports_thinking: builtin_providers()
+            .iter()
+            .find(|spec| spec.slug == provider_slug)
+            .is_some_and(|spec| spec.supports_thinking),
         thinking_enabled: false,
         reasoning_effort: String::new(),
     };

@@ -124,12 +124,14 @@ pub use storage::{
 // --- ACP agent runtime ---
 
 pub use acp::{
+    CompleteRequest,
     CompletionToken,
     NativeChatMessage,
     NativeChatRequest,
     build_embedded_deepseek_launch,
     build_embedded_ollama_launch,
     cancel_acp_prompt,
+    complete_sql,
     connect_acp_agent,
     disconnect_acp_agent,
     drain_acp_events,

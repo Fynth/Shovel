@@ -16,12 +16,14 @@ use crate::{
         APP_GLOBAL_SEARCH_REQUEST,
         APP_GLOBAL_SEARCH_REQUEST_KIND,
         APP_GLOBAL_SEARCH_REQUEST_PAYLOAD,
+        APP_INSPECTOR_WIDTH,
         APP_SHOW_AGENT_PANEL,
         APP_SHOW_BOTTOM_PANEL,
         APP_SHOW_CONNECTIONS,
         APP_SHOW_EXPLORER,
         APP_SHOW_HISTORY,
         APP_SHOW_SAVED_QUERIES,
+        APP_SIDEBAR_WIDTH,
         APP_SQL_FORMAT_SETTINGS,
         APP_STATE,
         APP_THEME,
@@ -56,10 +58,15 @@ use crate::{
             match_key_combination,
         },
         open_global_search_with_snapshots,
+        preview_bottom_panel_height,
+        preview_inspector_width,
+        preview_sidebar_width,
         request_focus_agent_composer,
         request_focus_editor,
         request_focus_filter_panel,
         set_bottom_panel_height,
+        set_inspector_width,
+        set_sidebar_width,
         show_toast,
         toggle_panel_collapsed,
         update_ui_settings,
@@ -93,20 +100,17 @@ use self::{
         TabsManager,
     },
     helpers::{
-        BOTTOM_PANEL_MAX_HEIGHT,
-        BOTTOM_PANEL_MIN_HEIGHT,
+        AxisDrag,
         DockDropTarget,
-        INSPECTOR_MAX_WIDTH,
-        INSPECTOR_MIN_WIDTH,
-        SIDEBAR_MAX_WIDTH,
-        SIDEBAR_MIN_WIDTH,
         WORKSPACE_ROOT_ID,
         apply_tool_panel_drop,
+        drag_bottom_height,
+        drag_inspector_width,
+        drag_sidebar_width,
         should_render_explorer_status,
         tool_panel_class,
         visible_tool_panels,
-        workspace_resize_script,
-        workspace_vertical_resize_script,
+        workspace_layout_style,
     },
     hooks::{
         AcpState,
@@ -534,12 +538,9 @@ fn WorkspaceBody(
     show_bottom_panel: bool,
     sidebar_panels: Vec<WorkspaceToolPanel>,
     inspector_panels: Vec<WorkspaceToolPanel>,
-    sidebar_width: Signal<f64>,
-    mut sidebar_resize_active: Signal<bool>,
-    inspector_width: Signal<f64>,
-    mut inspector_resize_active: Signal<bool>,
-    bottom_panel_height: Signal<f64>,
-    mut bottom_resize_active: Signal<bool>,
+    mut sidebar_resize: Signal<Option<AxisDrag>>,
+    mut inspector_resize: Signal<Option<AxisDrag>>,
+    mut bottom_resize: Signal<Option<AxisDrag>>,
     mut bottom_active_tab: Signal<BottomPanelTab>,
     store: TabStore,
     history: Signal<Vec<QueryHistoryItem>>,
@@ -600,7 +601,7 @@ fn WorkspaceBody(
                 }
             }
             div {
-                class: if sidebar_resize_active() {
+                class: if sidebar_resize().is_some() {
                     "workspace__resize-handle workspace__resize-handle--active"
                 } else {
                     "workspace__resize-handle"
@@ -612,31 +613,25 @@ fn WorkspaceBody(
 
                     event.prevent_default();
                     event.stop_propagation();
-
-                    let start_x = event.client_coordinates().x;
-                    let start_width = sidebar_width();
-                    sidebar_resize_active.set(true);
-                    spawn(async move {
-                        let result = document::eval(&workspace_resize_script(
-                            "--workspace-sidebar-width",
-                            start_x,
-                            start_width,
-                            SIDEBAR_MIN_WIDTH,
-                            SIDEBAR_MAX_WIDTH,
-                            false,
-                        ))
-                        .join::<f64>()
-                        .await;
-
-                        match result {
-                            Ok(width) => sidebar_width.set(width),
-                            Err(err) => {
-                                eprintln!("Failed to resize workspace sidebar: {err:?}");
-                            }
-                        }
-
-                        sidebar_resize_active.set(false);
-                    });
+                    sidebar_resize.set(Some(AxisDrag {
+                        origin: event.client_coordinates().x,
+                        size: APP_SIDEBAR_WIDTH(),
+                    }));
+                }
+            }
+            if let Some(drag) = sidebar_resize() {
+                div {
+                    style: "position:fixed;inset:0;z-index:9999;cursor:col-resize;",
+                    onmousemove: move |event| {
+                        preview_sidebar_width(drag_sidebar_width(
+                            drag,
+                            event.client_coordinates().x,
+                        ));
+                    },
+                    onmouseup: move |_| {
+                        set_sidebar_width(APP_SIDEBAR_WIDTH());
+                        sidebar_resize.set(None);
+                    },
                 }
             }
         }
@@ -662,7 +657,7 @@ fn WorkspaceBody(
                 }
                 if show_inspector {
                     div {
-                        class: if inspector_resize_active() {
+                        class: if inspector_resize().is_some() {
                             "workspace__resize-handle workspace__resize-handle--inspector workspace__resize-handle--active"
                         } else {
                             "workspace__resize-handle workspace__resize-handle--inspector"
@@ -674,33 +669,25 @@ fn WorkspaceBody(
 
                             event.prevent_default();
                             event.stop_propagation();
-
-                            let start_x = event.client_coordinates().x;
-                            let start_width = inspector_width();
-                            inspector_resize_active.set(true);
-                            spawn(async move {
-                                let result = document::eval(&workspace_resize_script(
-                                    "--workspace-inspector-width",
-                                    start_x,
-                                    start_width,
-                                    INSPECTOR_MIN_WIDTH,
-                                    INSPECTOR_MAX_WIDTH,
-                                    true,
-                                ))
-                                .join::<f64>()
-                                .await;
-
-                                match result {
-                                    Ok(width) => inspector_width.set(width),
-                                    Err(err) => {
-                                        eprintln!(
-                                            "Failed to resize workspace inspector: {err:?}"
-                                        );
-                                    }
-                                }
-
-                                inspector_resize_active.set(false);
-                            });
+                            inspector_resize.set(Some(AxisDrag {
+                                origin: event.client_coordinates().x,
+                                size: APP_INSPECTOR_WIDTH(),
+                            }));
+                        }
+                    }
+                    if let Some(drag) = inspector_resize() {
+                        div {
+                            style: "position:fixed;inset:0;z-index:9999;cursor:col-resize;",
+                            onmousemove: move |event| {
+                                preview_inspector_width(drag_inspector_width(
+                                    drag,
+                                    event.client_coordinates().x,
+                                ));
+                            },
+                            onmouseup: move |_| {
+                                set_inspector_width(APP_INSPECTOR_WIDTH());
+                                inspector_resize.set(None);
+                            },
                         }
                     }
                     aside {
@@ -734,7 +721,7 @@ fn WorkspaceBody(
         }
         if show_bottom_panel {
             div {
-                class: if bottom_resize_active() {
+                class: if bottom_resize().is_some() {
                     "workspace__resize-handle workspace__resize-handle--bottom workspace__resize-handle--active"
                 } else {
                     "workspace__resize-handle workspace__resize-handle--bottom"
@@ -746,33 +733,25 @@ fn WorkspaceBody(
 
                     event.prevent_default();
                     event.stop_propagation();
-
-                    let start_y = event.client_coordinates().y;
-                    let start_height = bottom_panel_height();
-                    bottom_resize_active.set(true);
-                    spawn(async move {
-                        let result = document::eval(&workspace_vertical_resize_script(
-                            "--workspace-bottom-panel-height",
-                            start_y,
-                            start_height,
-                            BOTTOM_PANEL_MIN_HEIGHT,
-                            BOTTOM_PANEL_MAX_HEIGHT,
-                        ))
-                        .join::<f64>()
-                        .await;
-
-                        match result {
-                            Ok(height) => {
-                                bottom_panel_height.set(height);
-                                set_bottom_panel_height(height);
-                            }
-                            Err(err) => {
-                                eprintln!("Failed to resize workspace bottom panel: {err:?}");
-                            }
-                        }
-
-                        bottom_resize_active.set(false);
-                    });
+                    bottom_resize.set(Some(AxisDrag {
+                        origin: event.client_coordinates().y,
+                        size: APP_BOTTOM_PANEL_HEIGHT(),
+                    }));
+                }
+            }
+            if let Some(drag) = bottom_resize() {
+                div {
+                    style: "position:fixed;inset:0;z-index:9999;cursor:row-resize;",
+                    onmousemove: move |event| {
+                        preview_bottom_panel_height(drag_bottom_height(
+                            drag,
+                            event.client_coordinates().y,
+                        ));
+                    },
+                    onmouseup: move |_| {
+                        set_bottom_panel_height(APP_BOTTOM_PANEL_HEIGHT());
+                        bottom_resize.set(None);
+                    },
                 }
             }
             BottomPanelDock {
@@ -780,6 +759,25 @@ fn WorkspaceBody(
                 active_tab: bottom_active_tab,
             }
         }
+    }
+}
+
+fn commit_workspace_dock_resize(
+    mut sidebar_resize: Signal<Option<AxisDrag>>,
+    mut inspector_resize: Signal<Option<AxisDrag>>,
+    mut bottom_resize: Signal<Option<AxisDrag>>,
+) {
+    if sidebar_resize().is_some() {
+        set_sidebar_width(APP_SIDEBAR_WIDTH());
+        sidebar_resize.set(None);
+    }
+    if inspector_resize().is_some() {
+        set_inspector_width(APP_INSPECTOR_WIDTH());
+        inspector_resize.set(None);
+    }
+    if bottom_resize().is_some() {
+        set_bottom_panel_height(APP_BOTTOM_PANEL_HEIGHT());
+        bottom_resize.set(None);
     }
 }
 
@@ -793,19 +791,14 @@ pub fn Workspace() -> Element {
     let show_history = APP_SHOW_HISTORY();
 
     // ── Layout signals (owned by Workspace) ────────────────────────
-    let sidebar_width = use_signal(|| 320.0);
-    let sidebar_resize_active = use_signal(|| false);
-    let inspector_width = use_signal(|| 360.0);
-    let inspector_resize_active = use_signal(|| false);
+    let sidebar_resize = use_signal(|| None::<AxisDrag>);
+    let inspector_resize = use_signal(|| None::<AxisDrag>);
     let mut dragging_panel = use_signal(|| None::<WorkspaceToolPanel>);
     let mut drop_target = use_signal(|| None::<DockDropTarget>);
-    // Bottom dock (Output / Messages / Query Log / Transactions / Problems).
-    // The height signal mirrors APP_BOTTOM_PANEL_HEIGHT on first render so
-    // the dock restores to the user's last size; the active tab lives in
-    // memory only — switching tabs is cheap and not worth persisting.
-    #[allow(clippy::redundant_closure)]
-    let bottom_panel_height = use_signal(|| APP_BOTTOM_PANEL_HEIGHT());
-    let bottom_resize_active = use_signal(|| false);
+    // Bottom dock tab is in-memory only — switching tabs is cheap and
+    // not worth persisting. Dock sizes live in APP_* globals so a panel
+    // toggle cannot reset a just-finished resize.
+    let bottom_resize = use_signal(|| None::<AxisDrag>);
     let bottom_active_tab = use_signal(|| BottomPanelTab::Output);
 
     // ── Custom hooks ───────────────────────────────────────────────
@@ -883,9 +876,18 @@ pub fn Workspace() -> Element {
     // `history`, etc. The discriminator (`APP_COMMAND_REQUEST_KIND`)
     // selects which action to run; any unknown id is logged and
     // dropped so an out-of-sync palette can never silently no-op.
+    //
+    // KIND is sticky: after ER Diagram runs it stays set. The effect
+    // must only fire when REQUEST increments, otherwise explorer
+    // table clicks (which write APP_STATE) would reopen the diagram.
+    let last_command_request = use_hook(|| std::cell::Cell::new(0_u64));
     use_effect(move || {
-        let _ = APP_COMMAND_REQUEST();
+        let request = APP_COMMAND_REQUEST();
         let kind = APP_COMMAND_REQUEST_KIND();
+        if !helpers::should_dispatch_command_request(last_command_request.get(), request) {
+            return;
+        }
+        last_command_request.set(request);
         let mut store = store;
         match kind {
             x if x == CMD_NEW_TAB.0 => {
@@ -1064,10 +1066,10 @@ pub fn Workspace() -> Element {
                     "workspace workspace--sidebar-hidden".to_string()
                 };
 
-                if sidebar_resize_active() || inspector_resize_active() {
+                if sidebar_resize().is_some() || inspector_resize().is_some() {
                     class_name.push_str(" workspace--resizing");
                 }
-                if bottom_resize_active() {
+                if bottom_resize().is_some() {
                     class_name.push_str(" workspace--resizing-y");
                 }
                 if dragging_panel().is_some() {
@@ -1076,13 +1078,53 @@ pub fn Workspace() -> Element {
 
                 class_name
             },
-            style: format!(
-                "--workspace-sidebar-width: {:.0}px; --workspace-inspector-width: {:.0}px; --workspace-bottom-panel-height: {:.0}px;",
-                sidebar_width(),
-                inspector_width(),
-                bottom_panel_height(),
+            style: workspace_layout_style(
+                APP_SIDEBAR_WIDTH(),
+                APP_INSPECTOR_WIDTH(),
+                APP_BOTTOM_PANEL_HEIGHT(),
             ),
+            onmousemove: move |event| {
+                if sidebar_resize().is_none()
+                    && inspector_resize().is_none()
+                    && bottom_resize().is_none()
+                {
+                    return;
+                }
+                if event.held_buttons().is_empty() {
+                    commit_workspace_dock_resize(
+                        sidebar_resize,
+                        inspector_resize,
+                        bottom_resize,
+                    );
+                    return;
+                }
+                if let Some(drag) = sidebar_resize() {
+                    preview_sidebar_width(drag_sidebar_width(
+                        drag,
+                        event.client_coordinates().x,
+                    ));
+                    return;
+                }
+                if let Some(drag) = inspector_resize() {
+                    preview_inspector_width(drag_inspector_width(
+                        drag,
+                        event.client_coordinates().x,
+                    ));
+                    return;
+                }
+                if let Some(drag) = bottom_resize() {
+                    preview_bottom_panel_height(drag_bottom_height(
+                        drag,
+                        event.client_coordinates().y,
+                    ));
+                }
+            },
             onmouseup: move |_| {
+                commit_workspace_dock_resize(
+                    sidebar_resize,
+                    inspector_resize,
+                    bottom_resize,
+                );
                 if let Some(target) = drop_target() {
                     apply_tool_panel_drop(
                         dragging_panel,
@@ -1210,12 +1252,9 @@ pub fn Workspace() -> Element {
                 show_bottom_panel: APP_SHOW_BOTTOM_PANEL(),
                 sidebar_panels,
                 inspector_panels,
-                sidebar_width,
-                sidebar_resize_active,
-                inspector_width,
-                inspector_resize_active,
-                bottom_panel_height,
-                bottom_resize_active,
+                sidebar_resize,
+                inspector_resize,
+                bottom_resize,
                 bottom_active_tab,
                 store,
                 history,

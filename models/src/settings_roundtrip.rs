@@ -58,6 +58,8 @@ fn app_ui_settings_handles_legacy_json_without_new_fields() {
     // Defaults for fields the legacy JSON omitted:
     assert!(!parsed.read_only_mode);
     assert_eq!(parsed.tool_panel_layout, WorkspaceToolLayout::default());
+    assert_eq!(parsed.sidebar_width, 320.0);
+    assert_eq!(parsed.inspector_width, 360.0);
     // Explicitly-set fields in the legacy JSON should be honored:
     assert!(!parsed.show_saved_queries);
     assert!(!parsed.restore_session_on_launch);
@@ -181,6 +183,8 @@ fn settings_json_value_uses_snake_case_field_names() {
         "default_page_size",
         "tool_panel_layout",
         "ai_catalog",
+        "sidebar_width",
+        "inspector_width",
     ];
     for field in required_snake_case {
         assert!(obj.contains_key(field), "missing snake_case field: {field}");

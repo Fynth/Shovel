@@ -64,8 +64,11 @@ fn facade_surface_compiles() {
     let _ = &services::import_csv_into_table;
 
     // --- ACP agent runtime ---
+    let _: Option<services::CompleteRequest> = None;
+    let _: Option<services::CompletionToken> = None;
     let _: Option<services::NativeChatMessage> = None;
     let _: Option<services::NativeChatRequest> = None;
+    let _ = &services::complete_sql;
     let _ = &services::stream_native_completion;
     let _ = &services::build_acp_database_context;
     let _ = &services::build_embedded_deepseek_launch;

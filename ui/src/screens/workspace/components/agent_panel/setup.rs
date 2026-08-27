@@ -598,7 +598,7 @@ mod tests {
         default_connect_action,
         native_provider_label,
     };
-    use models::{AppUiSettings, CustomNativeProvider};
+    use models::{AiBackendId, AppUiSettings, CustomNativeProvider};
 
     #[test]
     fn native_provider_label_uses_builtin_or_custom_name() {
@@ -612,6 +612,7 @@ mod tests {
                 name: "Mine".into(),
                 base_url: String::new(),
                 models: Vec::new(),
+                backend: AiBackendId::OpenAiCompat,
             });
         assert_eq!(native_provider_label(&settings, "custom:1"), "Mine");
         settings.ai_catalog.custom_native[0].name.clear();

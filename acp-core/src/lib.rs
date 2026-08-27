@@ -3,6 +3,8 @@ pub mod deepseek;
 #[cfg(feature = "embedding")]
 pub mod embedding;
 pub mod native_chat;
+pub mod native_complete;
+pub mod backends;
 pub mod native_runtime;
 pub mod ollama;
 pub mod runtime;
@@ -19,6 +21,7 @@ pub use agents::{
     SqlExpert,
     UserIntent,
 };
+pub use backends::{AiBackend, CompleteRequest, CompletionToken, backend};
 pub use deepseek::{
     EmbeddedDeepSeekAgentConfig,
     build_embedded_deepseek_launch,
@@ -33,13 +36,15 @@ pub use embedding::{
     cosine_similarity,
 };
 pub use native_chat::{
-    CompletionToken,
     NativeChatEvent,
     NativeChatMessage,
     NativeChatRequest,
+    completion_request_body,
+    completion_token_from_event,
     stream_native_chat,
     stream_native_completion,
 };
+pub use native_complete::complete_sql;
 pub use native_runtime::{native_chat_prompt, refresh_provider_models};
 pub use ollama::{
     EmbeddedOllamaAgentConfig,

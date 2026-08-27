@@ -172,6 +172,15 @@ pub static APP_SHOW_BOTTOM_PANEL: GlobalSignal<bool> =
 /// it without re-reading the full settings struct on every pointer move.
 pub static APP_BOTTOM_PANEL_HEIGHT: GlobalSignal<f64> =
     Signal::global(|| AppUiSettings::default().bottom_panel_height);
+/// Runtime width of the left tool dock. Mirrored from
+/// [`AppUiSettings::sidebar_width`]. Updated live while dragging so a
+/// later panel toggle cannot restore the CSS default.
+pub static APP_SIDEBAR_WIDTH: GlobalSignal<f64> =
+    Signal::global(|| AppUiSettings::default().sidebar_width);
+/// Runtime width of the right tool dock. Mirrored from
+/// [`AppUiSettings::inspector_width`].
+pub static APP_INSPECTOR_WIDTH: GlobalSignal<f64> =
+    Signal::global(|| AppUiSettings::default().inspector_width);
 /// Active-tab body split mode (Off / Horizontal / Vertical). Mirrored
 /// from [`AppUiSettings::split_mode`] so the tab body and the workspace
 /// toolbar can both read it without re-reading the full settings struct
@@ -356,6 +365,13 @@ pub fn set_sql_completion_model(model: String) {
     });
 }
 
+#[allow(dead_code)] // settings window is a separate VDom; it writes via emit_ui_update
+pub fn set_active_completion(provider: String, model: String) {
+    update_ui_settings(|current| {
+        current.ai_catalog.active_completion = Some(ActiveModel { provider, model });
+    });
+}
+
 pub fn set_show_saved_queries(visible: bool) {
     update_ui_settings(|current| {
         current.show_saved_queries = visible;
@@ -402,6 +418,30 @@ pub fn set_bottom_panel_height(height: f64) {
     update_ui_settings(|current| {
         current.bottom_panel_height = height;
     });
+}
+
+pub fn preview_sidebar_width(width: f64) {
+    sync_f64(&APP_SIDEBAR_WIDTH, width);
+}
+
+pub fn set_sidebar_width(width: f64) {
+    update_ui_settings(|current| {
+        current.sidebar_width = width;
+    });
+}
+
+pub fn preview_inspector_width(width: f64) {
+    sync_f64(&APP_INSPECTOR_WIDTH, width);
+}
+
+pub fn set_inspector_width(width: f64) {
+    update_ui_settings(|current| {
+        current.inspector_width = width;
+    });
+}
+
+pub fn preview_bottom_panel_height(height: f64) {
+    sync_f64(&APP_BOTTOM_PANEL_HEIGHT, height);
 }
 
 pub fn set_split_mode(mode: WorkspaceSplitMode) {
@@ -608,6 +648,8 @@ fn sync_runtime_ui_settings(settings: &AppUiSettings) {
     );
     sync_bool(&APP_SHOW_BOTTOM_PANEL, settings.show_bottom_panel);
     sync_f64(&APP_BOTTOM_PANEL_HEIGHT, settings.bottom_panel_height);
+    sync_f64(&APP_SIDEBAR_WIDTH, settings.sidebar_width);
+    sync_f64(&APP_INSPECTOR_WIDTH, settings.inspector_width);
     sync_split_mode(&APP_SPLIT_MODE, settings.split_mode);
     if *APP_THEME_OVERRIDES.peek() != settings.theme_overrides {
         *APP_THEME_OVERRIDES.write() = settings.theme_overrides.clone();
