@@ -172,4 +172,10 @@ mod tests {
             "expected items node, got {tree:?}"
         );
     }
+
+    #[test]
+    fn fake_has_no_introspect() {
+        let handle = SessionHandle::wrap(Arc::new(FakeDriver::default()));
+        assert!(handle.introspect().is_none());
+    }
 }

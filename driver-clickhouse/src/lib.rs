@@ -1,4 +1,5 @@
 mod explain;
+mod introspect;
 mod rows;
 mod schema;
 mod session;

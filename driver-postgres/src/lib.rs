@@ -1,4 +1,5 @@
 mod explain;
+mod introspect;
 mod mutate;
 mod rows;
 mod schema;

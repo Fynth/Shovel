@@ -1,4 +1,5 @@
 mod explain;
+mod introspect;
 mod mutate;
 mod rows;
 mod schema;
@@ -81,6 +82,17 @@ mod tests {
             tree_contains_name(&tree, "items"),
             "expected items in {tree:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn sqlite_session_has_introspect() {
+        let pool = SqliteDriver::connect(":memory:".into()).await.unwrap();
+        let handle = SessionHandle::wrap(Arc::new(SqliteSession { pool }));
+        let exec = handle
+            .introspect()
+            .expect("sqlite must implement IntrospectExec");
+        let result = exec.introspect().await;
+        assert!(result.collected_at.is_some());
     }
 
     fn tree_contains_name(nodes: &[models::ExplorerNode], needle: &str) -> bool {

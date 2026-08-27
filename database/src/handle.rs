@@ -12,6 +12,7 @@ use models::{
     ExecutionPlan,
     ExplorerNode,
     ExplorerNodeKind,
+    IntrospectionResult,
     QueryOutput,
     TableForeignKey,
     TablePreviewSource,
@@ -105,7 +106,7 @@ pub trait ExplainExec: Send + Sync {
 
 #[async_trait]
 pub trait IntrospectExec: Send + Sync {
-    async fn ping(&self) -> Result<(), DatabaseError>;
+    async fn introspect(&self) -> IntrospectionResult;
 }
 
 pub trait DriverSession: QueryExec + SchemaExec + Send + Sync {

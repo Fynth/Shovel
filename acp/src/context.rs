@@ -151,7 +151,7 @@ async fn append_performance_metrics(_lines: &mut Vec<String>, _handle: &SessionH
 /// Append performance metrics from pre-collected introspection data.
 pub fn append_introspection_metrics(
     lines: &mut Vec<String>,
-    introspection: &crate::introspection::IntrospectionResult,
+    introspection: &models::IntrospectionResult,
 ) {
     // Add slowest queries
     if !introspection.query_history.is_empty() {
@@ -301,7 +301,7 @@ pub async fn build_full_ai_context(
     handle: &SessionHandle,
     connection_label: String,
     focus_source: Option<TablePreviewSource>,
-    introspection: Option<&crate::introspection::IntrospectionResult>,
+    introspection: Option<&models::IntrospectionResult>,
 ) -> Result<String, DatabaseError> {
     let cache_key = format!("{}:{:?}", connection_label, focus_source);
 

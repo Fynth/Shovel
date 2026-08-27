@@ -86,7 +86,7 @@ impl DriverSession for SqliteSession {
     }
 
     fn as_introspect(&self) -> Option<&dyn IntrospectExec> {
-        None
+        Some(self)
     }
 
     fn as_legacy(&self) -> Option<LiveConnection> {
