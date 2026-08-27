@@ -409,7 +409,8 @@ pub fn set_deepseek_enabled(enabled: bool) {
 
 pub fn set_deepseek_api_key(api_key: String) {
     update_ui_settings(|current| {
-        current.deepseek.api_key = api_key;
+        current.deepseek.api_key = api_key.clone();
+        current.lm_keys.insert("deepseek".into(), api_key);
         if current.deepseek.api_key.trim().is_empty() {
             current.deepseek.enabled = false;
         }
@@ -448,8 +449,14 @@ pub fn set_ollama_enabled(enabled: bool) {
 
 pub fn set_ollama_api_key(api_key: String) {
     update_ui_settings(|current| {
-        current.ollama.api_key = api_key;
+        current.ollama.api_key = api_key.clone();
+        current.lm_keys.insert("ollama".into(), api_key);
     });
+}
+
+/// In-memory LM key for `provider` (`lm_keys`, then a non-empty vendor blob).
+pub fn lm_api_key(provider: &str) -> String {
+    APP_UI_SETTINGS().lm_api_key(provider)
 }
 
 pub fn set_ollama_base_url(base_url: String) {

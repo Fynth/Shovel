@@ -140,9 +140,12 @@ pub fn use_acp_state(inputs: AcpStateInputs) -> AcpState {
             return;
         }
         let settings = APP_UI_SETTINGS();
-        let deepseek = settings.deepseek;
-        let ollama = settings.ollama;
-        if !deepseek.enabled && !ollama.enabled {
+        let deepseek = settings.deepseek.clone();
+        let ollama = settings.ollama.clone();
+        let native_ready = settings.ai_catalog.active.as_ref().is_some_and(|active| {
+            models::is_native_http_ready(&active.provider, &settings.lm_api_key(&active.provider))
+        });
+        if !native_ready && !deepseek.enabled && !ollama.enabled {
             return;
         }
         spawn(async move {

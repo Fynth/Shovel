@@ -57,6 +57,7 @@ use self::{
         AgentSetupMode,
         connect_embedded_deepseek,
         connect_embedded_ollama,
+        is_native_http_connection,
         setup_mode_button_class,
     },
     state::{
@@ -264,13 +265,20 @@ pub fn AcpAgentPanel(
                             icon: ActionIcon::Close,
                             label: "Disconnect agent".to_string(),
                             onclick: move |_| {
-                                let _ = services::disconnect_acp_agent();
+                                let native = is_native_http_connection(&panel_state());
+                                if !native {
+                                    let _ = services::disconnect_acp_agent();
+                                }
                                 panel_state.with_mut(|state| {
                                     state.connected = false;
                                     state.busy = false;
                                     state.pending_sql_insert = false;
                                     state.connection = None;
-                                    state.status = "ACP agent is disconnected.".to_string();
+                                    state.status = if native {
+                                        "Language model disconnected.".to_string()
+                                    } else {
+                                        "ACP agent is disconnected.".to_string()
+                                    };
                                 });
                             },
                             small: true,
@@ -767,17 +775,15 @@ pub fn AcpAgentPanel(
                                         || deepseek_settings.model.trim().is_empty(),
                                     onclick: move |_| {
                                         let deepseek = APP_UI_SETTINGS().deepseek;
-                                        spawn(async move {
-                                            if let Err(err) = connect_embedded_deepseek(
-                                                panel_state,
-                                                chat_revision,
-                                                deepseek,
-                                            ).await {
-                                                panel_state.with_mut(|state| {
-                                                    state.status = err;
-                                                });
-                                            }
-                                        });
+                                        if let Err(err) = connect_embedded_deepseek(
+                                            panel_state,
+                                            chat_revision,
+                                            deepseek,
+                                        ) {
+                                            panel_state.with_mut(|state| {
+                                                state.status = err;
+                                            });
+                                        }
                                     },
                                     "Connect DeepSeek"
                                 }
@@ -851,17 +857,15 @@ pub fn AcpAgentPanel(
                                     disabled: state.busy || ollama_settings.model.trim().is_empty(),
                                     onclick: move |_| {
                                         let ollama = APP_UI_SETTINGS().ollama;
-                                        spawn(async move {
-                                            if let Err(err) = connect_embedded_ollama(
-                                                panel_state,
-                                                chat_revision,
-                                                ollama,
-                                            ).await {
-                                                panel_state.with_mut(|state| {
-                                                    state.status = err;
-                                                });
-                                            }
-                                        });
+                                        if let Err(err) = connect_embedded_ollama(
+                                            panel_state,
+                                            chat_revision,
+                                            ollama,
+                                        ) {
+                                            panel_state.with_mut(|state| {
+                                                state.status = err;
+                                            });
+                                        }
                                     },
                                     "Connect Ollama"
                                 }

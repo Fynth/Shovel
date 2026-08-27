@@ -600,6 +600,31 @@ impl AppUiSettings {
         }
     }
 
+    /// API key for send/connect: prefer non-empty `lm_keys`, then a non-empty
+    /// legacy vendor blob. Never let an empty vendor field hide `lm_keys`.
+    pub fn lm_api_key(&self, provider: &str) -> String {
+        if let Some(key) = self.lm_keys.get(provider)
+            && !key.trim().is_empty()
+        {
+            return key.clone();
+        }
+        let vendor = match provider {
+            "deepseek" => self.deepseek.api_key.as_str(),
+            "openai" => self.openai.api_key.as_str(),
+            "groq" => self.groq.api_key.as_str(),
+            "openrouter" => self.openrouter.api_key.as_str(),
+            "xai" => self.xai.api_key.as_str(),
+            "mistral" => self.mistral.api_key.as_str(),
+            "ollama" => self.ollama.api_key.as_str(),
+            _ => "",
+        };
+        if !vendor.trim().is_empty() {
+            vendor.to_string()
+        } else {
+            self.lm_keys.get(provider).cloned().unwrap_or_default()
+        }
+    }
+
     /// Copy legacy per-vendor AI settings into `ai_catalog` when the catalog
     /// has no active model yet. Legacy blobs stay in memory for key migration
     /// but are not written back to JSON.
@@ -1443,5 +1468,19 @@ mod tests {
         let text = serde_json::to_string(&settings).unwrap();
         assert!(!text.contains("sk-in-memory"));
         assert!(!text.contains("sk-custom"));
+    }
+
+    #[test]
+    fn lm_api_key_prefers_lm_keys_over_empty_vendor() {
+        let mut settings = AppUiSettings::default();
+        settings
+            .lm_keys
+            .insert("openai".into(), "sk-from-lm".into());
+        settings.openai.api_key.clear();
+        assert_eq!(settings.lm_api_key("openai"), "sk-from-lm");
+
+        settings.lm_keys.insert("openai".into(), String::new());
+        settings.openai.api_key = "sk-vendor".into();
+        assert_eq!(settings.lm_api_key("openai"), "sk-vendor");
     }
 }

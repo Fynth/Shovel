@@ -325,6 +325,29 @@ pub fn resolve_picker_models(
     out
 }
 
+/// Catalog kind for a provider id. Unknown ids are `None` unless they use `custom:`.
+pub fn provider_kind(provider: &str) -> Option<AiProviderKind> {
+    if let Some(spec) = builtin_providers()
+        .iter()
+        .find(|spec| spec.slug == provider)
+    {
+        return Some(spec.kind);
+    }
+    if provider.starts_with("custom:") {
+        return Some(AiProviderKind::NativeHttp);
+    }
+    None
+}
+
+/// Native HTTP is ready without an ACP child. Ollama allows an empty key;
+/// other NativeHttp providers need a key; Acp is never ready this way.
+pub fn is_native_http_ready(provider: &str, api_key: &str) -> bool {
+    match provider_kind(provider) {
+        Some(AiProviderKind::NativeHttp) => provider == "ollama" || !api_key.trim().is_empty(),
+        Some(AiProviderKind::Acp) | None => false,
+    }
+}
+
 /// Trim `base`, fall back to `default_base` when empty, strip a trailing `/`.
 pub fn normalize_native_chat_url(base: &str, default_base: &str) -> String {
     let trimmed = base.trim();
@@ -382,5 +405,20 @@ mod tests {
             normalize_native_chat_url("", "https://api.deepseek.com"),
             "https://api.deepseek.com"
         );
+    }
+
+    #[test]
+    fn native_http_is_ready_without_acp_child() {
+        assert!(is_native_http_ready("openai", "sk-test"));
+        assert!(is_native_http_ready("ollama", ""));
+        assert!(!is_native_http_ready("openai", ""));
+        assert!(!is_native_http_ready("acp:opencode", "sk"));
+    }
+
+    #[test]
+    fn custom_native_http_requires_non_empty_key() {
+        assert!(is_native_http_ready("custom:abc", "sk"));
+        assert!(!is_native_http_ready("custom:abc", ""));
+        assert!(!is_native_http_ready("unknown", "sk"));
     }
 }
