@@ -173,11 +173,8 @@ pub fn use_acp_state(inputs: AcpStateInputs) -> AcpState {
 
         warmed_schema_session_id.set(session.id);
         spawn(async move {
-            let _ = services::warm_acp_database_schema_context(
-                session.connection.clone(),
-                session.name.clone(),
-            )
-            .await;
+            let _ =
+                services::warm_acp_database_schema_context(session.id, session.name.clone()).await;
         });
     });
 

@@ -26,6 +26,9 @@ fn facade_surface_compiles() {
     // --- Connection management ---
     let _ = &services::release_ssh_tunnel;
     let _ = &services::connect_to_db;
+    let _ = &services::register_session;
+    let _ = &services::unregister_session;
+    let _ = &services::session;
 
     // --- Schema exploration ---
     let _ = &services::describe_table;

@@ -88,14 +88,14 @@ pub async fn install_mock_explorer() -> u64 {
 
     let request = mock_connection_request();
     let kind = request.kind();
-    let connection = match services::connect_to_db(request.clone()).await {
-        Ok(connection) => connection,
+    let handle = match services::connect_to_db(request.clone()).await {
+        Ok(handle) => handle,
         Err(err) => {
             crate::app_state::toast_error(format!("Mock connection failed: {err}"));
             return 0;
         }
     };
-    let session_id = crate::app_state::add_connection_session(request, connection);
+    let session_id = crate::app_state::add_connection_session(request, handle);
     debug_assert_eq!(kind, DatabaseKind::Sqlite);
     seed_explorer_cache(session_id).await;
     session_id

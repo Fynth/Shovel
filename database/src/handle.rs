@@ -91,6 +91,14 @@ pub struct SessionHandle {
     inner: Arc<dyn DriverSession>,
 }
 
+impl std::fmt::Debug for SessionHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionHandle")
+            .field("kind", &self.kind())
+            .finish()
+    }
+}
+
 impl SessionHandle {
     pub fn wrap(inner: Arc<dyn DriverSession>) -> Self {
         Self { inner }

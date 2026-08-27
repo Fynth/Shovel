@@ -123,7 +123,7 @@ pub fn App() -> Element {
                 };
                 match services::connect_and_save_request(request.clone()).await {
                     Ok(saved) => {
-                        crate::app_state::add_connection_session(request, saved.connection);
+                        crate::app_state::add_connection_session(request, saved.handle);
                     }
                     Err(err) => {
                         toast_error(format!("Failed to connect {}: {err}", connection.name));

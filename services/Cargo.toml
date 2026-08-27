@@ -15,3 +15,6 @@ futures-util.workspace = true
 models.workspace = true
 query.workspace = true
 storage.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

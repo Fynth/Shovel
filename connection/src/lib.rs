@@ -1,6 +1,7 @@
 //! Database connection orchestration and SSH tunnel lifecycle management for Shovel.
 
 mod registry;
+pub use database::SessionHandle;
 pub use registry::{register_session, session, unregister_session};
 
 use connection_ssh::{OpenedSshTunnel, open_ssh_tunnel, register_ssh_tunnel};
@@ -11,7 +12,6 @@ use connection_ssh::{OpenedSshTunnel, open_ssh_tunnel, register_ssh_tunnel};
     feature = "clickhouse"
 ))]
 use database::DatabaseDriver;
-use database::SessionHandle;
 #[cfg(feature = "clickhouse")]
 use driver_clickhouse::ClickHouseDriver;
 #[cfg(feature = "mysql")]

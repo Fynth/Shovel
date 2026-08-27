@@ -11,7 +11,7 @@ use crate::{
         APP_STATE,
         activate_session,
         context_menu::{ContextMenuItem, open_context_menu},
-        session_connection,
+        live_session_id,
     },
     screens::workspace::{
         ActionIcon,
@@ -21,7 +21,7 @@ use crate::{
             mark_table_truncated,
             read_only_mode_enabled,
             run_table_preview_for_tab,
-            tab_connection_or_error,
+            tab_session_or_error,
         },
         components::{Chevron, IconButton, ObjectIcon, send_describe_object_request},
         context::WorkspaceAcpContext,
@@ -338,8 +338,8 @@ fn ExplorerObjectRow(
                             return;
                         };
 
-                        let Some(connection) =
-                            tab_connection_or_error(store, current_id, meta.session_id)
+                        let Some(session_id) =
+                            tab_session_or_error(store, current_id, meta.session_id)
                         else {
                             return;
                         };
@@ -347,7 +347,7 @@ fn ExplorerObjectRow(
                         run_table_preview_for_tab(
                             store,
                             current_id,
-                            connection,
+                            session_id,
                             source.clone(),
                             0,
                             current_tab.page_size,
@@ -374,8 +374,8 @@ fn ExplorerObjectRow(
                             return;
                         };
 
-                        let Some(connection) =
-                            tab_connection_or_error(store, current_id, meta.session_id)
+                        let Some(session_id) =
+                            tab_session_or_error(store, current_id, meta.session_id)
                         else {
                             return;
                         };
@@ -383,7 +383,7 @@ fn ExplorerObjectRow(
                         run_table_preview_for_tab(
                             store,
                             current_id,
-                            connection,
+                            session_id,
                             source.clone(),
                             0,
                             current_tab.page_size,
@@ -634,14 +634,14 @@ fn menu_item_for_action(
                 let Some(meta) = store.meta.read().get(&current_id).cloned() else {
                     return;
                 };
-                let Some(connection) = tab_connection_or_error(store, current_id, meta.session_id)
+                let Some(session_id) = tab_session_or_error(store, current_id, meta.session_id)
                 else {
                     return;
                 };
                 run_table_preview_for_tab(
                     store,
                     current_id,
-                    connection,
+                    session_id,
                     source,
                     0,
                     current_tab.page_size,
@@ -701,13 +701,13 @@ fn menu_item_for_action(
             Some(
                 ContextMenuItem::new("Copy DDL", move || {
                     let source = source.clone();
-                    let Some(connection) = crate::app_state::session_connection(session_id) else {
+                    let Some(session_id) = live_session_id(session_id) else {
                         crate::app_state::toast_error("Active connection not available");
                         return;
                     };
                     spawn(async move {
                         match services::load_object_ddl(
-                            connection,
+                            session_id,
                             source.schema.clone(),
                             source.table_name.clone(),
                             node_kind,
@@ -752,7 +752,7 @@ fn menu_item_for_action(
             let mut tree_reload_signal = tree_reload;
             let mut selected_node_signal = selected_node;
             let mut item = ContextMenuItem::new("Duplicate table…", move || {
-                let connection = crate::app_state::session_connection(target.session_id);
+                let session_id = live_session_id(target.session_id);
                 let (bridge, mut rx) = crate::windows::create_duplicate_table_bridge();
                 spawn(async move {
                     while let Some(result) = rx.recv().await {
@@ -763,7 +763,7 @@ fn menu_item_for_action(
                 crate::windows::open_duplicate_table_window(
                     bridge,
                     target.clone(),
-                    connection,
+                    session_id,
                     read_only_mode_enabled(),
                     crate::app_state::APP_THEME(),
                 );
@@ -785,7 +785,7 @@ fn menu_item_for_action(
             let mut tree_reload_signal = tree_reload;
             let mut selected_node_signal = selected_node;
             let mut item = ContextMenuItem::new("Rename table…", move || {
-                let connection = crate::app_state::session_connection(target.session_id);
+                let session_id = live_session_id(target.session_id);
                 let (bridge, mut rx) = crate::windows::create_rename_table_bridge();
                 spawn(async move {
                     while let Some(result) = rx.recv().await {
@@ -796,7 +796,7 @@ fn menu_item_for_action(
                 crate::windows::open_rename_table_window(
                     bridge,
                     target.clone(),
-                    connection,
+                    session_id,
                     read_only_mode_enabled(),
                     crate::app_state::APP_THEME(),
                 );
@@ -848,7 +848,7 @@ fn menu_item_for_action(
         }
 
         crate::app_state::actions::ACTION_SCHEMA_CREATE_TABLE => {
-            let connection = crate::app_state::session_connection(session_id);
+            let live_id = live_session_id(session_id);
             let conn_name = connection_name.to_string();
             let target_schemas = vec![
                 preview_source
@@ -872,7 +872,7 @@ fn menu_item_for_action(
                 crate::windows::open_create_table_window(
                     bridge,
                     target,
-                    connection.clone(),
+                    live_id,
                     read_only_mode,
                     crate::app_state::APP_THEME(),
                 );
@@ -985,7 +985,7 @@ pub(super) async fn confirm_and_truncate_table(
         return;
     }
 
-    let Some(connection) = session_connection(session_id) else {
+    if live_session_id(session_id).is_none() {
         let _ = AsyncMessageDialog::new()
             .set_title(table_mutation_error_title(TableMutationKind::Truncate))
             .set_description(table_mutation_connection_closed_description(
@@ -998,12 +998,11 @@ pub(super) async fn confirm_and_truncate_table(
         return;
     };
 
-    let refresh_connection = connection.clone();
-    let result = services::truncate_table(connection, source.clone()).await;
+    let result = services::truncate_table(session_id, source.clone()).await;
 
     match result {
         Ok(()) => {
-            mark_table_truncated(store, session_id, refresh_connection, source.clone());
+            mark_table_truncated(store, session_id, source.clone());
         }
         Err(err) => {
             let _ = AsyncMessageDialog::new()
@@ -1046,7 +1045,7 @@ pub(super) async fn confirm_and_drop_table(
         return;
     }
 
-    let Some(connection) = session_connection(session_id) else {
+    if live_session_id(session_id).is_none() {
         let _ = AsyncMessageDialog::new()
             .set_title(table_mutation_error_title(TableMutationKind::Drop))
             .set_description(table_mutation_connection_closed_description(
@@ -1059,7 +1058,7 @@ pub(super) async fn confirm_and_drop_table(
         return;
     };
 
-    let result = services::drop_table(connection, source.clone()).await;
+    let result = services::drop_table(session_id, source.clone()).await;
     match result {
         Ok(()) => {
             if let Some(mut local_selected_node) = local_selected_node

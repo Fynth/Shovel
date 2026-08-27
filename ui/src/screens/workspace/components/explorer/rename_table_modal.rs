@@ -1,18 +1,7 @@
 use super::{quote_sql_identifier, quoted_table_name_preview};
 use crate::screens::workspace::actions::read_only_mode_block_status;
 use dioxus::prelude::*;
-use models::{DatabaseConnection, DatabaseKind, TablePreviewSource};
-
-/// See `create_table_modal::ModalConnection` — same rationale, satisfies
-/// the `#[component]` props derive for the rename window.
-#[derive(Clone)]
-pub struct ModalConnection(pub Option<DatabaseConnection>);
-
-impl PartialEq for ModalConnection {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.is_some() == other.0.is_some()
-    }
-}
+use models::{DatabaseKind, TablePreviewSource};
 
 #[derive(Clone, PartialEq)]
 pub struct RenameTableTarget {
@@ -30,7 +19,7 @@ struct RenameTableDraft {
 #[component]
 pub fn RenameTableModal(
     target: RenameTableTarget,
-    session: ModalConnection,
+    session_id: Option<u64>,
     read_only: bool,
     on_saved: Callback<String>,
     on_close: Callback<()>,
@@ -151,7 +140,7 @@ pub fn RenameTableModal(
                                     return;
                                 }
 
-                                let Some(connection) = session.0.clone() else {
+                                let Some(session_id) = session_id else {
                                     rename_error.set(
                                         "The connection was closed before the table could be renamed."
                                             .to_string(),
@@ -164,7 +153,7 @@ pub fn RenameTableModal(
 
                                 spawn(async move {
                                     let result = services::rename_table(
-                                        connection,
+                                        session_id,
                                         source.clone(),
                                         next_table_name.clone(),
                                     )

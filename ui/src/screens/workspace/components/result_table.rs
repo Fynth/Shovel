@@ -17,7 +17,7 @@ use crate::{
             refresh_tab_result,
             rows_toolbar_summary,
             set_active_tab_status,
-            tab_connection_or_error,
+            tab_session_or_error,
             toggle_active_tab_sort,
         },
         components::{
@@ -3225,12 +3225,12 @@ fn insert_empty_row(mut store: TabStore) {
         .get(&current_id)
         .map(|m| m.session_id)
         .unwrap_or(0);
-    let Some(connection) = tab_connection_or_error(store, current_id, session_id) else {
+    let Some(session_id) = tab_session_or_error(store, current_id, session_id) else {
         return;
     };
 
     spawn(async move {
-        match services::next_table_primary_key_id(connection, editable.source.clone()).await {
+        match services::next_table_primary_key_id(session_id, editable.source.clone()).await {
             Ok(Some((column_name, remote_next_id))) => {
                 store.pending.with_mut(|pending| {
                     let Some(tab) = pending.get_mut(&current_id) else {
@@ -3320,7 +3320,7 @@ fn apply_pending_changes(mut store: TabStore) {
         .get(&current_id)
         .map(|m| m.session_id)
         .unwrap_or(0);
-    let Some(connection) = tab_connection_or_error(store, current_id, session_id) else {
+    let Some(session_id) = tab_session_or_error(store, current_id, session_id) else {
         return;
     };
 
@@ -3338,7 +3338,7 @@ fn apply_pending_changes(mut store: TabStore) {
                 .collect::<Vec<_>>();
 
             if let Err(err) = services::insert_table_row_with_values(
-                connection.clone(),
+                session_id,
                 editable.source.clone(),
                 column_values,
             )
@@ -3351,7 +3351,7 @@ fn apply_pending_changes(mut store: TabStore) {
 
         for change in pending_changes.updated_cells {
             if let Err(err) = services::update_table_cell(
-                connection.clone(),
+                session_id,
                 editable.source.clone(),
                 change.locator,
                 change.column_name,
@@ -3365,12 +3365,9 @@ fn apply_pending_changes(mut store: TabStore) {
         }
 
         for delete in pending_changes.deleted_rows {
-            if let Err(err) = services::delete_table_row(
-                connection.clone(),
-                editable.source.clone(),
-                delete.locator,
-            )
-            .await
+            if let Err(err) =
+                services::delete_table_row(session_id, editable.source.clone(), delete.locator)
+                    .await
             {
                 set_active_tab_status(store, current_id, format_row_edit_error("Row delete", err));
                 return;

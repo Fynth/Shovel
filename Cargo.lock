@@ -6105,6 +6105,7 @@ dependencies = [
  "models",
  "query",
  "storage",
+ "tokio",
 ]
 
 [[package]]

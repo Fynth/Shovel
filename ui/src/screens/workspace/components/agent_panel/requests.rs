@@ -5,10 +5,10 @@ use super::{
     AgentSqlExecutionMode,
     clickhouse::resolve_agent_sql_execution,
     prompt::{
-        active_editor_connection,
         active_editor_error,
         active_editor_focus_source,
         active_editor_prompt_context,
+        active_editor_session_id,
         active_editor_sql,
         build_chat_prompt,
         build_sql_error_fix_prompt,
@@ -24,7 +24,7 @@ use super::{
 };
 
 use crate::screens::workspace::{
-    actions::{run_query_for_tab, tab_connection_or_error},
+    actions::{run_query_for_tab, tab_session_or_error},
     tab_store::TabStore,
 };
 
@@ -60,8 +60,8 @@ pub(super) fn send_chat_prompt_request(
     }
 
     let thread_history = build_thread_history_context(&panel_state().messages);
-    let connection = if allow_db_read {
-        active_editor_connection(store, active_tab_id)
+    let session_id = if allow_db_read {
+        active_editor_session_id(store, active_tab_id)
     } else {
         None
     };
@@ -84,10 +84,10 @@ pub(super) fn send_chat_prompt_request(
     });
 
     spawn(async move {
-        let (contextual_prompt, routing_context) = match connection {
-            Some(connection) => {
+        let (contextual_prompt, routing_context) = match session_id {
+            Some(session_id) => {
                 match services::build_acp_database_context(
-                    connection,
+                    session_id,
                     connection_label.clone(),
                     focus_source,
                 )
@@ -183,8 +183,8 @@ pub(crate) fn send_describe_object_request(
     );
 
     let active_tab_id = store.active_tab_id();
-    let connection = if allow_db_read {
-        active_editor_connection(store, active_tab_id)
+    let session_id = if allow_db_read {
+        active_editor_session_id(store, active_tab_id)
     } else {
         None
     };
@@ -199,10 +199,10 @@ pub(crate) fn send_describe_object_request(
     });
 
     spawn(async move {
-        let (contextual_prompt, routing_context) = match connection {
-            Some(connection) => {
+        let (contextual_prompt, routing_context) = match session_id {
+            Some(session_id) => {
                 match services::build_acp_database_context(
-                    connection,
+                    session_id,
                     connection_label.clone(),
                     focus_source,
                 )
@@ -273,8 +273,8 @@ pub(crate) fn send_sql_generation_request(
         return;
     }
 
-    let connection = if allow_db_read {
-        active_editor_connection(store, active_tab_id)
+    let session_id = if allow_db_read {
+        active_editor_session_id(store, active_tab_id)
     } else {
         None
     };
@@ -298,10 +298,10 @@ pub(crate) fn send_sql_generation_request(
     });
 
     spawn(async move {
-        let (prompt, routing_context) = match connection {
-            Some(connection) => {
+        let (prompt, routing_context) = match session_id {
+            Some(session_id) => {
                 match services::build_acp_database_context(
-                    connection,
+                    session_id,
                     connection_label.clone(),
                     focus_source,
                 )
@@ -439,7 +439,7 @@ pub(crate) fn send_sql_plan_request(
         return;
     }
 
-    let Some(connection) = active_editor_connection(store, active_tab_id) else {
+    let Some(session_id) = active_editor_session_id(store, active_tab_id) else {
         panel_state.with_mut(|state| {
             state.status = "The active tab connection is not available.".to_string();
             push_message(
@@ -470,33 +470,27 @@ pub(crate) fn send_sql_plan_request(
     });
 
     spawn(async move {
-        let plan_output = match services::execute_query_page(
-            connection.clone(),
-            explain_sql.clone(),
-            100,
-            0,
-            None,
-            None,
-        )
-        .await
-        {
-            Ok(output) => output,
-            Err(err) => {
-                let error = format!("Explain plan error: {err}");
-                panel_state.with_mut(|state| {
-                    state.status = error.clone();
-                    state.busy = false;
-                    push_message(state, AcpMessageKind::Error, error);
-                });
-                chat_revision += 1;
-                return;
-            }
-        };
+        let plan_output =
+            match services::execute_query_page(session_id, explain_sql.clone(), 100, 0, None, None)
+                .await
+            {
+                Ok(output) => output,
+                Err(err) => {
+                    let error = format!("Explain plan error: {err}");
+                    panel_state.with_mut(|state| {
+                        state.status = error.clone();
+                        state.busy = false;
+                        push_message(state, AcpMessageKind::Error, error);
+                    });
+                    chat_revision += 1;
+                    return;
+                }
+            };
         let explain_plan = describe_query_output("Explain plan result", &plan_output);
 
         let (prompt, routing_context) = if allow_db_read {
             match services::build_acp_database_context(
-                connection,
+                session_id,
                 connection_label.clone(),
                 focus_source,
             )
@@ -599,8 +593,8 @@ pub(crate) fn send_sql_explanation_request(
     }
 
     let thread_history = build_thread_history_context(&panel_state().messages);
-    let connection = if allow_db_read {
-        active_editor_connection(store, active_tab_id)
+    let session_id = if allow_db_read {
+        active_editor_session_id(store, active_tab_id)
     } else {
         None
     };
@@ -620,9 +614,9 @@ pub(crate) fn send_sql_explanation_request(
     });
 
     spawn(async move {
-        let (prompt, routing_context) = match connection {
-            Some(connection) => match services::build_acp_database_context(
-                connection,
+        let (prompt, routing_context) = match session_id {
+            Some(session_id) => match services::build_acp_database_context(
+                session_id,
                 connection_label.clone(),
                 focus_source,
             )
@@ -729,8 +723,8 @@ pub(super) fn send_sql_error_fix_request(
         return;
     }
 
-    let connection = if allow_db_read {
-        active_editor_connection(store, active_tab_id)
+    let session_id = if allow_db_read {
+        active_editor_session_id(store, active_tab_id)
     } else {
         None
     };
@@ -751,9 +745,9 @@ pub(super) fn send_sql_error_fix_request(
     });
 
     spawn(async move {
-        let (prompt, routing_context) = match connection {
-            Some(connection) => match services::build_acp_database_context(
-                connection,
+        let (prompt, routing_context) = match session_id {
+            Some(session_id) => match services::build_acp_database_context(
+                session_id,
                 connection_label.clone(),
                 focus_source,
             )
@@ -897,7 +891,7 @@ pub(crate) fn execute_agent_sql_request(
         return;
     };
 
-    let Some(connection) = tab_connection_or_error(store, target_tab_id, meta.session_id) else {
+    let Some(session_id) = tab_session_or_error(store, target_tab_id, meta.session_id) else {
         panel_state.with_mut(|state| {
             state.status = "The active tab connection is not available.".to_string();
             if record_error_in_agent_panel {
@@ -919,7 +913,7 @@ pub(crate) fn execute_agent_sql_request(
     };
 
     spawn(async move {
-        let resolved = match resolve_agent_sql_execution(connection.clone(), &sql).await {
+        let resolved = match resolve_agent_sql_execution(session_id, &sql).await {
             Ok(resolved) => resolved,
             Err(err) => {
                 store.result.with_mut(|m| {
@@ -959,7 +953,7 @@ pub(crate) fn execute_agent_sql_request(
         run_query_for_tab(
             store,
             target_tab_id,
-            connection,
+            session_id,
             resolved.sql,
             0,
             current_tab.page_size,

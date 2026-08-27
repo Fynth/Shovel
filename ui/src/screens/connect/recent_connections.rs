@@ -116,7 +116,7 @@ pub fn RecentConnections(
                                                 spawn(async move {
                                                     match services::connect_and_save_request(request_to_connect).await {
                                                         Ok(result) => {
-                                                            add_connection_session(request_to_register, result.connection);
+                                                            add_connection_session(request_to_register, result.handle);
                                                             saved_connections_revision += 1;
                                                             match result.save_warning {
                                                                 Some(err) => status.set(format!(

@@ -10,7 +10,7 @@ use models::{
 };
 
 use crate::{
-    app_state::{session_connection, set_show_sql_editor},
+    app_state::{live_session_id, set_show_sql_editor},
     screens::workspace::{
         actions::update_active_tab_sql,
         tab_store::{TabEditorState, TabMeta, TabPendingState, TabResultState, TabStore},
@@ -735,16 +735,13 @@ mod tests {
     }
 }
 
-pub(super) fn active_editor_connection(
-    store: TabStore,
-    active_tab_id: u64,
-) -> Option<models::DatabaseConnection> {
+pub(super) fn active_editor_session_id(store: TabStore, active_tab_id: u64) -> Option<u64> {
     let session_id = store
         .meta
         .read()
         .get(&active_tab_id)
         .map(|meta| meta.session_id)?;
-    session_connection(session_id)
+    live_session_id(session_id)
 }
 
 pub(super) fn active_editor_focus_source(

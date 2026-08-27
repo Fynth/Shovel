@@ -6,25 +6,10 @@ use super::{
 };
 use crate::screens::workspace::actions::read_only_mode_block_status;
 use dioxus::prelude::*;
-use models::{DatabaseConnection, DatabaseKind};
+use models::DatabaseKind;
 use std::collections::HashSet;
 
 const CUSTOM_TYPE_VALUE: &str = "__custom__";
-
-/// Thin wrapper around `Option<DatabaseConnection>` that satisfies
-/// `PartialEq`. The underlying `DatabaseConnection` is opaque (it holds
-/// sqlx pools that don't implement `PartialEq`), but the connection is
-/// resolved once at modal mount time and never changes during the modal's
-/// lifetime, so the wrapper only needs to compare presence — not pool
-/// identity — for the `#[component]` props macro to memoize renders.
-#[derive(Clone)]
-pub struct ModalConnection(pub Option<DatabaseConnection>);
-
-impl PartialEq for ModalConnection {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.is_some() == other.0.is_some()
-    }
-}
 
 #[derive(Clone, PartialEq)]
 pub struct CreateTableTarget {
@@ -76,7 +61,7 @@ enum ClickHouseEnginePreset {
 #[component]
 pub fn CreateTableModal(
     target: CreateTableTarget,
-    connection: ModalConnection,
+    session_id: Option<u64>,
     read_only: bool,
     on_saved: Callback<()>,
     on_close: Callback<()>,
@@ -441,7 +426,7 @@ pub fn CreateTableModal(
                             disabled: !can_submit,
                             onclick: {
                                 let target = target.clone();
-                                let submit_connection = connection.clone();
+                                let submit_session_id = session_id;
                                 move |_| {
                                     if read_only_mode {
                                         create_error.set(read_only_mode_block_status("table creation"));
@@ -467,7 +452,7 @@ pub fn CreateTableModal(
                                     create_error.set(String::new());
                                     create_inflight.set(true);
 
-                                    let Some(connection) = submit_connection.0.clone() else {
+                                    let Some(session_id) = submit_session_id else {
                                         create_error.set("The connection was closed.".to_string());
                                         create_inflight.set(false);
                                         return;
@@ -475,7 +460,7 @@ pub fn CreateTableModal(
 
                                     spawn(async move {
                                         let result = services::create_table(
-                                            connection,
+                                            session_id,
                                             schema,
                                             table_name,
                                             request.columns_sql,

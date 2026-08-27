@@ -1,10 +1,9 @@
+use connection::SessionHandle;
 use futures_util::future::join_all;
 use models::{
     AppBehavior,
     AppUiSettings,
     ConnectionRequest,
-    DatabaseConnection,
-    DatabaseError,
     EditorBehavior,
     KeybindingMap,
     PanelBehavior,
@@ -29,13 +28,13 @@ pub struct AppStartupSettings {
 
 #[derive(Clone, Debug)]
 pub struct ConnectAndSaveResult {
-    pub connection: DatabaseConnection,
+    pub handle: SessionHandle,
     pub save_warning: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct SessionRestoreResult {
-    pub restored: Vec<(ConnectionRequest, DatabaseConnection)>,
+    pub restored: Vec<(ConnectionRequest, SessionHandle)>,
     pub active_connection_name: Option<String>,
     pub failed_requests: Vec<(ConnectionRequest, String)>,
     pub tab_drafts: Vec<models::TabDraft>,
@@ -183,7 +182,7 @@ pub async fn restore_saved_sessions() -> Result<SessionRestoreResult, String> {
 
     let restored_results = join_all(open_requests.into_iter().map(|request| async move {
         match connection::connect_to_db(request.clone()).await {
-            Ok(handle) => Ok((request, handle.legacy().expect("legacy handle"))),
+            Ok(handle) => Ok((request, handle)),
             Err(err) => Err((request, err.to_string())),
         }
     }))
@@ -206,13 +205,6 @@ pub async fn restore_saved_sessions() -> Result<SessionRestoreResult, String> {
     })
 }
 
-pub async fn connect_to_db(
-    request: ConnectionRequest,
-) -> Result<DatabaseConnection, DatabaseError> {
-    let handle = connection::connect_to_db(request).await?;
-    Ok(handle.legacy().expect("legacy handle"))
-}
-
 pub async fn connect_and_save_request(
     request: ConnectionRequest,
 ) -> Result<ConnectAndSaveResult, String> {
@@ -222,7 +214,7 @@ pub async fn connect_and_save_request(
     let save_warning = storage::save_connection_request(request).await.err();
 
     Ok(ConnectAndSaveResult {
-        connection: handle.legacy().expect("legacy handle"),
+        handle,
         save_warning,
     })
 }

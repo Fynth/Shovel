@@ -12,6 +12,7 @@
 // - acp — ACP agent runtime, registry, and context building
 
 mod app;
+mod session_ops;
 
 // --- Connection management ---
 
@@ -20,16 +21,23 @@ pub use app::{
     ConnectAndSaveResult,
     SessionRestoreResult,
     connect_and_save_request,
-    connect_to_db,
     load_app_startup_settings,
     restore_saved_sessions,
     save_app_ui_settings_with_secrets,
 };
-pub use connection::{release_ssh_tunnel, test_connection};
+pub use connection::{
+    SessionHandle,
+    connect_to_db,
+    register_session,
+    release_ssh_tunnel,
+    session,
+    test_connection,
+    unregister_session,
+};
 
-// --- Schema exploration ---
+// --- Schema exploration (session_id wrappers) ---
 
-pub use explorer::{
+pub use session_ops::{
     describe_table,
     load_connection_tree,
     load_foreign_keys,
@@ -37,7 +45,25 @@ pub use explorer::{
     load_table_columns,
 };
 
-// --- Query execution and table editing ---
+// --- Query execution and table editing (session_id wrappers) ---
+
+pub use session_ops::{
+    create_table,
+    delete_table_row,
+    drop_table,
+    duplicate_table,
+    execute_explain,
+    execute_query,
+    execute_query_page,
+    import_csv_into_table,
+    insert_table_row,
+    insert_table_row_with_values,
+    load_table_preview_page,
+    next_table_primary_key_id,
+    rename_table,
+    truncate_table,
+    update_table_cell,
+};
 
 pub use query::{
     BatchPlan,
@@ -46,13 +72,6 @@ pub use query::{
     Statement,
     StatementKind,
     StatementOutcome,
-    create_table,
-    delete_table_row,
-    drop_table,
-    duplicate_table,
-    execute_explain,
-    execute_query,
-    execute_query_page,
     export_query_page_csv,
     export_query_page_html,
     export_query_page_json,
@@ -61,18 +80,10 @@ pub use query::{
     export_query_page_xml,
     format_insert_statements,
     format_sql,
-    import_csv_into_table,
-    insert_table_row,
-    insert_table_row_with_values,
     is_read_only_sql,
-    load_table_preview_page,
-    next_table_primary_key_id,
     plan_batch,
     preview_source_for_sql,
-    rename_table,
     split_sql,
-    truncate_table,
-    update_table_cell,
 };
 
 // --- Persistence ---
@@ -110,7 +121,6 @@ pub use storage::{
 // --- ACP agent runtime ---
 
 pub use acp::{
-    build_acp_database_context,
     build_embedded_deepseek_launch,
     build_embedded_ollama_launch,
     cancel_acp_prompt,
@@ -123,5 +133,5 @@ pub use acp::{
     respond_acp_permission,
     send_acp_prompt,
     send_acp_prompt_with_routing,
-    warm_acp_database_schema_context,
 };
+pub use session_ops::{build_acp_database_context, warm_acp_database_schema_context};

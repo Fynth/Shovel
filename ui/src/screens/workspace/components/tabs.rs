@@ -21,7 +21,7 @@ use crate::{
             run_explain_for_tab,
             run_query_for_tab,
             set_active_tab_status,
-            tab_connection_or_error,
+            tab_session_or_error,
             toggle_execution_plan_for_tab,
         },
         tab_store::{TabMeta, TabResultState, TabStore, materialize_tab_state, restore_tab_state},
@@ -529,8 +529,8 @@ pub fn TabsManager(
                                 return;
                             }
 
-                            let Some(connection) =
-                                tab_connection_or_error(store, current_id, active_session_id)
+                            let Some(session_id) =
+                                tab_session_or_error(store, current_id, active_session_id)
                             else {
                                 return;
                             };
@@ -538,7 +538,7 @@ pub fn TabsManager(
                             run_query_for_tab(
                                 store,
                                 current_id,
-                                connection,
+                                session_id,
                                 sql,
                                 0,
                                 page_size,
@@ -580,12 +580,12 @@ pub fn TabsManager(
                                     );
                                     return;
                                 }
-                                let Some(connection) =
-                                    tab_connection_or_error(store, current_id, active_session_id)
+                                let Some(session_id) =
+                                    tab_session_or_error(store, current_id, active_session_id)
                                 else {
                                     return;
                                 };
-                                run_explain_for_tab(store, current_id, connection, sql);
+                                run_explain_for_tab(store, current_id, session_id, sql);
                             }
                         },
                     }
@@ -930,8 +930,7 @@ fn import_csv_into_active_table(store: TabStore, current_id: u64) {
         return;
     };
 
-    let Some(connection) = tab_connection_or_error(store, current_id, current_tab.session_id)
-    else {
+    let Some(session_id) = tab_session_or_error(store, current_id, current_tab.session_id) else {
         return;
     };
 
@@ -958,7 +957,7 @@ fn import_csv_into_active_table(store: TabStore, current_id: u64) {
             format!("Importing {}...", path.to_string_lossy()),
         );
 
-        match services::import_csv_into_table(connection, source.clone(), path).await {
+        match services::import_csv_into_table(session_id, source.clone(), path).await {
             Ok(rows) => {
                 set_active_tab_status(
                     store,
@@ -1138,12 +1137,11 @@ fn open_structure_for_active_preview(store: TabStore, current_id: u64) {
         return;
     };
 
-    let Some(connection) = tab_connection_or_error(store, current_id, current_tab.session_id)
-    else {
+    if tab_session_or_error(store, current_id, current_tab.session_id).is_none() {
         return;
-    };
+    }
 
-    open_structure_tab(store, current_tab.session_id, connection, source);
+    open_structure_tab(store, current_tab.session_id, source);
 }
 
 fn actionable_table_source(result: &TabResultState) -> Option<TablePreviewSource> {

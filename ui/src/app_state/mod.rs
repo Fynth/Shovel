@@ -34,7 +34,6 @@ use models::{
     AppUiSettings,
     ConnectionRequest,
     ConnectionSession,
-    DatabaseConnection,
     SqlFormatSettings,
     UiDensity,
     WorkspaceSplitMode,
@@ -595,6 +594,13 @@ pub fn show_workspace() {
     });
 }
 
+pub fn live_session_id(session_id: u64) -> Option<u64> {
+    APP_STATE
+        .read()
+        .session(session_id)
+        .map(|session| session.id)
+}
+
 pub fn activate_session(session_id: u64) {
     APP_STATE.with_mut(|state| {
         if state
@@ -607,10 +613,6 @@ pub fn activate_session(session_id: u64) {
         }
     });
     persist_session_state();
-}
-
-pub fn session_connection(session_id: u64) -> Option<DatabaseConnection> {
-    APP_STATE.read().session_connection(session_id).cloned()
 }
 
 /// Equality-guarded setter for [`APP_EXPLORER_SELECTED_NODE`]. The
@@ -633,10 +635,11 @@ pub fn explorer_selection_changed(current: &str, proposed: &str) -> bool {
     current != proposed
 }
 
-pub fn add_connection_session(request: ConnectionRequest, connection: DatabaseConnection) -> u64 {
+pub fn add_connection_session(request: ConnectionRequest, handle: services::SessionHandle) -> u64 {
     let session_name = request.display_name();
     let session_kind = request.kind();
     let session_key = request.identity_key();
+    let capabilities = handle.capabilities();
 
     let mut activated_id = 0;
     APP_STATE.with_mut(|state| {
@@ -645,10 +648,11 @@ pub fn add_connection_session(request: ConnectionRequest, connection: DatabaseCo
             .iter_mut()
             .find(|session| session.request.identity_key() == session_key)
         {
+            services::unregister_session(existing_session.id);
             existing_session.request = request.clone();
-            existing_session.connection = connection.clone();
             existing_session.name = session_name.clone();
             existing_session.kind = session_kind;
+            existing_session.capabilities = capabilities;
             activated_id = existing_session.id;
         } else {
             let session_id = state.next_session_id;
@@ -658,7 +662,7 @@ pub fn add_connection_session(request: ConnectionRequest, connection: DatabaseCo
                 name: session_name,
                 kind: session_kind,
                 request,
-                connection,
+                capabilities,
             });
             activated_id = session_id;
         }
@@ -667,6 +671,7 @@ pub fn add_connection_session(request: ConnectionRequest, connection: DatabaseCo
         state.show_connection_screen = false;
     });
 
+    services::register_session(activated_id, handle);
     persist_session_state();
 
     activated_id
@@ -692,6 +697,7 @@ pub fn remove_session(session_id: u64) {
             state.show_connection_screen = true;
         }
 
+        services::unregister_session(session_id);
         for key in removed_keys {
             services::release_ssh_tunnel(&key);
         }
@@ -700,39 +706,47 @@ pub fn remove_session(session_id: u64) {
 }
 
 pub fn restore_connection_sessions(
-    restored: Vec<(ConnectionRequest, DatabaseConnection)>,
+    restored: Vec<(ConnectionRequest, services::SessionHandle)>,
     active_name: Option<String>,
     tab_drafts: Vec<models::TabDraft>,
 ) {
-    // First collect existing session names and release SSH tunnels
-    let existing_keys = {
+    let (existing_ids, existing_keys) = {
         let state = APP_STATE.read();
-        state
+        let ids = state
+            .sessions
+            .iter()
+            .map(|session| session.id)
+            .collect::<Vec<_>>();
+        let keys = state
             .sessions
             .iter()
             .map(|session| session.request.identity_key())
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+        (ids, keys)
     };
 
-    // Release SSH tunnels outside the lock to avoid potential deadlocks
+    for id in existing_ids {
+        services::unregister_session(id);
+    }
     for key in existing_keys {
         services::release_ssh_tunnel(&key);
     }
 
-    // Now replace sessions atomically
     APP_STATE.with_mut(|state| {
         let mut new_sessions = Vec::with_capacity(restored.len());
         let mut next_id = 1;
 
-        for (request, connection) in restored {
+        for (request, handle) in restored {
             let session_name = request.display_name();
             let session_kind = request.kind();
+            let capabilities = handle.capabilities();
+            services::register_session(next_id, handle);
             new_sessions.push(ConnectionSession {
                 id: next_id,
                 name: session_name,
                 kind: session_kind,
                 request,
-                connection,
+                capabilities,
             });
             next_id += 1;
         }

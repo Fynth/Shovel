@@ -317,7 +317,7 @@ pub async fn load_explorer_section(
     }
 
     // Загружаем из БД
-    match services::load_connection_tree(session.connection.clone()).await {
+    match services::load_connection_tree(session.id).await {
         Ok(nodes) => {
             let section = ExplorerConnectionSection {
                 session_id: session.id,
