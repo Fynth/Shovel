@@ -559,7 +559,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn take_complete_line_events_holds_partial_frames() {
         let mut buffer = String::from("data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n");
         buffer.push_str("data: {\"choices\":[{\"delta\":{\"content\":\"lo");
