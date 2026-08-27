@@ -107,6 +107,7 @@ pub async fn execute_query_page(
     filter: Option<QueryFilter>,
     sort: Option<QuerySort>,
 ) -> Result<QueryOutput, DatabaseError> {
+    let mysql_locator = mysql_locator_expr(handle, &sql).await?;
     let (built_sql, used_locator) = sql_for_query_exec(
         handle,
         &sql,
@@ -114,6 +115,7 @@ pub async fn execute_query_page(
         offset,
         filter.as_ref(),
         sort.as_ref(),
+        mysql_locator.as_deref(),
     );
     match handle.query().execute_sql(&built_sql).await {
         Ok(out) => Ok(with_editable_source(out, &sql, used_locator)),
@@ -134,17 +136,18 @@ fn sql_for_query_exec(
     offset: u64,
     filter: Option<&QueryFilter>,
     sort: Option<&QuerySort>,
+    locator_override: Option<&str>,
 ) -> (String, bool) {
     if !is_paginated_query(sql) {
         return (sql.to_string(), false);
     }
 
     let dialect = handle.dialect();
-    let locator_expr = match handle.kind() {
+    let locator_expr = locator_override.or(match handle.kind() {
         DatabaseKind::Sqlite => Some("rowid"),
         DatabaseKind::Postgres => Some("ctid::text"),
         _ => None,
-    };
+    });
     if let Some(locator_expr) = locator_expr
         && let Some(plan) = editable_select_plan(sql)
     {
@@ -166,6 +169,31 @@ fn sql_for_query_exec(
         build_paginated_query(sql, page_size, offset, filter, sort, dialect),
         false,
     )
+}
+
+/// MySQL has no `rowid`/`ctid`; locators are `json_array` of PK columns.
+/// Metadata lookup uses `.legacy()` only — no `query` → `driver-mysql` cycle.
+async fn mysql_locator_expr(
+    handle: &SessionHandle,
+    sql: &str,
+) -> Result<Option<String>, DatabaseError> {
+    if handle.kind() != DatabaseKind::MySql || !is_paginated_query(sql) {
+        return Ok(None);
+    }
+    let Some(plan) = editable_select_plan(sql) else {
+        return Ok(None);
+    };
+    let Some(LiveConnection::MySql(pool)) = handle.legacy() else {
+        return Ok(None);
+    };
+    let schema_name = mysql_effective_schema_name(&pool, plan.source.schema.as_deref()).await?;
+    let primary_key_columns =
+        mysql_primary_key_columns(&pool, &schema_name, &plan.source.table_name).await?;
+    if primary_key_columns.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(mysql_locator_expression(&primary_key_columns)))
+    }
 }
 
 fn with_editable_source(out: QueryOutput, original_sql: &str, used_locator: bool) -> QueryOutput {
@@ -587,9 +615,12 @@ mod round_trip;
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{
+        MYSQL_DIALECT,
+        build_editable_paginated_query,
         create_table,
         drop_table,
         duplicate_table,
+        editable_select_plan,
         execute_query_page,
         is_read_only_sql,
         leading_sql_keyword,
@@ -599,6 +630,7 @@ mod tests {
         preview_source_for_sql,
         rename_table,
         reorder_clickhouse_primary_key_columns,
+        sql_for_query_exec,
         truncate_table,
     };
     use database::{FakeDriver, SessionHandle};
@@ -647,6 +679,34 @@ mod tests {
                 "cast(`id` as char) = '42'",
                 "cast(`tenant_id` as char) = 'tenant-a'"
             ]
+        );
+    }
+
+    #[test]
+    fn mysql_select_star_sql_includes_json_array_locator_column() {
+        let plan = editable_select_plan("select * from t").unwrap();
+        let locator = mysql_locator_expression(&["id".to_string()]);
+        let built =
+            build_editable_paginated_query(&plan, 10, 0, &locator, None, None, MYSQL_DIALECT);
+        assert!(
+            built.contains(r#"json_array(cast(`id` as char)) as "__shovel_locator""#),
+            "expected locator column in {built}"
+        );
+
+        let handle = SessionHandle::wrap(Arc::new(FakeDriver::default()));
+        let (exec_sql, used_locator) = sql_for_query_exec(
+            &handle,
+            "select * from t",
+            10,
+            0,
+            None,
+            None,
+            Some(locator.as_str()),
+        );
+        assert!(used_locator);
+        assert!(
+            exec_sql.contains(r#"json_array(cast(`id` as char)) as "__shovel_locator""#),
+            "expected locator column in {exec_sql}"
         );
     }
 
