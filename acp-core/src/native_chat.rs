@@ -11,10 +11,10 @@ use futures_util::{
     future::Either,
     stream::{self, Stream},
 };
-use models::normalize_native_chat_url;
+use models::AiBackendId;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
-use serde::Deserialize;
-use serde_json::{Value, json};
+
+use crate::backends::backend;
 
 const NATIVE_CHAT_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const NATIVE_CHAT_TIMEOUT: Duration = Duration::from_secs(120);
@@ -43,7 +43,8 @@ pub struct NativeChatRequest {
     pub api_key: String,
     pub model: String,
     pub messages: Vec<NativeChatMessage>,
-    pub provider_slug: String,
+    pub backend: AiBackendId,
+    pub supports_thinking: bool,
     pub thinking_enabled: bool,
     pub reasoning_effort: String,
 }
@@ -60,166 +61,6 @@ pub enum NativeChatEvent {
     Thought(String),
     Finished,
     Error(String),
-}
-
-#[derive(Debug, Deserialize)]
-struct OpenAiChatChunk {
-    #[serde(default)]
-    choices: Vec<OpenAiChoice>,
-    #[serde(default)]
-    error: Option<Value>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OpenAiChoice {
-    #[serde(default)]
-    delta: OpenAiDelta,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct OpenAiDelta {
-    content: Option<String>,
-    reasoning_content: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OllamaChatChunk {
-    #[serde(default)]
-    message: Option<OllamaChatMessage>,
-    #[serde(default)]
-    done: bool,
-    #[serde(default)]
-    error: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OllamaChatMessage {
-    #[serde(default)]
-    content: String,
-}
-
-/// Build the OpenAI-compatible chat completions JSON body.
-pub fn openai_request_body(req: &NativeChatRequest) -> Value {
-    let mut body = json!({
-        "model": req.model,
-        "messages": req.messages,
-        "stream": true,
-    });
-
-    if req.provider_slug == "deepseek" {
-        let obj = body.as_object_mut().expect("request body is object");
-        if req.thinking_enabled {
-            obj.insert("thinking".into(), json!({ "type": "enabled" }));
-        }
-        obj.insert(
-            "reasoning_effort".into(),
-            Value::String(normalize_reasoning_effort_value(&req.reasoning_effort).to_string()),
-        );
-    }
-
-    body
-}
-
-fn ollama_request_body(req: &NativeChatRequest) -> Value {
-    json!({
-        "model": req.model,
-        "messages": req.messages,
-        "stream": true,
-    })
-}
-
-fn normalize_reasoning_effort_value(value: &str) -> &'static str {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "low" => "low",
-        "high" => "high",
-        _ => "medium",
-    }
-}
-
-fn chat_url(req: &NativeChatRequest) -> String {
-    let base = req.base_url.as_str();
-    let normalized = normalize_native_chat_url(base, base);
-
-    if req.provider_slug == "ollama" {
-        if normalized.ends_with("/api") {
-            format!("{normalized}/chat")
-        } else {
-            format!("{normalized}/api/chat")
-        }
-    } else if base.contains("chat/completions") || normalized.contains("chat/completions") {
-        normalized
-    } else if normalized.ends_with("/v1") {
-        format!("{normalized}/chat/completions")
-    } else {
-        format!("{normalized}/v1/chat/completions")
-    }
-}
-
-/// Parse an OpenAI-compatible SSE body into chat events (no network).
-pub fn parse_openai_sse(body: &str) -> Vec<NativeChatEvent> {
-    let mut events = Vec::new();
-    for line in body.lines() {
-        let Some(data) = line.strip_prefix("data:") else {
-            continue;
-        };
-        let data = data.trim();
-        if data.is_empty() {
-            continue;
-        }
-        if data == "[DONE]" {
-            events.push(NativeChatEvent::Finished);
-            continue;
-        }
-
-        let Ok(chunk) = serde_json::from_str::<OpenAiChatChunk>(data) else {
-            continue;
-        };
-
-        if let Some(error) = chunk.error {
-            events.push(NativeChatEvent::Error(error.to_string()));
-            continue;
-        }
-
-        if let Some(choice) = chunk.choices.first() {
-            if let Some(reasoning) = choice.delta.reasoning_content.as_ref()
-                && !reasoning.is_empty()
-            {
-                events.push(NativeChatEvent::Thought(reasoning.clone()));
-            }
-            if let Some(content) = choice.delta.content.as_ref()
-                && !content.is_empty()
-            {
-                events.push(NativeChatEvent::Delta(content.clone()));
-            }
-        }
-    }
-    events
-}
-
-fn parse_ollama_ndjson_line(line: &str) -> Vec<NativeChatEvent> {
-    let line = line.trim();
-    if line.is_empty() {
-        return Vec::new();
-    }
-
-    let Ok(chunk) = serde_json::from_str::<OllamaChatChunk>(line) else {
-        return Vec::new();
-    };
-
-    let mut events = Vec::new();
-    if let Some(error) = chunk.error {
-        events.push(NativeChatEvent::Error(error));
-        return events;
-    }
-    if let Some(message) = chunk.message
-        && !message.content.is_empty()
-    {
-        events.push(NativeChatEvent::Delta(message.content));
-    }
-    if chunk.done {
-        events.push(NativeChatEvent::Finished);
-    }
-    events
 }
 
 fn auth_headers(api_key: &str) -> Result<HeaderMap, String> {
@@ -248,9 +89,9 @@ fn take_complete_line_events(buffer: &mut String, is_ollama: bool) -> Vec<Native
             line.pop();
         }
         if is_ollama {
-            events.extend(parse_ollama_ndjson_line(&line));
+            events.extend(backend(AiBackendId::Ollama).parse_chat(&line));
         } else {
-            events.extend(parse_openai_sse(&line));
+            events.extend(backend(AiBackendId::OpenAiCompat).parse_chat(&line));
         }
         if events.iter().any(is_terminal_event) {
             break;
@@ -265,9 +106,9 @@ fn flush_remaining_buffer(buffer: &mut String, is_ollama: bool) -> Vec<NativeCha
     }
     let rest = std::mem::take(buffer);
     if is_ollama {
-        parse_ollama_ndjson_line(&rest)
+        backend(AiBackendId::Ollama).parse_chat(&rest)
     } else {
-        parse_openai_sse(&rest)
+        backend(AiBackendId::OpenAiCompat).parse_chat(&rest)
     }
 }
 
@@ -382,13 +223,9 @@ pub async fn stream_native_chat(
         .build()
         .map_err(|err| format!("Failed to build HTTP client: {err}"))?;
 
-    let url = chat_url(&req);
-    let is_ollama = req.provider_slug == "ollama";
-    let body = if is_ollama {
-        ollama_request_body(&req)
-    } else {
-        openai_request_body(&req)
-    };
+    let url = backend(req.backend).chat_url(&req.base_url)?;
+    let is_ollama = req.backend == AiBackendId::Ollama;
+    let body = backend(req.backend).chat_body(&req)?;
 
     if native_chat_cancel_requested() {
         return Ok(Either::Left(stream::iter(vec![NativeChatEvent::Error(
@@ -440,16 +277,14 @@ mod tests {
         NativeChatEvent,
         NativeChatMessage,
         NativeChatRequest,
-        chat_url,
         clear_native_chat_cancel,
         live_native_event_stream,
-        openai_request_body,
-        parse_ollama_ndjson_line,
-        parse_openai_sse,
         request_native_chat_cancel,
         stream,
         take_complete_line_events,
     };
+    use crate::backends::backend;
+    use models::AiBackendId;
 
     #[test]
     fn parse_openai_sse_emits_deltas_and_finished() {
@@ -458,7 +293,7 @@ mod tests {
             "data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\n",
             "data: [DONE]\n\n",
         );
-        let events = parse_openai_sse(body);
+        let events = backend(AiBackendId::OpenAiCompat).parse_chat(body);
         assert_eq!(
             events,
             vec![
@@ -479,11 +314,12 @@ mod tests {
                 role: "user".into(),
                 content: "hi".into(),
             }],
-            provider_slug: "openai".into(),
+            backend: AiBackendId::OpenAiCompat,
+            supports_thinking: false,
             thinking_enabled: false,
             reasoning_effort: "medium".into(),
         };
-        let v = openai_request_body(&req);
+        let v = backend(req.backend).chat_body(&req).unwrap();
         assert_eq!(v["model"], "gpt-4o-mini");
         assert_eq!(v["stream"], true);
     }
@@ -494,7 +330,7 @@ mod tests {
             "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"hmm\"}}]}\n\n",
             "data: {\"error\":{\"message\":\"nope\"}}\n\n",
         );
-        let events = parse_openai_sse(body);
+        let events = backend(AiBackendId::OpenAiCompat).parse_chat(body);
         assert_eq!(
             events,
             vec![
@@ -514,11 +350,12 @@ mod tests {
                 role: "user".into(),
                 content: "hi".into(),
             }],
-            provider_slug: "deepseek".into(),
+            backend: AiBackendId::OpenAiCompat,
+            supports_thinking: true,
             thinking_enabled: true,
             reasoning_effort: "high".into(),
         };
-        let v = openai_request_body(&req);
+        let v = backend(req.backend).chat_body(&req).unwrap();
         assert_eq!(v["thinking"]["type"], "enabled");
         assert_eq!(v["reasoning_effort"], "high");
     }
@@ -530,12 +367,13 @@ mod tests {
             api_key: String::new(),
             model: "m".into(),
             messages: vec![],
-            provider_slug: "openai".into(),
+            backend: AiBackendId::OpenAiCompat,
+            supports_thinking: false,
             thinking_enabled: false,
             reasoning_effort: "medium".into(),
         };
         assert_eq!(
-            chat_url(&openai),
+            backend(openai.backend).chat_url(&openai.base_url).unwrap(),
             "https://api.openai.com/v1/chat/completions"
         );
 
@@ -543,7 +381,10 @@ mod tests {
             base_url: "https://example.com/v1/chat/completions".into(),
             ..openai.clone()
         };
-        assert_eq!(chat_url(&full), "https://example.com/v1/chat/completions");
+        assert_eq!(
+            backend(full.backend).chat_url(&full.base_url).unwrap(),
+            "https://example.com/v1/chat/completions"
+        );
 
         // Bases that already end with /v1 must not become .../v1/v1/chat/completions.
         let minimax = NativeChatRequest {
@@ -551,33 +392,43 @@ mod tests {
             ..openai.clone()
         };
         assert_eq!(
-            chat_url(&minimax),
+            backend(minimax.backend)
+                .chat_url(&minimax.base_url)
+                .unwrap(),
             "https://api.minimax.chat/v1/chat/completions"
         );
 
         let ollama = NativeChatRequest {
             base_url: "http://localhost:11434".into(),
-            provider_slug: "ollama".into(),
+            backend: AiBackendId::Ollama,
             ..openai.clone()
         };
-        assert_eq!(chat_url(&ollama), "http://localhost:11434/api/chat");
+        assert_eq!(
+            backend(ollama.backend).chat_url(&ollama.base_url).unwrap(),
+            "http://localhost:11434/api/chat"
+        );
 
         let ollama_api = NativeChatRequest {
             base_url: "http://localhost:11434/api".into(),
-            provider_slug: "ollama".into(),
+            backend: AiBackendId::Ollama,
             ..openai
         };
-        assert_eq!(chat_url(&ollama_api), "http://localhost:11434/api/chat");
+        assert_eq!(
+            backend(ollama_api.backend)
+                .chat_url(&ollama_api.base_url)
+                .unwrap(),
+            "http://localhost:11434/api/chat"
+        );
     }
 
     #[test]
     fn parse_ollama_ndjson_delta_and_done() {
-        let events = parse_ollama_ndjson_line(
-            r#"{"message":{"role":"assistant","content":"hi"},"done":false}"#,
-        );
+        let events = backend(AiBackendId::Ollama)
+            .parse_chat(r#"{"message":{"role":"assistant","content":"hi"},"done":false}"#);
         assert_eq!(events, vec![NativeChatEvent::Delta("hi".into())]);
 
-        let done = parse_ollama_ndjson_line(r#"{"message":{"content":""},"done":true}"#);
+        let done =
+            backend(AiBackendId::Ollama).parse_chat(r#"{"message":{"content":""},"done":true}"#);
         assert_eq!(done, vec![NativeChatEvent::Finished]);
     }
 

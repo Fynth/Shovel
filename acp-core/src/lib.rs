@@ -3,6 +3,7 @@ pub mod deepseek;
 #[cfg(feature = "embedding")]
 pub mod embedding;
 pub mod native_chat;
+pub mod backends;
 pub mod native_runtime;
 pub mod ollama;
 pub mod runtime;
@@ -19,6 +20,7 @@ pub use agents::{
     SqlExpert,
     UserIntent,
 };
+pub use backends::{AiBackend, CompleteRequest, CompletionToken, backend};
 pub use deepseek::{
     EmbeddedDeepSeekAgentConfig,
     build_embedded_deepseek_launch,

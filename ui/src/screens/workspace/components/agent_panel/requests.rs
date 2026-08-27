@@ -10,6 +10,7 @@ use models::{
     is_native_http_ready,
     native_http_provider_enabled,
     normalize_native_chat_url,
+    provider_backend,
     provider_kind,
 };
 
@@ -60,7 +61,8 @@ struct NativeChatParts {
     base_url: String,
     api_key: String,
     model: String,
-    provider_slug: String,
+    backend: models::AiBackendId,
+    supports_thinking: bool,
     thinking_enabled: bool,
     reasoning_effort: String,
 }
@@ -75,7 +77,8 @@ impl NativeChatParts {
             api_key: self.api_key,
             model: self.model,
             messages,
-            provider_slug: self.provider_slug,
+            backend: self.backend,
+            supports_thinking: self.supports_thinking,
             thinking_enabled: self.thinking_enabled,
             reasoning_effort: self.reasoning_effort,
         }
@@ -121,11 +124,18 @@ fn native_chat_parts(
         model = vendor_model(settings, provider);
     }
     let (thinking_enabled, reasoning_effort) = native_thinking(settings, provider);
+    let backend =
+        provider_backend(provider, &settings.ai_catalog).expect("native http has backend");
+    let supports_thinking = builtin_providers()
+        .iter()
+        .find(|spec| spec.slug == provider)
+        .is_some_and(|spec| spec.supports_thinking);
     NativeChatParts {
         base_url: native_base_url(settings, provider),
         api_key,
         model,
-        provider_slug: provider.to_string(),
+        backend,
+        supports_thinking,
         thinking_enabled,
         reasoning_effort,
     }
