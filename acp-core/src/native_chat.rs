@@ -618,6 +618,15 @@ async fn open_native_completion_stream(
     Ok(live_completion_event_stream(byte_stream, is_ollama))
 }
 
+/// Serializes tests that touch the process-wide chat-cancel flag: it is
+/// global state, so parallel tests would otherwise arm or clear each
+/// other's flag mid-run and make the streaming test flaky.
+#[cfg(test)]
+pub(crate) fn test_cancel_flag_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    &LOCK
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -637,6 +646,11 @@ mod tests {
         stream,
         take_complete_line_events,
     };
+
+    /// Tests here share the module-level `test_cancel_flag_lock`.
+    fn cancel_flag_lock() -> &'static tokio::sync::Mutex<()> {
+        super::test_cancel_flag_lock()
+    }
 
     #[test]
     fn parse_openai_sse_emits_deltas_and_finished() {
@@ -785,6 +799,7 @@ mod tests {
     async fn live_stream_emits_deltas_then_stops_on_cancel() {
         use futures_util::StreamExt as _;
 
+        let _guard = cancel_flag_lock().lock().await;
         clear_native_chat_cancel();
         let chunks: Vec<Result<Vec<u8>, String>> = vec![
             Ok(b"data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n".to_vec()),
@@ -832,6 +847,7 @@ mod tests {
 
     #[test]
     fn completion_ollama_body_uses_options_not_chat_cancel() {
+        let _guard = cancel_flag_lock().blocking_lock();
         request_native_chat_cancel();
         let req = NativeChatRequest {
             base_url: "http://localhost:11434".into(),
