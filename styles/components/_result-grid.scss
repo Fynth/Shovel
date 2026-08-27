@@ -826,13 +826,23 @@ tr.results__row--stripe {
   font-size: $font-size-sm;
 }
 
+// Must beat `.button` (height: 24px, inline-flex, justify-content: center)
+// — records rows reuse those classes for hover/focus and otherwise collapse
+// into overlapping 24px chips piled in the middle of the pane.
+.button.results__records-row,
 .results__records-row {
   display: flex;
   flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
   gap: 4px;
   width: 100%;
+  height: auto;
+  min-height: 0;
   text-align: left;
-  padding: 6px 10px;
+  white-space: normal;
+  line-height: 1.4;
+  padding: 8px 10px;
   border-radius: $radius-md;
   border: 1px solid transparent;
   background: color-mix(
@@ -842,7 +852,6 @@ tr.results__row--stripe {
   );
   color: var(--color-text);
   font-size: $font-size-sm;
-  line-height: 1.4;
   cursor: pointer;
   transition: background $motion-fast, border-color $motion-fast;
 }

@@ -347,12 +347,6 @@ pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
         }
     });
 
-    use_effect(move || {
-        if view_mode() == ResultViewMode::Details && !show_row_details() {
-            show_row_details.set(true);
-        }
-    });
-
     rsx! {
         match result {
             Some(QueryOutput::AffectedRows(rows)) => {
@@ -560,9 +554,6 @@ pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
                                                             title: {label.to_string()},
                                                             onclick: move |_| {
                                                                 view_mode.set(mode);
-                                                                if mode == ResultViewMode::Details {
-                                                                    show_row_details.set(true);
-                                                                }
                                                             },
                                                             "{mode.label()}"
                                                         }
@@ -775,6 +766,7 @@ pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
                                                         class: "input results__quick-filter-column",
                                                         value: "{quick_filter_column()}",
                                                         oninput: move |event| quick_filter_column.set(event.value()),
+                                                        onchange: move |event| quick_filter_column.set(event.value()),
                                                         for column in page.columns.iter().cloned() {
                                                             option { value: column.clone(), {column.to_string()} }
                                                         }
@@ -783,6 +775,9 @@ pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
                                                         class: "input results__quick-filter-operator",
                                                         value: filter_operator_value(quick_filter_operator()),
                                                         oninput: move |event| {
+                                                            quick_filter_operator.set(parse_filter_operator(&event.value()));
+                                                        },
+                                                        onchange: move |event| {
                                                             quick_filter_operator.set(parse_filter_operator(&event.value()));
                                                         },
                                                         for operator in supported_filter_operators() {
@@ -853,6 +848,7 @@ pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
                                                     class: "input results__filter-mode",
                                                     value: filter_mode_value(filter_draft().mode),
                                                     oninput: move |event| update_filter_mode(filter_draft, event.value()),
+                                                    onchange: move |event| update_filter_mode(filter_draft, event.value()),
                                                     option { value: "and", "Match all (AND)" }
                                                     option { value: "or", "Match any (OR)" }
                                                 }
@@ -905,6 +901,13 @@ pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
                                                                     event.value(),
                                                                 );
                                                             },
+                                                            onchange: move |event| {
+                                                                update_filter_rule_column(
+                                                                    filter_draft,
+                                                                    rule_index,
+                                                                    event.value(),
+                                                                );
+                                                            },
                                                             for column in page.columns.iter().cloned() {
                                                                 option { value: column.clone(), {column.to_string()} }
                                                             }
@@ -913,6 +916,13 @@ pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
                                                             class: "input results__filter-operator",
                                                             value: filter_operator_value(rule.operator),
                                                             oninput: move |event| {
+                                                                update_filter_rule_operator(
+                                                                    filter_draft,
+                                                                    rule_index,
+                                                                    event.value(),
+                                                                );
+                                                            },
+                                                            onchange: move |event| {
                                                                 update_filter_rule_operator(
                                                                     filter_draft,
                                                                     rule_index,
@@ -942,6 +952,17 @@ pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
                                                                         rule_index,
                                                                         event.value(),
                                                                     );
+                                                                },
+                                                                onkeydown: move |event| {
+                                                                    if event.key() == Key::Enter
+                                                                        && has_meaningful_rules(&filter_draft())
+                                                                    {
+                                                                        apply_active_tab_filter(
+                                                                            store,
+                                                                            store.active_tab_id(),
+                                                                            filter_draft(),
+                                                                        );
+                                                                    }
                                                                 },
                                                             }
                                                         }
@@ -989,6 +1010,16 @@ pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
                                                                 },
                                                                 key: "{display_row_key(&display_row)}",
                                                                 "aria-label": {row_label.to_string()},
+                                                                ondoubleclick: {
+                                                                    let row_ref = display_row.row_ref.clone();
+                                                                    let values: Vec<(usize, String)> = display_row.values.iter().cloned().enumerate().collect();
+                                                                    move |_| {
+                                                                        selected_row_index.set(Some(row_index));
+                                                                        editing_row_values.set(values.clone());
+                                                                        editing_row_ref.set(Some(row_ref.clone()));
+                                                                        show_row_details.set(true);
+                                                                    }
+                                                                },
                                                                 onclick: {
                                                                     let row_ref = display_row.row_ref.clone();
                                                                     let values: Vec<(usize, String)> = display_row.values.iter().cloned().enumerate().collect();
@@ -1276,7 +1307,6 @@ pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
                                                             key: "{display_row_key(row)}",
                                                             onclick: move |_| {
                                                                 selected_row_index.set(Some(visible_idx));
-                                                                show_row_details.set(true);
                                                                 let rows = display_rows_cache.read();
                                                                 if let Some(r) = rows.get(visible_idx) {
                                                                     let values: Vec<(usize, String)> = r.values.iter()
@@ -1361,8 +1391,38 @@ pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
                                                                         let cell_value = row.values.get(col_index).cloned().unwrap_or_default();
                                                                         let editable = table_cells_editable;
                                                                         let row_ref = row.row_ref.clone();
+                                                                        let column_name_for_editor = column_name.clone();
+                                                                        let row_values = row.values.clone();
                                                                         move |_| {
-                                                                            if editable {
+                                                                            selected_row_index.set(Some(visible_idx));
+                                                                            show_row_details.set(true);
+                                                                            let values: Vec<(usize, String)> = row_values
+                                                                                .iter()
+                                                                                .cloned()
+                                                                                .enumerate()
+                                                                                .collect();
+                                                                            editing_row_values.set(values);
+                                                                            editing_row_ref.set(Some(row_ref.clone()));
+                                                                            if !editable {
+                                                                                return;
+                                                                            }
+                                                                            if cell_prefers_value_editor(&cell_value) {
+                                                                                value_editor_target.set(Some((
+                                                                                    row_ref.clone(),
+                                                                                    col_index,
+                                                                                )));
+                                                                                value_editor.set(Some(ValueEditorState {
+                                                                                    column_name: column_name_for_editor.clone(),
+                                                                                    value: cell_value.clone(),
+                                                                                    editable: true,
+                                                                                    mode: if is_valid_cell_json(&cell_value) {
+                                                                                        ValueEditorMode::Json
+                                                                                    } else {
+                                                                                        ValueEditorMode::Text
+                                                                                    },
+                                                                                    width: 520.0,
+                                                                                }));
+                                                                            } else {
                                                                                 editing_cell.set(Some(EditingCell {
                                                                                     row_ref: row_ref.clone(),
                                                                                     col_index,
@@ -1373,9 +1433,15 @@ pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
                                                                     },
                                                                     if let Some(current_edit) = current_editing.clone() {
                                                                         if current_edit.row_ref == row.row_ref && current_edit.col_index == col_index {
+                                                                            {
+                                                                            let blur_row_ref = current_edit.row_ref.clone();
+                                                                            let blur_col = current_edit.col_index;
+                                                                            rsx! {
                                                                             input {
                                                                                 class: "results__cell-input",
                                                                                 value: "{current_edit.value}",
+                                                                                autofocus: true,
+                                                                                title: "Enter to save · Esc to cancel",
                                                                                 oninput: move |event| {
                                                                                     let value = event.value();
                                                                                     editing_cell.with_mut(|editing| {
@@ -1479,14 +1545,17 @@ pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
                                                                                     }
                                                                                 },
                                                                                 onblur: move |_| {
-                                                                                    if let Some(editing) = editing_cell() {
-                                                                                        commit_cell_edit(
-                                                                                            editing_cell,
-                                                                                            store,
-                                                                                            editing,
-                                                                                        );
+                                                                                    let Some(current) = editing_cell() else {
+                                                                                        return;
+                                                                                    };
+                                                                                    if current.row_ref == blur_row_ref
+                                                                                        && current.col_index == blur_col
+                                                                                    {
+                                                                                        editing_cell.set(None);
                                                                                     }
                                                                                 }
+                                                                            }
+                                                                            }
                                                                             }
                                                                         } else {
                                                                             div {
@@ -2291,6 +2360,11 @@ fn build_cell_context_menu(
     items
 }
 
+fn cell_prefers_value_editor(value: &str) -> bool {
+    let trimmed = value.trim();
+    trimmed.contains('\n') || trimmed.len() > 80 || is_valid_cell_json(trimmed)
+}
+
 fn is_valid_cell_json(value: &str) -> bool {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -2447,6 +2521,7 @@ fn apply_quick_filter_with_columns(
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{
+        cell_prefers_value_editor,
         filter_panel_should_auto_open,
         filter_panel_should_collapse_after_clear,
         filter_visible_columns,
@@ -2608,6 +2683,14 @@ mod tests {
     fn cell_filter_affordance_hidden_for_empty_values() {
         assert!(!should_show_cell_filter(""));
         assert!(!should_show_cell_filter("   "));
+    }
+
+    #[test]
+    fn cell_prefers_value_editor_for_long_multiline_or_json() {
+        assert!(!cell_prefers_value_editor("Ada"));
+        assert!(cell_prefers_value_editor("line one\nline two"));
+        assert!(cell_prefers_value_editor(&"x".repeat(81)));
+        assert!(cell_prefers_value_editor("{\"a\":1}"));
     }
 
     #[test]

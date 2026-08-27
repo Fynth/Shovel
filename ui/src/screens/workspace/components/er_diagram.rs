@@ -16,6 +16,7 @@ pub struct ErColumn {
     pub data_type: String,
     pub is_nullable: bool,
     pub is_primary_key: bool,
+    pub is_foreign_key: bool,
 }
 
 #[derive(Clone, PartialEq)]
@@ -41,12 +42,17 @@ pub struct ErRelationship {
     pub to_column: String,
 }
 
+#[derive(Clone, PartialEq)]
+struct ErCardPos {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+}
+
 #[derive(Clone)]
-pub struct ErLine {
-    pub x1: String,
-    pub y1: String,
-    pub x2: String,
-    pub y2: String,
+struct ErLine {
+    d: String,
 }
 
 /// Prop-driven ER diagram viewer.
@@ -70,16 +76,14 @@ pub fn ErDiagramViewer(
         .relationships
         .iter()
         .filter_map(|rel| {
-            let (fx, fy) = *table_positions.get(&rel.from_table)?;
-            let (tx, ty) = *table_positions.get(&rel.to_table)?;
+            let from = table_positions.get(&rel.from_table)?;
+            let to = table_positions.get(&rel.to_table)?;
             Some(ErLine {
-                x1: fx.to_string(),
-                y1: fy.to_string(),
-                x2: tx.to_string(),
-                y2: ty.to_string(),
+                d: relationship_path(from, to),
             })
         })
         .collect();
+    let (world_w, world_h) = world_bounds(&table_positions);
 
     rsx! {
         div {
@@ -100,7 +104,7 @@ pub fn ErDiagramViewer(
                     button {
                         class: "er-diagram__zoom-btn",
                         onclick: move |_| zoom.set((zoom() / 1.2).max(0.3)),
-                        "-"
+                        "−"
                     }
                     button {
                         class: "er-diagram__zoom-btn",
@@ -109,6 +113,11 @@ pub fn ErDiagramViewer(
                             view_offset.set((0.0, 0.0));
                         },
                         "Reset"
+                    }
+                    button {
+                        class: "er-diagram__zoom-btn",
+                        onclick: move |_| on_close.call(()),
+                        "Close"
                     }
                 }
             }
@@ -130,50 +139,58 @@ pub fn ErDiagramViewer(
                 },
                 onmouseup: move |_| is_dragging.set(false),
                 onmouseleave: move |_| is_dragging.set(false),
-                onwheel: move |_| {
-                    zoom.set((zoom() * 1.05).clamp(0.3, 3.0));
+                onwheel: move |event| {
+                    let dy = event.data().delta().strip_units().y;
+                    if dy < 0.0 {
+                        zoom.set((zoom() * 1.08).min(3.0));
+                    } else if dy > 0.0 {
+                        zoom.set((zoom() / 1.08).max(0.3));
+                    }
                 },
-                svg {
-                    class: "er-diagram__svg",
+                div {
+                    class: "er-diagram__world",
                     style: format!(
-                        "transform: translate({}px, {}px) scale({});",
+                        "width: {world_w}px; height: {world_h}px; transform: translate({}px, {}px) scale({});",
                         view_offset().0,
                         view_offset().1,
                         zoom()
                     ),
-                    defs {
-                        marker {
-                            id: "arrowhead",
-                            marker_width: "10",
-                            marker_height: "7",
-                            ref_x: "9",
-                            ref_y: "3.5",
-                            orient: "auto",
-                            polygon {
-                                points: "0 0, 10 3.5, 0 7",
-                                fill: "var(--color-primary)",
+                    svg {
+                        class: "er-diagram__svg",
+                        width: "{world_w}",
+                        height: "{world_h}",
+                        defs {
+                            marker {
+                                id: "arrowhead",
+                                marker_width: "10",
+                                marker_height: "7",
+                                ref_x: "9",
+                                ref_y: "3.5",
+                                orient: "auto",
+                                polygon {
+                                    points: "0 0, 10 3.5, 0 7",
+                                    fill: "var(--color-primary)",
+                                }
+                            }
+                        }
+                        for line in relationship_lines.iter() {
+                            path {
+                                d: "{line.d}",
+                                fill: "none",
+                                stroke: "var(--color-primary)",
+                                stroke_width: "1.75",
+                                marker_end: "url(#arrowhead)",
                             }
                         }
                     }
-                    for line in relationship_lines.iter() {
-                        line {
-                            x1: "{line.x1}",
-                            y1: "{line.y1}",
-                            x2: "{line.x2}",
-                            y2: "{line.y2}",
-                            stroke: "var(--color-primary)",
-                            stroke_width: "2",
-                            marker_end: "url(#arrowhead)",
-                        }
-                    }
-                }
-                div {
-                    class: "er-diagram__tables",
-                    for table in diagram.tables.iter() {
-                        ErTableCard {
-                            table: table.clone(),
-                            position: table_positions.get(&table.name).copied(),
-                            on_click: on_table_click,
+                    div {
+                        class: "er-diagram__tables",
+                        for table in diagram.tables.iter() {
+                            ErTableCard {
+                                table: table.clone(),
+                                position: table_positions.get(&table.name).cloned(),
+                                on_click: on_table_click,
+                            }
                         }
                     }
                 }
@@ -182,18 +199,18 @@ pub fn ErDiagramViewer(
                 class: "er-diagram__legend",
                 div {
                     class: "er-diagram__legend-item",
-                    span {
-                        class: "er-diagram__legend-line",
-                    }
-                    "Foreign Key"
+                    span { class: "er-diagram__legend-line" }
+                    "Foreign key"
                 }
                 div {
                     class: "er-diagram__legend-item",
-                    span {
-                        class: "er-diagram__legend-pk",
-                        "PK"
-                    }
-                    "Primary Key"
+                    span { class: "er-diagram__legend-pk", "PK" }
+                    "Primary key"
+                }
+                div {
+                    class: "er-diagram__legend-item",
+                    span { class: "er-diagram__legend-fk", "FK" }
+                    "Foreign key column"
                 }
             }
         }
@@ -201,17 +218,19 @@ pub fn ErDiagramViewer(
 }
 
 #[component]
-fn ErTableCard(
-    table: ErTable,
-    position: Option<(f64, f64)>,
-    on_click: Callback<String>,
-) -> Element {
-    let (x, y) = position.unwrap_or((100.0, 100.0));
+fn ErTableCard(table: ErTable, position: Option<ErCardPos>, on_click: Callback<String>) -> Element {
+    let pos = position.unwrap_or(ErCardPos {
+        x: 100.0,
+        y: 100.0,
+        w: CARD_WIDTH,
+        h: 80.0,
+    });
 
     rsx! {
         div {
             class: "er-table-card",
-            style: format!("left: {}px; top: {}px;", x, y),
+            style: format!("left: {}px; top: {}px; width: {}px;", pos.x, pos.y, pos.w),
+            onmousedown: move |event| event.stop_propagation(),
             onclick: move |_| on_click.call(table.name.clone()),
             div {
                 class: "er-table-card__header",
@@ -226,16 +245,37 @@ fn ErTableCard(
             }
             div {
                 class: "er-table-card__columns",
+                if table.columns.is_empty() {
+                    div {
+                        class: "er-table-card__column er-table-card__column--empty",
+                        "No columns loaded"
+                    }
+                }
                 for column in table.columns.iter() {
                     div {
                         class: "er-table-card__column",
                         span {
-                            class: if column.is_primary_key { "er-table-card__pk-badge" } else { "" },
-                            if column.is_primary_key { "PK" } else { "" }
+                            class: if column.is_primary_key {
+                                "er-table-card__pk-badge"
+                            } else if column.is_foreign_key {
+                                "er-table-card__fk-badge"
+                            } else {
+                                "er-table-card__badge-spacer"
+                            },
+                            if column.is_primary_key {
+                                "PK"
+                            } else if column.is_foreign_key {
+                                "FK"
+                            } else {
+                                ""
+                            }
                         }
                         span {
                             class: "er-table-card__column-name",
                             "{column.name}"
+                            if !column.is_nullable && !column.is_primary_key {
+                                span { class: "er-table-card__null-mark", "*" }
+                            }
                         }
                         span {
                             class: "er-table-card__column-type",
@@ -248,73 +288,107 @@ fn ErTableCard(
     }
 }
 
+const CARD_WIDTH: f64 = 220.0;
+const CARD_HEADER: f64 = 36.0;
+const CARD_ROW: f64 = 22.0;
+const CARD_PAD: f64 = 8.0;
+const H_GAP: f64 = 96.0;
+const V_GAP: f64 = 48.0;
+const ORIGIN: f64 = 40.0;
+
+fn card_height(table: &ErTable) -> f64 {
+    let rows = table.columns.len().max(1) as f64;
+    (CARD_HEADER + CARD_PAD + rows * CARD_ROW).min(280.0)
+}
+
 fn calculate_table_positions(
     tables: &[ErTable],
     relationships: &[ErRelationship],
-) -> HashMap<String, (f64, f64)> {
+) -> HashMap<String, ErCardPos> {
     let mut positions = HashMap::new();
-
     if tables.is_empty() {
         return positions;
     }
 
-    let table_width = 220.0;
-    let table_height = 200.0;
-    let horizontal_gap = 80.0;
-    let vertical_gap = 80.0;
-    let tables_per_row = 4.max((tables.len() as f64 / 3.0).ceil() as usize);
-
-    let mut adjacency: HashMap<&str, Vec<&str>> = HashMap::new();
-    for rel in relationships {
-        adjacency
-            .entry(rel.from_table.as_str())
-            .or_default()
-            .push(&rel.to_table);
-        adjacency
-            .entry(rel.to_table.as_str())
-            .or_default()
-            .push(&rel.from_table);
-    }
-
-    let mut visited = std::collections::HashSet::new();
-    let mut stack: Vec<&str> = Vec::new();
-
-    if let Some(first) = tables.first() {
-        stack.push(&first.name);
-    }
-
-    let mut layout_order: Vec<&str> = Vec::new();
-    while let Some(current) = stack.pop() {
-        if visited.contains(current) {
-            continue;
-        }
-        visited.insert(current);
-        layout_order.push(current);
-
-        if let Some(neighbors) = adjacency.get(current) {
-            for &neighbor in neighbors.iter().rev() {
-                if !visited.contains(neighbor) {
-                    stack.push(neighbor);
-                }
+    let mut rank: HashMap<&str, usize> = tables
+        .iter()
+        .map(|table| (table.name.as_str(), 0))
+        .collect();
+    for _ in 0..tables.len() {
+        let mut changed = false;
+        for rel in relationships {
+            let parent = rank.get(rel.to_table.as_str()).copied().unwrap_or(0);
+            let child = rank.get(rel.from_table.as_str()).copied().unwrap_or(0);
+            if child < parent + 1 {
+                rank.insert(rel.from_table.as_str(), parent + 1);
+                changed = true;
             }
         }
-    }
-
-    for table in tables.iter() {
-        if !visited.contains(&table.name.as_str()) {
-            layout_order.push(&table.name);
+        if !changed {
+            break;
         }
     }
 
-    for (index, table_name) in layout_order.iter().enumerate() {
-        let row = index / tables_per_row;
-        let col = index % tables_per_row;
-        let x = col as f64 * (table_width + horizontal_gap) + 40.0;
-        let y = row as f64 * (table_height + vertical_gap) + 40.0;
-        positions.insert(table_name.to_string(), (x, y));
+    let mut buckets: HashMap<usize, Vec<&ErTable>> = HashMap::new();
+    for table in tables {
+        buckets
+            .entry(*rank.get(table.name.as_str()).unwrap_or(&0))
+            .or_default()
+            .push(table);
+    }
+
+    let mut max_rank = 0;
+    for table in tables {
+        max_rank = max_rank.max(*rank.get(table.name.as_str()).unwrap_or(&0));
+    }
+
+    for column in 0..=max_rank {
+        let Some(column_tables) = buckets.get(&column) else {
+            continue;
+        };
+        let mut y = ORIGIN;
+        for table in column_tables {
+            let h = card_height(table);
+            positions.insert(
+                table.name.clone(),
+                ErCardPos {
+                    x: ORIGIN + column as f64 * (CARD_WIDTH + H_GAP),
+                    y,
+                    w: CARD_WIDTH,
+                    h,
+                },
+            );
+            y += h + V_GAP;
+        }
     }
 
     positions
+}
+
+fn relationship_path(from: &ErCardPos, to: &ErCardPos) -> String {
+    let from_right = from.x + from.w;
+    let to_left = to.x;
+    let (x1, x2) = if from_right <= to_left {
+        (from_right, to_left)
+    } else if to.x + to.w <= from.x {
+        (from.x, to.x + to.w)
+    } else {
+        (from_right, to_left)
+    };
+    let y1 = from.y + from.h / 2.0;
+    let y2 = to.y + to.h / 2.0;
+    let mid = (x1 + x2) / 2.0;
+    format!("M {x1:.1} {y1:.1} C {mid:.1} {y1:.1}, {mid:.1} {y2:.1}, {x2:.1} {y2:.1}")
+}
+
+fn world_bounds(positions: &HashMap<String, ErCardPos>) -> (f64, f64) {
+    let mut max_x: f64 = 400.0;
+    let mut max_y: f64 = 300.0;
+    for pos in positions.values() {
+        max_x = max_x.max(pos.x + pos.w + ORIGIN);
+        max_y = max_y.max(pos.y + pos.h + ORIGIN);
+    }
+    (max_x, max_y)
 }
 
 #[cfg(test)]
@@ -330,6 +404,7 @@ mod tests {
                 data_type: "INTEGER".to_string(),
                 is_nullable: false,
                 is_primary_key: true,
+                is_foreign_key: false,
             }],
             primary_key: vec!["id".to_string()],
             foreign_keys: vec![],
@@ -356,9 +431,9 @@ mod tests {
         let tables = vec![make_table("users")];
         let positions = calculate_table_positions(&tables, &[]);
         assert_eq!(positions.len(), 1);
-        let (x, y) = positions.get("users").unwrap();
-        assert_eq!(*x, 40.0);
-        assert_eq!(*y, 40.0);
+        let pos = positions.get("users").unwrap();
+        assert_eq!(pos.x, 40.0);
+        assert_eq!(pos.y, 40.0);
     }
 
     #[test]
@@ -373,32 +448,33 @@ mod tests {
         assert!(positions.contains_key("users"));
         assert!(positions.contains_key("orders"));
         assert!(positions.contains_key("products"));
-        let (x1, y1) = positions["users"];
-        assert_eq!(x1, 40.0);
-        assert_eq!(y1, 40.0);
-        let (x2, y2) = positions["orders"];
-        assert_eq!(x2, 340.0);
-        assert_eq!(y2, 40.0);
+        let users = &positions["users"];
+        assert_eq!(users.x, 40.0);
+        assert_eq!(users.y, 40.0);
+        let orders = &positions["orders"];
+        assert_eq!(orders.x, 40.0);
+        assert!(orders.y > users.y);
     }
 
     #[test]
-    fn calculate_positions_with_relationships_dfs_ordering() {
+    fn calculate_positions_with_relationships_ranks_children_to_the_right() {
         let tables = vec![
             make_table("users"),
             make_table("orders"),
             make_table("items"),
         ];
         let relationships = vec![
-            make_relationship("users", "id", "orders", "user_id"),
-            make_relationship("orders", "id", "items", "order_id"),
+            make_relationship("orders", "user_id", "users", "id"),
+            make_relationship("items", "order_id", "orders", "id"),
         ];
         let positions = calculate_table_positions(&tables, &relationships);
         assert_eq!(positions.len(), 3);
-        let (ux, uy) = positions["users"];
-        assert_eq!(ux, 40.0);
-        assert_eq!(uy, 40.0);
-        assert!(positions.contains_key("orders"));
-        assert!(positions.contains_key("items"));
+        let users = &positions["users"];
+        let orders = &positions["orders"];
+        let items = &positions["items"];
+        assert_eq!(users.x, 40.0);
+        assert!(orders.x > users.x);
+        assert!(items.x > orders.x);
     }
 
     #[test]
@@ -419,7 +495,7 @@ mod tests {
         assert_eq!(positions.len(), 9);
         let unique_positions: std::collections::HashSet<(u64, u64)> = positions
             .values()
-            .map(|(x, y)| (x.to_bits(), y.to_bits()))
+            .map(|pos| (pos.x.to_bits(), pos.y.to_bits()))
             .collect();
         assert_eq!(unique_positions.len(), 9);
     }

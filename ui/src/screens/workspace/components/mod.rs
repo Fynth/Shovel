@@ -43,7 +43,14 @@ pub(crate) use blob_viewer::{BlobData, BlobViewer};
 pub use bottom_panel::{BottomPanelDock, BottomPanelTab};
 pub use chart::ResultChart;
 pub(crate) use data_diff::DataDiffViewer;
-pub(crate) use er_diagram::{ErDiagramState, ErDiagramViewer, ErRelationship, ErTable};
+pub(crate) use er_diagram::{
+    ErColumn,
+    ErDiagramState,
+    ErDiagramViewer,
+    ErForeignKey,
+    ErRelationship,
+    ErTable,
+};
 pub use execution_plan::ExecutionPlanView;
 pub use explorer::{ExplorerConnectionSection, SidebarConnectionTree};
 pub use history::QueryHistoryPanel;

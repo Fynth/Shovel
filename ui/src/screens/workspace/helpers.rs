@@ -1,5 +1,7 @@
 use super::components::{
+    ErColumn,
     ErDiagramState,
+    ErForeignKey,
     ErRelationship,
     ErTable,
     ExplorerConnectionSection,
@@ -70,36 +72,16 @@ pub fn build_er_diagram(
     foreign_keys: &[models::TableForeignKey],
 ) -> Option<ErDiagramState> {
     let mut tables = Vec::new();
-    // Множество (schema, table) для фильтрации FK по присутствию в дереве.
     let mut known: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
 
     for section in sections {
-        for node in &section.nodes {
-            if node.kind != models::ExplorerNodeKind::Schema {
-                continue;
-            }
-            let schema_name = node.name.clone();
-            for child in &node.children {
-                if child.kind != models::ExplorerNodeKind::Table {
-                    continue;
-                }
-                known.insert((schema_name.clone(), child.name.clone()));
-                tables.push(ErTable {
-                    schema: schema_name.clone(),
-                    name: child.name.clone(),
-                    columns: Vec::new(),
-                    primary_key: Vec::new(),
-                    foreign_keys: Vec::new(),
-                });
-            }
-        }
+        collect_er_tables(&section.nodes, &mut tables, &mut known);
     }
 
     if tables.is_empty() {
         return None;
     }
 
-    // Дедуплицируем по паре таблиц — одна линия на пару (источник, цель).
     let mut seen_pairs: std::collections::HashSet<(String, String)> =
         std::collections::HashSet::new();
     let mut relationships = Vec::new();
@@ -108,6 +90,18 @@ pub fn build_er_diagram(
         let to = (fk.to_schema.clone(), fk.to_table.clone());
         if !known.contains(&from) || !known.contains(&to) {
             continue;
+        }
+        if let Some(table) = tables.iter_mut().find(|table| {
+            table.name == fk.from_table
+                && (table.schema == fk.from_schema || table.schema.is_empty())
+        }) {
+            table.foreign_keys.push(ErForeignKey {
+                name: fk.name.clone(),
+                from_table: fk.from_table.clone(),
+                from_column: fk.from_column.clone(),
+                to_table: fk.to_table.clone(),
+                to_column: fk.to_column.clone(),
+            });
         }
         if !seen_pairs.insert((fk.from_table.clone(), fk.to_table.clone())) {
             continue;
@@ -124,6 +118,95 @@ pub fn build_er_diagram(
         tables,
         relationships,
     })
+}
+
+fn collect_er_tables(
+    nodes: &[models::ExplorerNode],
+    tables: &mut Vec<ErTable>,
+    known: &mut std::collections::HashSet<(String, String)>,
+) {
+    for node in nodes {
+        if node.kind == models::ExplorerNodeKind::Table {
+            let schema_name = node
+                .schema
+                .clone()
+                .filter(|schema| !schema.is_empty())
+                .unwrap_or_else(|| "main".to_string());
+            if known.insert((schema_name.clone(), node.name.clone())) {
+                tables.push(ErTable {
+                    schema: schema_name,
+                    name: node.name.clone(),
+                    columns: Vec::new(),
+                    primary_key: Vec::new(),
+                    foreign_keys: Vec::new(),
+                });
+            }
+        }
+        if !node.children.is_empty() {
+            collect_er_tables(&node.children, tables, known);
+        }
+    }
+}
+
+/// Fills column / PK metadata from a `describe_table` page.
+pub fn apply_table_describe(
+    table: &mut ErTable,
+    output: &models::QueryOutput,
+    relationships: &[ErRelationship],
+) {
+    let models::QueryOutput::Table(page) = output else {
+        return;
+    };
+    let mut columns = Vec::new();
+    let mut primary_key = Vec::new();
+    for row in &page.rows {
+        let section = row.first().map(String::as_str).unwrap_or_default();
+        if section != "column" {
+            continue;
+        }
+        let name = row.get(1).cloned().unwrap_or_default();
+        if name.is_empty() {
+            continue;
+        }
+        let data_type = row.get(2).cloned().unwrap_or_default();
+        let target = row.get(3).cloned().unwrap_or_default();
+        let details = row.get(4).cloned().unwrap_or_default();
+        let is_primary_key = target.to_ascii_lowercase().contains("pk")
+            || details.to_ascii_lowercase().contains("primary");
+        if is_primary_key {
+            primary_key.push(name.clone());
+        }
+        let is_foreign_key = relationships
+            .iter()
+            .any(|rel| rel.from_table == table.name && rel.from_column == name)
+            || table.foreign_keys.iter().any(|fk| fk.from_column == name);
+        let is_nullable = !details.to_ascii_uppercase().contains("NOT NULL");
+        columns.push(ErColumn {
+            name,
+            data_type,
+            is_nullable,
+            is_primary_key,
+            is_foreign_key,
+        });
+    }
+    if !columns.is_empty() {
+        table.columns = columns;
+        table.primary_key = primary_key;
+    }
+}
+
+pub async fn enrich_er_diagram(session_id: u64, diagram: &mut ErDiagramState) {
+    let relationships = diagram.relationships.clone();
+    for table in &mut diagram.tables {
+        let schema = if table.schema.is_empty() {
+            None
+        } else {
+            Some(table.schema.clone())
+        };
+        if let Ok(output) = services::describe_table(session_id, schema, table.name.clone()).await {
+            apply_table_describe(table, &output, &relationships);
+        }
+    }
 }
 
 /// Async wrapper that runs the (potentially heavy) ER-diagram build on a
@@ -558,7 +641,10 @@ pub fn tool_panel_class(panel: WorkspaceToolPanel) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
+        ErRelationship,
+        ErTable,
         ExplorerConnectionSection,
+        apply_table_describe,
         build_er_diagram,
         can_edit_rows,
         can_import_csv,
@@ -801,5 +887,95 @@ mod tests {
         ];
         let diagram = build_er_diagram(&sections, &fks).expect("diagram should be built");
         assert_eq!(diagram.relationships.len(), 1);
+    }
+
+    #[test]
+    fn er_diagram_collects_nested_tables() {
+        use models::ExplorerNodeKind;
+        let sections = vec![ExplorerConnectionSection {
+            session_id: 1,
+            name: "db".to_string(),
+            kind_label: "SQLite".to_string(),
+            status: "Ready".to_string(),
+            is_active: true,
+            nodes: vec![models::ExplorerNode {
+                name: "main".to_string(),
+                kind: ExplorerNodeKind::Schema,
+                schema: Some("main".to_string()),
+                qualified_name: "main".to_string(),
+                row_count: None,
+                children: vec![models::ExplorerNode {
+                    name: "TABLES".to_string(),
+                    kind: ExplorerNodeKind::Schema,
+                    schema: Some("main".to_string()),
+                    qualified_name: "main.tables".to_string(),
+                    row_count: None,
+                    children: vec![models::ExplorerNode {
+                        name: "users".to_string(),
+                        kind: ExplorerNodeKind::Table,
+                        schema: Some("main".to_string()),
+                        qualified_name: "users".to_string(),
+                        row_count: None,
+                        children: Vec::new(),
+                    }],
+                }],
+            }],
+        }];
+        let diagram = build_er_diagram(&sections, &[]).expect("nested table");
+        assert_eq!(diagram.tables.len(), 1);
+        assert_eq!(diagram.tables[0].name, "users");
+    }
+
+    #[test]
+    fn apply_table_describe_reads_pk_and_types() {
+        let mut table = ErTable {
+            schema: "main".to_string(),
+            name: "orders".to_string(),
+            columns: Vec::new(),
+            primary_key: Vec::new(),
+            foreign_keys: Vec::new(),
+        };
+        let output = models::QueryOutput::Table(models::QueryPage {
+            columns: vec![
+                "section".into(),
+                "name".into(),
+                "type".into(),
+                "target".into(),
+                "details".into(),
+            ],
+            rows: vec![
+                vec![
+                    "column".into(),
+                    "id".into(),
+                    "INTEGER".into(),
+                    "pk#1".into(),
+                    "NOT NULL".into(),
+                ],
+                vec![
+                    "column".into(),
+                    "user_id".into(),
+                    "INTEGER".into(),
+                    String::new(),
+                    "NOT NULL".into(),
+                ],
+            ],
+            editable: None,
+            offset: 0,
+            page_size: 100,
+            has_previous: false,
+            has_next: false,
+        });
+        let rels = vec![ErRelationship {
+            from_table: "orders".into(),
+            from_column: "user_id".into(),
+            to_table: "users".into(),
+            to_column: "id".into(),
+        }];
+        apply_table_describe(&mut table, &output, &rels);
+        assert_eq!(table.columns.len(), 2);
+        assert!(table.columns[0].is_primary_key);
+        assert!(table.columns[1].is_foreign_key);
+        assert_eq!(table.columns[1].data_type, "INTEGER");
+        assert_eq!(table.primary_key, vec!["id".to_string()]);
     }
 }

@@ -650,6 +650,7 @@ pub fn run_query_for_tab(
         .read()
         .get(&current_id)
         .and_then(|r| r.sort.clone());
+    let load_generation = bump_load_generation(store, current_id);
 
     store.result.with_mut(|m| {
         if let Some(res) = m.get_mut(&current_id) {
@@ -697,6 +698,9 @@ pub fn run_query_for_tab(
 
                 store.result.with_mut(|m| {
                     if let Some(res) = m.get_mut(&current_id) {
+                        if res.load_generation != load_generation {
+                            return;
+                        }
                         res.result = Some(output);
                         res.status = status.clone();
                         res.current_offset = current_offset;
@@ -751,6 +755,9 @@ pub fn run_query_for_tab(
                     format!(" · {}", super::helpers::format_duration(duration_ms));
                 store.result.with_mut(|m| {
                     if let Some(res) = m.get_mut(&current_id) {
+                        if res.load_generation != load_generation {
+                            return;
+                        }
                         res.result = None;
                         res.status = format!("Error: {err}{duration_suffix}");
                         res.preview_source = None;
@@ -1102,6 +1109,17 @@ fn clear_query_chrome_for_preview(res: &mut TabResultState) {
     res.execution_plan = None;
 }
 
+fn bump_load_generation(mut store: TabStore, tab_id: u64) -> u64 {
+    let mut generation = 0;
+    store.result.with_mut(|m| {
+        if let Some(res) = m.get_mut(&tab_id) {
+            res.load_generation = res.load_generation.wrapping_add(1);
+            generation = res.load_generation;
+        }
+    });
+    generation
+}
+
 pub fn run_table_preview_for_tab(
     mut store: TabStore,
     current_id: u64,
@@ -1167,6 +1185,7 @@ pub fn run_table_preview_for_tab(
             None
         }
     });
+    let load_generation = bump_load_generation(store, current_id);
 
     store.result.with_mut(|m| {
         if let Some(res) = m.get_mut(&current_id) {
@@ -1215,6 +1234,9 @@ pub fn run_table_preview_for_tab(
 
                 store.result.with_mut(|m| {
                     if let Some(res) = m.get_mut(&current_id) {
+                        if res.load_generation != load_generation {
+                            return;
+                        }
                         clear_query_chrome_for_preview(res);
                         res.result = Some(output);
                         res.status = status;
@@ -1232,6 +1254,9 @@ pub fn run_table_preview_for_tab(
             Err(err) => {
                 store.result.with_mut(|m| {
                     if let Some(res) = m.get_mut(&current_id) {
+                        if res.load_generation != load_generation {
+                            return;
+                        }
                         res.result = None;
                         res.status = format!("Preview error: {err}");
                         res.preview_source = Some(source.clone());

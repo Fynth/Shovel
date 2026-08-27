@@ -7048,19 +7048,25 @@ tr.results__row--stripe {
   font-size: 11px;
 }
 
+.button.results__records-row,
 .results__records-row {
   display: flex;
   flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
   gap: 4px;
   width: 100%;
+  height: auto;
+  min-height: 0;
   text-align: left;
-  padding: 6px 10px;
+  white-space: normal;
+  line-height: 1.4;
+  padding: 8px 10px;
   border-radius: 6px;
   border: 1px solid transparent;
   background: color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 70%, transparent);
   color: var(--color-text);
   font-size: 11px;
-  line-height: 1.4;
   cursor: pointer;
   transition: background 100ms, border-color 100ms;
 }
@@ -8241,11 +8247,17 @@ tr.results__row--stripe {
   cursor: grabbing;
 }
 
+.er-diagram__world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
 .er-diagram__svg {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
   overflow: visible;
   pointer-events: none;
 }
@@ -8253,12 +8265,11 @@ tr.results__row--stripe {
 .er-diagram__tables {
   position: absolute;
   inset: 0;
-  transform-origin: 0 0;
 }
 
 .er-table-card {
   position: absolute;
-  width: 200px;
+  width: 220px;
   display: flex;
   flex-direction: column;
   border: 1px solid color-mix(in srgb, var(--glass-border) 76%, var(--color-border));
@@ -8355,6 +8366,40 @@ tr.results__row--stripe {
   white-space: nowrap;
 }
 
+.er-table-card__column--empty {
+  color: var(--color-text-dim);
+  font-style: italic;
+}
+
+.er-table-card__badge-spacer {
+  display: inline-block;
+  min-width: 20px;
+  flex-shrink: 0;
+}
+
+.er-table-card__null-mark {
+  margin-left: 2px;
+  color: var(--color-warning, var(--color-primary));
+  font-weight: 700;
+}
+
+.er-table-card__fk-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 14px;
+  padding: 0 5px;
+  flex-shrink: 0;
+  font-family: "SF Pro Text", "SF Pro Display", "IBM Plex Sans", "Segoe UI Variable", "Segoe UI", sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+  border-radius: 4px;
+}
+
 .er-table-card__pk-badge {
   display: inline-flex;
   align-items: center;
@@ -8411,6 +8456,21 @@ tr.results__row--stripe {
   border-top: 2px solid var(--color-primary);
   border-radius: 2px;
   flex-shrink: 0;
+}
+
+.er-diagram__legend-fk {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 14px;
+  padding: 0 5px;
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  background: color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+  border-radius: 4px;
 }
 
 .er-diagram__legend-pk {

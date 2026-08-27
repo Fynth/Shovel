@@ -962,13 +962,17 @@ pub fn Workspace() -> Element {
                 let Some(session_id) = session_id else {
                     return;
                 };
+                let theme = APP_THEME();
                 spawn(async move {
                     let fks = services::load_foreign_keys(session_id)
                         .await
                         .unwrap_or_default();
-                    if let Some(diagram) = helpers::build_er_diagram_async(sections, fks).await {
-                        windows::open_er_diagram_window(diagram, APP_THEME());
-                    }
+                    let Some(mut diagram) = helpers::build_er_diagram_async(sections, fks).await
+                    else {
+                        return;
+                    };
+                    helpers::enrich_er_diagram(session_id, &mut diagram).await;
+                    windows::open_er_diagram_window(diagram, theme);
                 });
             }
             x if x == CMD_RUN_QUERY.0 => {

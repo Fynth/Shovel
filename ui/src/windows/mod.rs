@@ -617,7 +617,7 @@ pub fn open_er_diagram_window(diagram: ErDiagramState, theme_class: String) {
 fn er_diagram_window_config() -> Config {
     let window_builder = WindowBuilder::new()
         .with_title("ER Diagram")
-        .with_inner_size(LogicalSize::new(900.0, 700.0))
+        .with_inner_size(LogicalSize::new(1100.0, 760.0))
         .with_resizable(true)
         .with_decorations(should_use_native_decorations());
 

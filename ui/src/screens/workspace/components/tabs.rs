@@ -930,6 +930,7 @@ fn import_csv_into_active_table(store: TabStore, current_id: u64) {
         last_duration_ms: current_tab.last_duration_ms,
         optimizer_result: current_tab.optimizer_result.clone(),
         optimizer_raw_response: current_tab.optimizer_raw_response.clone(),
+        load_generation: 0,
     };
     let Some(source) = actionable_table_source(&result_state) else {
         set_active_tab_status(
@@ -1142,6 +1143,7 @@ fn open_structure_for_active_preview(store: TabStore, current_id: u64) {
         last_duration_ms: current_tab.last_duration_ms,
         optimizer_result: current_tab.optimizer_result.clone(),
         optimizer_raw_response: current_tab.optimizer_raw_response.clone(),
+        load_generation: 0,
     };
     let Some(source) = actionable_table_source(&result_state) else {
         set_active_tab_status(

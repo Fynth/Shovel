@@ -48,6 +48,9 @@ pub struct TabResultState {
     pub last_duration_ms: Option<u64>,
     pub optimizer_result: Option<QueryOptimizerResult>,
     pub optimizer_raw_response: Option<String>,
+    /// Bumped on every preview/query load so a slower older request cannot
+    /// overwrite a newer filtered result.
+    pub load_generation: u64,
 }
 
 /// Pending table-edit state. Changes when a cell/row is edited.
@@ -95,6 +98,7 @@ pub fn tab_result(page_size: u32) -> TabResultState {
         last_duration_ms: None,
         optimizer_result: None,
         optimizer_raw_response: None,
+        load_generation: 0,
     }
 }
 
@@ -216,6 +220,7 @@ pub fn restore_tab_state(mut store: TabStore, tab: QueryTabState) {
                 last_duration_ms: tab.last_duration_ms,
                 optimizer_result: tab.optimizer_result,
                 optimizer_raw_response: tab.optimizer_raw_response,
+                load_generation: 0,
             },
         );
     });

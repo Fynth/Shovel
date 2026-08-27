@@ -186,23 +186,24 @@
 // relationship lines use `var(--color-primary)` and `marker_end="url(#arrowhead)"`
 // in the rsx, so we only need to make sure the svg fills the canvas without
 // intercepting mouse events (the canvas owns drag/pan).
+.er-diagram__world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
 .er-diagram__svg {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
   overflow: visible;
   pointer-events: none;
 }
 
-// Holds every absolutely-positioned table card; sized to the canvas so that
-// the card's `left` / `top` inline styles resolve against it. The pan/zoom
-// transform is applied to the SVG sibling, so this container does not need
-// its own transform — cards stay aligned with the relationship lines.
 .er-diagram__tables {
   position: absolute;
   inset: 0;
-  transform-origin: 0 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -211,7 +212,7 @@
 
 .er-table-card {
   position: absolute;
-  width: 200px;
+  width: 220px;
   display: flex;
   flex-direction: column;
   border: 1px solid
@@ -350,6 +351,40 @@
 // The rsx also renders an empty span with `class=""` for non-PK columns; the
 // `:empty` rule collapses that placeholder so it does not push the column
 // name off-center.
+.er-table-card__column--empty {
+  color: var(--color-text-dim);
+  font-style: italic;
+}
+
+.er-table-card__badge-spacer {
+  display: inline-block;
+  min-width: 20px;
+  flex-shrink: 0;
+}
+
+.er-table-card__null-mark {
+  margin-left: 2px;
+  color: var(--color-warning, var(--color-primary));
+  font-weight: 700;
+}
+
+.er-table-card__fk-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 14px;
+  padding: 0 5px;
+  flex-shrink: 0;
+  font-family: $font-family-sans;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+  border-radius: 4px;
+}
+
 .er-table-card__pk-badge {
   display: inline-flex;
   align-items: center;
@@ -447,6 +482,21 @@
 }
 
 // Compact "PK" chip that matches the inline PK badge in the table cards.
+.er-diagram__legend-fk {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 14px;
+  padding: 0 5px;
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  background: color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+  border-radius: 4px;
+}
+
 .er-diagram__legend-pk {
   display: inline-flex;
   align-items: center;
