@@ -95,6 +95,14 @@ mod tests {
         assert!(result.collected_at.is_some());
     }
 
+    #[tokio::test]
+    async fn sqlite_capabilities_match_exec_options() {
+        let pool = SqliteDriver::connect(":memory:".into()).await.unwrap();
+        let handle = SessionHandle::wrap(Arc::new(SqliteSession { pool }));
+        assert_eq!(handle.capabilities().row_editing, handle.mutate().is_some());
+        assert_eq!(handle.capabilities().explain, handle.explain().is_some());
+    }
+
     fn tree_contains_name(nodes: &[models::ExplorerNode], needle: &str) -> bool {
         nodes
             .iter()

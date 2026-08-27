@@ -161,6 +161,8 @@ mod tests {
         let handle = SessionHandle::wrap(Arc::new(FakeDriver::default()));
         assert!(!handle.capabilities().row_editing);
         assert!(handle.mutate().is_none());
+        assert_eq!(handle.capabilities().row_editing, handle.mutate().is_some());
+        assert_eq!(handle.capabilities().explain, handle.explain().is_some());
     }
 
     #[tokio::test]

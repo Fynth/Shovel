@@ -9,7 +9,6 @@ use database::{
     ExplainExec,
     FormatFlavor,
     IntrospectExec,
-    LiveConnection,
     MutateExec,
     QueryExec,
     quote_ident_double,
@@ -87,10 +86,6 @@ impl DriverSession for SqliteSession {
 
     fn as_introspect(&self) -> Option<&dyn IntrospectExec> {
         Some(self)
-    }
-
-    fn as_legacy(&self) -> Option<LiveConnection> {
-        Some(LiveConnection::Sqlite(self.pool.clone()))
     }
 }
 

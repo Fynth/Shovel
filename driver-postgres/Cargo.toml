@@ -15,3 +15,6 @@ serde_json.workspace = true
 sqlx = { workspace = true, features = ["postgres", "uuid", "time", "json", "bigdecimal"] }
 time = "0.3.41"
 uuid = "1.17.0"
+
+[dev-dependencies]
+tokio.workspace = true

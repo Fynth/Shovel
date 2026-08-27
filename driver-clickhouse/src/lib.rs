@@ -23,26 +23,6 @@ impl database::DatabaseDriver for ClickHouseDriver {
         execute_text_query(&info, "SELECT 1").await?;
         Ok(info)
     }
-
-    async fn execute_json_query(
-        &self,
-        config: &ClickHouseFormData,
-        sql: &str,
-    ) -> Result<ClickHouseJsonResponse, models::DatabaseError> {
-        execute_json_query(config, sql)
-            .await
-            .map_err(models::DatabaseError::Driver)
-    }
-
-    async fn execute_text_query(
-        &self,
-        config: &ClickHouseFormData,
-        sql: &str,
-    ) -> Result<String, models::DatabaseError> {
-        execute_text_query(config, sql)
-            .await
-            .map_err(models::DatabaseError::Driver)
-    }
 }
 
 pub async fn execute_json_query(
@@ -680,5 +660,21 @@ mod tests {
         assert!(handle.mutate().is_none());
         assert!(!handle.capabilities().row_editing);
         assert!(handle.capabilities().import_csv);
+    }
+
+    #[test]
+    fn clickhouse_capabilities_match_exec_options() {
+        let handle = database::SessionHandle::wrap(std::sync::Arc::new(ClickHouseSession {
+            config: ClickHouseFormData {
+                host: "localhost".into(),
+                port: 8123,
+                username: "default".into(),
+                password: String::new(),
+                database: "default".into(),
+                ssh_tunnel: None,
+            },
+        }));
+        assert_eq!(handle.capabilities().row_editing, handle.mutate().is_some());
+        assert_eq!(handle.capabilities().explain, handle.explain().is_some());
     }
 }

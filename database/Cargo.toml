@@ -13,5 +13,4 @@ fake = []
 [dependencies]
 tokio.workspace = true
 models.workspace = true
-sqlx = { workspace = true, features = ["sqlite", "postgres", "mysql"] }
 async-trait = "0.1.89"

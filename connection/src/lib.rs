@@ -185,9 +185,8 @@ pub async fn test_connection(request: ConnectionRequest) -> Result<(), DatabaseE
 ///
 /// # Returns
 ///
-/// * `Ok(SessionHandle)` — a type-erased session wrapping the live connection
-///   (`SqliteSession` / `PostgresSession` / `MysqlSession` for those backends;
-///   ClickHouse still uses [`SessionHandle::from_legacy`]).
+/// * `Ok(SessionHandle)` — a type-erased session wrapping `SqliteSession`,
+///   `PostgresSession`, `MysqlSession`, or `ClickHouseSession`.
 ///
 /// # Errors
 ///

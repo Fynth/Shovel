@@ -1450,7 +1450,6 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "models",
- "sqlx",
  "tokio",
 ]
 
@@ -2229,6 +2228,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "time",
+ "tokio",
  "uuid",
 ]
 
@@ -2243,6 +2243,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "time",
+ "tokio",
  "uuid",
 ]
 

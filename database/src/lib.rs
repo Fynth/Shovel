@@ -39,9 +39,6 @@
 mod dialect;
 pub use dialect::*;
 
-mod live;
-pub use live::*;
-
 mod handle;
 pub use handle::*;
 
@@ -121,38 +118,6 @@ pub trait DatabaseDriver {
     /// * Invalid connection string or DSN format
     /// * Database does not exist or is not accessible
     async fn connect(info: Self::Config) -> Result<Self::Pool, Self::Error>;
-
-    /// Execute a SQL query against ClickHouse and return the parsed JSON
-    /// response.
-    ///
-    /// The default implementation returns
-    /// [`DatabaseError::Unsupported`]. Drivers that support
-    /// ClickHouse-style HTTP query execution must override this.
-    async fn execute_json_query(
-        &self,
-        _config: &models::ClickHouseFormData,
-        _sql: &str,
-    ) -> Result<models::ClickHouseJsonResponse, models::DatabaseError> {
-        Err(models::DatabaseError::Unsupported(
-            "execute_json_query is not supported for this driver".to_string(),
-        ))
-    }
-
-    /// Execute a SQL query against ClickHouse and return the raw text
-    /// response.
-    ///
-    /// The default implementation returns
-    /// [`DatabaseError::Unsupported`]. Drivers that support
-    /// ClickHouse-style HTTP query execution must override this.
-    async fn execute_text_query(
-        &self,
-        _config: &models::ClickHouseFormData,
-        _sql: &str,
-    ) -> Result<String, models::DatabaseError> {
-        Err(models::DatabaseError::Unsupported(
-            "execute_text_query is not supported for this driver".to_string(),
-        ))
-    }
 }
 
 #[cfg(test)]

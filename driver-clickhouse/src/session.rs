@@ -9,7 +9,6 @@ use database::{
     ExplainExec,
     FormatFlavor,
     IntrospectExec,
-    LiveConnection,
     MutateExec,
     QueryExec,
     quote_ident_backtick,
@@ -79,10 +78,6 @@ impl DriverSession for ClickHouseSession {
 
     fn as_introspect(&self) -> Option<&dyn IntrospectExec> {
         Some(self)
-    }
-
-    fn as_legacy(&self) -> Option<LiveConnection> {
-        Some(LiveConnection::ClickHouse(self.config.clone()))
     }
 }
 

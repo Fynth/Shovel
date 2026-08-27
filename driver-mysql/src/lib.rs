@@ -150,6 +150,15 @@ mod tests {
         assert_session::<crate::MysqlSession>();
     }
 
+    #[tokio::test]
+    async fn mysql_capabilities_match_exec_options() {
+        let pool = sqlx::MySqlPool::connect_lazy_with(sqlx::mysql::MySqlConnectOptions::new());
+        let handle =
+            database::SessionHandle::wrap(std::sync::Arc::new(crate::MysqlSession { pool }));
+        assert_eq!(handle.capabilities().row_editing, handle.mutate().is_some());
+        assert_eq!(handle.capabilities().explain, handle.explain().is_some());
+    }
+
     // ── looks_like_dsn ───────────────────────────────────────────────
 
     #[test]

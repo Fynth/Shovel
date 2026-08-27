@@ -132,7 +132,8 @@ fn sql_for_query_exec(
 }
 
 /// MySQL has no `rowid`/`ctid`; locators are `json_array` of PK columns.
-/// Metadata lookup uses `.legacy()` only — no `query` → `driver-mysql` cycle.
+/// Metadata lookup uses `QueryExec::locator_expression` — no `query` →
+/// `driver-mysql` cycle.
 async fn mysql_locator_expr(
     handle: &SessionHandle,
     sql: &str,

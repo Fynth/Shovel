@@ -118,6 +118,15 @@ mod tests {
         assert_session::<crate::PostgresSession>();
     }
 
+    #[tokio::test]
+    async fn postgres_capabilities_match_exec_options() {
+        let pool = sqlx::PgPool::connect_lazy_with(sqlx::postgres::PgConnectOptions::new());
+        let handle =
+            database::SessionHandle::wrap(std::sync::Arc::new(crate::PostgresSession { pool }));
+        assert_eq!(handle.capabilities().row_editing, handle.mutate().is_some());
+        assert_eq!(handle.capabilities().explain, handle.explain().is_some());
+    }
+
     // ── looks_like_dsn ───────────────────────────────────────────────
 
     #[test]
