@@ -69,7 +69,9 @@ fn facade_surface_compiles() {
     let _ = &services::drain_acp_events;
     let _ = &services::install_acp_registry_agent;
     let _ = &services::load_acp_registry_agents;
+    let _ = &services::native_chat_prompt;
     let _ = &services::record_execution;
+    let _ = &services::refresh_provider_models;
     let _ = &services::respond_acp_permission;
     let _ = &services::send_acp_prompt;
     let _ = &services::send_acp_prompt_with_routing;

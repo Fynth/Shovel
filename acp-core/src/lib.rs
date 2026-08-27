@@ -3,6 +3,7 @@ pub mod deepseek;
 #[cfg(feature = "embedding")]
 pub mod embedding;
 pub mod native_chat;
+pub mod native_runtime;
 pub mod ollama;
 pub mod runtime;
 
@@ -32,6 +33,7 @@ pub use embedding::{
     cosine_similarity,
 };
 pub use native_chat::{NativeChatEvent, NativeChatMessage, NativeChatRequest, stream_native_chat};
+pub use native_runtime::{native_chat_prompt, refresh_provider_models};
 pub use ollama::{
     EmbeddedOllamaAgentConfig,
     OllamaSpecialistAdapter,

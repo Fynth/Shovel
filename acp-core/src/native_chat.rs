@@ -1,10 +1,29 @@
 //! In-process OpenAI-compatible and Ollama native chat streaming.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use futures_util::stream::{self, Stream};
 use models::normalize_native_chat_url;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde::Deserialize;
 use serde_json::{Value, json};
+
+static NATIVE_CHAT_CANCEL: AtomicBool = AtomicBool::new(false);
+
+/// Request cancellation of an in-flight native chat stream.
+pub fn request_native_chat_cancel() {
+    NATIVE_CHAT_CANCEL.store(true, Ordering::SeqCst);
+}
+
+/// Clear the native chat cancel flag (call before starting a new prompt).
+pub fn clear_native_chat_cancel() {
+    NATIVE_CHAT_CANCEL.store(false, Ordering::SeqCst);
+}
+
+/// Whether native chat cancel has been requested.
+pub fn native_chat_cancel_requested() -> bool {
+    NATIVE_CHAT_CANCEL.load(Ordering::SeqCst)
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NativeChatRequest {
@@ -256,12 +275,24 @@ pub async fn stream_native_chat(
         ))]));
     }
 
+    if native_chat_cancel_requested() {
+        return Ok(stream::iter(vec![NativeChatEvent::Error(
+            "Cancelled".into(),
+        )]));
+    }
+
     let text = response
         .text()
         .await
         .map_err(|err| format!("Native chat stream failed: {err}"))?;
 
-    let events = if is_ollama {
+    if native_chat_cancel_requested() {
+        return Ok(stream::iter(vec![NativeChatEvent::Error(
+            "Cancelled".into(),
+        )]));
+    }
+
+    let mut events = if is_ollama {
         parse_ollama_ndjson(&text)
     } else {
         let mut events = parse_openai_sse(&text);
@@ -273,6 +304,22 @@ pub async fn stream_native_chat(
         }
         events
     };
+
+    // Honor cancel between parsed chunks before yielding the stream.
+    if native_chat_cancel_requested() {
+        events.clear();
+        events.push(NativeChatEvent::Error("Cancelled".into()));
+    } else {
+        let mut truncated = Vec::with_capacity(events.len());
+        for event in events.drain(..) {
+            if native_chat_cancel_requested() {
+                truncated.push(NativeChatEvent::Error("Cancelled".into()));
+                break;
+            }
+            truncated.push(event);
+        }
+        events = truncated;
+    }
 
     Ok(stream::iter(events))
 }

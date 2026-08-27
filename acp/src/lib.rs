@@ -18,6 +18,7 @@ pub use acp_core::{
         build_embedded_deepseek_launch,
         run_embedded_deepseek_agent,
     },
+    native_chat_prompt,
     ollama::{
         self,
         EmbeddedOllamaAgentConfig,
@@ -26,6 +27,7 @@ pub use acp_core::{
         load_ollama_models,
         run_embedded_ollama_agent,
     },
+    refresh_provider_models,
     runtime::{
         self,
         cancel_acp_prompt,
