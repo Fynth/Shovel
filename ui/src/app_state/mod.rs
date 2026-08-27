@@ -641,44 +641,53 @@ pub fn add_connection_session(request: ConnectionRequest, handle: services::Sess
     let session_key = request.identity_key();
     let capabilities = handle.capabilities();
 
-    let mut activated_id = 0;
+    // Peek the id without notifying. Register (same-id overwrite) must happen
+    // before APP_STATE subscribers run, and must not drop a pool under the write lock.
+    let activated_id = {
+        let state = APP_STATE.peek();
+        state
+            .sessions
+            .iter()
+            .find(|session| session.request.identity_key() == session_key)
+            .map(|session| session.id)
+            .unwrap_or(state.next_session_id)
+    };
+    services::register_session(activated_id, handle);
+
     APP_STATE.with_mut(|state| {
         if let Some(existing_session) = state
             .sessions
             .iter_mut()
             .find(|session| session.request.identity_key() == session_key)
         {
-            services::unregister_session(existing_session.id);
-            existing_session.request = request.clone();
-            existing_session.name = session_name.clone();
+            existing_session.request = request;
+            existing_session.name = session_name;
             existing_session.kind = session_kind;
             existing_session.capabilities = capabilities;
-            activated_id = existing_session.id;
         } else {
-            let session_id = state.next_session_id;
-            state.next_session_id += 1;
+            if state.next_session_id <= activated_id {
+                state.next_session_id = activated_id.saturating_add(1);
+            }
             state.sessions.push(ConnectionSession {
-                id: session_id,
+                id: activated_id,
                 name: session_name,
                 kind: session_kind,
                 request,
                 capabilities,
             });
-            activated_id = session_id;
         }
 
         state.active_session_id = Some(activated_id);
         state.show_connection_screen = false;
     });
 
-    services::register_session(activated_id, handle);
     persist_session_state();
 
     activated_id
 }
 
 pub fn remove_session(session_id: u64) {
-    APP_STATE.with_mut(|state| {
+    let removed_keys = APP_STATE.with_mut(|state| {
         let removed_keys = state
             .sessions
             .iter()
@@ -697,11 +706,13 @@ pub fn remove_session(session_id: u64) {
             state.show_connection_screen = true;
         }
 
-        services::unregister_session(session_id);
-        for key in removed_keys {
-            services::release_ssh_tunnel(&key);
-        }
+        removed_keys
     });
+
+    services::unregister_session(session_id);
+    for key in removed_keys {
+        services::release_ssh_tunnel(&key);
+    }
     persist_session_state();
 }
 
@@ -732,25 +743,24 @@ pub fn restore_connection_sessions(
         services::release_ssh_tunnel(&key);
     }
 
+    let mut new_sessions = Vec::with_capacity(restored.len());
+    let mut next_id = 1;
+    for (request, handle) in restored {
+        let session_name = request.display_name();
+        let session_kind = request.kind();
+        let capabilities = handle.capabilities();
+        services::register_session(next_id, handle);
+        new_sessions.push(ConnectionSession {
+            id: next_id,
+            name: session_name,
+            kind: session_kind,
+            request,
+            capabilities,
+        });
+        next_id += 1;
+    }
+
     APP_STATE.with_mut(|state| {
-        let mut new_sessions = Vec::with_capacity(restored.len());
-        let mut next_id = 1;
-
-        for (request, handle) in restored {
-            let session_name = request.display_name();
-            let session_kind = request.kind();
-            let capabilities = handle.capabilities();
-            services::register_session(next_id, handle);
-            new_sessions.push(ConnectionSession {
-                id: next_id,
-                name: session_name,
-                kind: session_kind,
-                request,
-                capabilities,
-            });
-            next_id += 1;
-        }
-
         state.sessions = new_sessions;
         state.next_session_id = next_id;
         state.active_session_id = active_name

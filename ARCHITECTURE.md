@@ -13,9 +13,12 @@ Live work goes through a capability session, not a pool enum. `ui` talks to
 mutations, explain, and ACP introspection. `query` keeps pagination, batch,
 format, and import/export, and calls `handle.dialect()` plus `QueryExec`.
 
-`DatabaseKind` is a label and connect-form selector only: display name, default
-port, and which of the four connect forms to show. After connect, behavior is
-`Capabilities` plus the exec traits on `SessionHandle`.
+`DatabaseKind` is the connect-form selector: display name, default port, and
+which of the four forms to show. After connect, execute / explore / ACP go
+through `Capabilities` plus the exec traits on `SessionHandle`. `query` still
+matches `handle.kind()` for row locators, DDL (create / truncate / rename /
+duplicate), and CSV import — a fifth backend still has to touch those arms.
+`explorer` and `acp` do not match `DatabaseKind`.
 
 ```mermaid
 graph TD
@@ -60,7 +63,7 @@ From the driver-session spec:
 | `database` | `SessionHandle`, private erasure, `Dialect`, traits `QueryExec` / `SchemaExec` / `MutateExec` / `ExplainExec` / `IntrospectExec` | concrete SQL, the pool, SSH |
 | `driver-*` | pool, catalog SQL, execute, row decode, mutations, explain, ACP introspection | pagination as a product, UI, SSH |
 | `connection` | SSH, built-in driver factory, `session_id → SessionHandle` registry | query SQL |
-| `query` | pagination, batch, format, import/export, work via `Dialect` + `QueryExec` | `driver-*`, sqlx |
+| `query` | pagination, batch, format, import/export; locators, DDL, and CSV import still switch on `DatabaseKind` | `driver-*`, sqlx |
 | `explorer` | proxy to `SchemaExec` | `sqlite.rs` / `postgres.rs` / `mysql.rs` modules |
 | `acp` | agent orchestration; DB context via `IntrospectExec` and `QueryExec` | match on the pool |
 | `services` | public functions that take `session_id` | |
@@ -100,7 +103,9 @@ The workspace is organized into four layers. New code should respect them.
      through `services`.
    - `query` builds paginated SQL with `handle.dialect()` and runs it with
      `handle.query()`. Format, batch, and import/export stay here. Production
-     `query` does not depend on `driver-*` or sqlx.
+     `query` does not depend on `driver-*` or sqlx. Locators, DDL, and CSV
+     import still match `DatabaseKind`; a fifth backend still edits `query`
+     for those. `explorer` and `acp` do not.
    - `explorer` is a thin proxy to `handle.schema()`.
 
 3. **AI runtime** (`acp-core`, `acp`, `acp-registry`)
@@ -240,7 +245,8 @@ Missing id → `DatabaseError::SessionNotFound`. Import requires
   `import_csv_into_table`.
 
 Pagination SQL is built in `query`. Drivers execute the built SQL and decode
-rows. Editable table workflows follow `capabilities.row_editing` (SQLite,
+rows. Locators, DDL, and CSV import in `query` still switch on `DatabaseKind`.
+Editable table workflows follow `capabilities.row_editing` (SQLite,
 PostgreSQL, MySQL today). ClickHouse supports connect/explore/query/export
 and CSV import, but not row editing.
 

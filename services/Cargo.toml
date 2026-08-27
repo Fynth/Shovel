@@ -18,4 +18,5 @@ query.workspace = true
 storage.workspace = true
 
 [dev-dependencies]
+database = { workspace = true, features = ["fake"] }
 tokio.workspace = true
