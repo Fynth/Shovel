@@ -60,6 +60,8 @@ fn facade_surface_compiles() {
     let _ = &services::import_csv_into_table;
 
     // --- ACP agent runtime ---
+    let _: Option<services::NativeChatMessage> = None;
+    let _: Option<services::NativeChatRequest> = None;
     let _ = &services::build_acp_database_context;
     let _ = &services::build_embedded_deepseek_launch;
     let _ = &services::build_embedded_ollama_launch;
@@ -69,7 +71,9 @@ fn facade_surface_compiles() {
     let _ = &services::drain_acp_events;
     let _ = &services::install_acp_registry_agent;
     let _ = &services::load_acp_registry_agents;
+    let _ = &services::native_chat_prompt;
     let _ = &services::record_execution;
+    let _ = &services::refresh_provider_models;
     let _ = &services::respond_acp_permission;
     let _ = &services::send_acp_prompt;
     let _ = &services::send_acp_prompt_with_routing;

@@ -21,7 +21,7 @@ use models::{
     AgentSpecialist,
 };
 
-use crate::agents::AgentCoordinator;
+use crate::{agents::AgentCoordinator, native_chat::request_native_chat_cancel};
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -474,9 +474,22 @@ impl acp::Client for BridgeClient {
 }
 
 static ACP_RUNTIME: OnceLock<Mutex<Option<AcpRuntimeHandle>>> = OnceLock::new();
+static ACP_EVENT_BUFFER: OnceLock<Mutex<Vec<AcpEvent>>> = OnceLock::new();
 
 fn runtime_slot() -> &'static Mutex<Option<AcpRuntimeHandle>> {
     ACP_RUNTIME.get_or_init(|| Mutex::new(None))
+}
+
+fn event_buffer() -> &'static Mutex<Vec<AcpEvent>> {
+    ACP_EVENT_BUFFER.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// Push an event onto the shared queue read by [`drain_acp_events`].
+/// Used by native HTTP chat when no ACP child is connected.
+pub(crate) fn push_acp_event(event: AcpEvent) {
+    if let Ok(mut buf) = event_buffer().lock() {
+        buf.push(event);
+    }
 }
 
 pub async fn connect_acp_agent(request: AcpLaunchRequest) -> Result<AcpConnectionInfo, String> {
@@ -726,7 +739,14 @@ pub fn record_execution(entry: String) -> Result<(), String> {
 }
 
 pub fn cancel_acp_prompt() -> Result<(), String> {
-    send_command(AcpCommand::Cancel)
+    // Always arm native cancel so an in-flight HTTP stream can stop.
+    request_native_chat_cancel();
+    match send_command(AcpCommand::Cancel) {
+        Ok(()) => Ok(()),
+        // No ACP child — native cancel flag is enough.
+        Err(err) if err.contains("ACP agent is not connected") => Ok(()),
+        Err(err) => Err(err),
+    }
 }
 
 pub fn disconnect_acp_agent() -> Result<(), String> {
@@ -761,6 +781,11 @@ pub fn disconnect_acp_agent() -> Result<(), String> {
 
 pub fn drain_acp_events() -> Vec<AcpEvent> {
     let mut drained = Vec::new();
+
+    if let Ok(mut buf) = event_buffer().lock() {
+        drained.append(&mut *buf);
+    }
+
     let Ok(mut slot) = runtime_slot().lock() else {
         return drained;
     };
@@ -1581,10 +1606,9 @@ mod tests {
     }
 
     #[test]
-    fn cancel_acp_prompt_returns_error_without_connected_agent() {
+    fn cancel_acp_prompt_succeeds_without_connected_agent_for_native() {
         let result = super::cancel_acp_prompt();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("ACP agent is not connected"));
+        assert!(result.is_ok());
     }
 
     #[test]

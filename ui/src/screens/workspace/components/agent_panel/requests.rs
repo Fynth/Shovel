@@ -1,5 +1,17 @@
 use dioxus::prelude::*;
-use models::{AcpMessageKind, AcpPanelState};
+use models::{
+    AcpMessageKind,
+    AcpPanelState,
+    AcpUiMessage,
+    ActiveModel,
+    AiProviderKind,
+    AppUiSettings,
+    builtin_providers,
+    is_native_http_ready,
+    native_http_provider_enabled,
+    normalize_native_chat_url,
+    provider_kind,
+};
 
 use super::{
     AgentSqlExecutionMode,
@@ -43,13 +55,206 @@ fn build_routing_context(
     parts.join("\n\n")
 }
 
+#[derive(Clone)]
+struct NativeChatParts {
+    base_url: String,
+    api_key: String,
+    model: String,
+    provider_slug: String,
+    thinking_enabled: bool,
+    reasoning_effort: String,
+}
+
+impl NativeChatParts {
+    fn into_request(
+        self,
+        messages: Vec<services::NativeChatMessage>,
+    ) -> services::NativeChatRequest {
+        services::NativeChatRequest {
+            base_url: self.base_url,
+            api_key: self.api_key,
+            model: self.model,
+            messages,
+            provider_slug: self.provider_slug,
+            thinking_enabled: self.thinking_enabled,
+            reasoning_effort: self.reasoning_effort,
+        }
+    }
+}
+
+#[derive(Clone)]
+enum ActiveChatBackend {
+    Native(NativeChatParts),
+    Acp,
+}
+
+fn resolve_active_chat_backend(settings: &AppUiSettings) -> Result<ActiveChatBackend, String> {
+    let Some(active) = settings.ai_catalog.active.as_ref() else {
+        return Err("No language model selected.".to_string());
+    };
+    let api_key = settings.lm_api_key(&active.provider);
+    match provider_kind(&active.provider) {
+        Some(AiProviderKind::NativeHttp) => {
+            if !native_http_provider_enabled(&settings.ai_catalog, &active.provider) {
+                return Err("Enable this provider in Settings.".to_string());
+            }
+            if !is_native_http_ready(&active.provider, &api_key, &settings.ai_catalog) {
+                return Err("Add an API key for the selected provider.".to_string());
+            }
+            Ok(ActiveChatBackend::Native(native_chat_parts(
+                settings, active, api_key,
+            )))
+        }
+        Some(AiProviderKind::Acp) => Ok(ActiveChatBackend::Acp),
+        None => Err("Unknown language model provider.".to_string()),
+    }
+}
+
+fn native_chat_parts(
+    settings: &AppUiSettings,
+    active: &ActiveModel,
+    api_key: String,
+) -> NativeChatParts {
+    let provider = active.provider.as_str();
+    let mut model = active.model.clone();
+    if model.trim().is_empty() {
+        model = vendor_model(settings, provider);
+    }
+    let (thinking_enabled, reasoning_effort) = native_thinking(settings, provider);
+    NativeChatParts {
+        base_url: native_base_url(settings, provider),
+        api_key,
+        model,
+        provider_slug: provider.to_string(),
+        thinking_enabled,
+        reasoning_effort,
+    }
+}
+
+pub(super) fn native_base_url(settings: &AppUiSettings, provider: &str) -> String {
+    if let Some(custom) = settings
+        .ai_catalog
+        .custom_native
+        .iter()
+        .find(|custom| custom.id == provider)
+    {
+        return normalize_native_chat_url(&custom.base_url, &custom.base_url);
+    }
+    let default = builtin_providers()
+        .iter()
+        .find(|spec| spec.slug == provider)
+        .map(|spec| spec.default_base_url)
+        .unwrap_or("");
+    if let Some(over) = settings.ai_catalog.overrides.get(provider)
+        && !over.base_url.trim().is_empty()
+    {
+        return normalize_native_chat_url(&over.base_url, default);
+    }
+    let vendor = match provider {
+        "deepseek" => settings.deepseek.base_url.as_str(),
+        "openai" => settings.openai.base_url.as_str(),
+        "groq" => settings.groq.base_url.as_str(),
+        "openrouter" => settings.openrouter.base_url.as_str(),
+        "xai" => settings.xai.base_url.as_str(),
+        "mistral" => settings.mistral.base_url.as_str(),
+        "ollama" => settings.ollama.base_url.as_str(),
+        _ => "",
+    };
+    normalize_native_chat_url(vendor, default)
+}
+
+fn native_thinking(settings: &AppUiSettings, provider: &str) -> (bool, String) {
+    if let Some(over) = settings.ai_catalog.overrides.get(provider) {
+        return (over.thinking_enabled, over.reasoning_effort.clone());
+    }
+    if provider == "deepseek" {
+        (
+            settings.deepseek.thinking_enabled,
+            settings.deepseek.reasoning_effort.clone(),
+        )
+    } else {
+        (false, "medium".to_string())
+    }
+}
+
+fn vendor_model(settings: &AppUiSettings, provider: &str) -> String {
+    match provider {
+        "deepseek" => settings.deepseek.model.clone(),
+        "openai" => settings.openai.model.clone(),
+        "groq" => settings.groq.model.clone(),
+        "openrouter" => settings.openrouter.model.clone(),
+        "xai" => settings.xai.model.clone(),
+        "mistral" => settings.mistral.model.clone(),
+        "ollama" => settings.ollama.model.clone(),
+        _ => String::new(),
+    }
+}
+
+fn native_history_messages(messages: &[AcpUiMessage]) -> Vec<services::NativeChatMessage> {
+    messages
+        .iter()
+        .filter_map(|message| {
+            let role = match message.kind {
+                AcpMessageKind::User => "user",
+                AcpMessageKind::Agent => "assistant",
+                _ => return None,
+            };
+            let content = message.text.trim();
+            if content.is_empty() {
+                return None;
+            }
+            Some(services::NativeChatMessage {
+                role: role.to_string(),
+                content: content.to_string(),
+            })
+        })
+        .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn submit_agent_prompt(
+    mut panel_state: Signal<AcpPanelState>,
+    mut chat_revision: Signal<u64>,
+    backend: ActiveChatBackend,
+    history: Vec<services::NativeChatMessage>,
+    contextual_prompt: String,
+    routing_context: String,
+    on_ok: impl FnOnce(&mut AcpPanelState),
+    on_err: impl FnOnce(&mut AcpPanelState, String),
+) {
+    match backend {
+        ActiveChatBackend::Native(parts) => {
+            let mut messages = history;
+            messages.push(services::NativeChatMessage {
+                role: "user".to_string(),
+                content: contextual_prompt,
+            });
+            let req = parts.into_request(messages);
+            panel_state.with_mut(|state| on_ok(state));
+            chat_revision += 1;
+            let _ = services::native_chat_prompt(req).await;
+        }
+        ActiveChatBackend::Acp =>
+            match services::send_acp_prompt_with_routing(contextual_prompt, routing_context) {
+                Ok(()) => {
+                    panel_state.with_mut(|state| on_ok(state));
+                    chat_revision += 1;
+                }
+                Err(err) => {
+                    panel_state.with_mut(|state| on_err(state, err));
+                    chat_revision += 1;
+                }
+            },
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn send_chat_prompt_request(
     mut panel_state: Signal<AcpPanelState>,
     store: TabStore,
     active_tab_id: u64,
     connection_label: String,
-    mut chat_revision: Signal<u64>,
+    chat_revision: Signal<u64>,
     allow_db_read: bool,
     prompt: String,
     mut prompt_draft: Signal<String>,
@@ -59,7 +264,19 @@ pub(super) fn send_chat_prompt_request(
         return;
     }
 
-    let thread_history = build_thread_history_context(&panel_state().messages);
+    let settings = crate::app_state::APP_UI_SETTINGS();
+    let backend = match resolve_active_chat_backend(&settings) {
+        Ok(backend) => backend,
+        Err(err) => {
+            crate::app_state::toast_error(err);
+            return;
+        }
+    };
+    let history = native_history_messages(&panel_state().messages);
+    let thread_history = match &backend {
+        ActiveChatBackend::Native(_) => None,
+        ActiveChatBackend::Acp => build_thread_history_context(&panel_state().messages),
+    };
     let connection = if allow_db_read {
         active_editor_connection(store, active_tab_id)
     } else {
@@ -135,27 +352,31 @@ pub(super) fn send_chat_prompt_request(
             ),
         };
 
-        match services::send_acp_prompt_with_routing(contextual_prompt, routing_context) {
-            Ok(()) => {
-                panel_state.with_mut(|state| {
-                    push_message(state, AcpMessageKind::User, prompt.clone());
+        submit_agent_prompt(
+            panel_state,
+            chat_revision,
+            backend,
+            history,
+            contextual_prompt,
+            routing_context,
+            {
+                let prompt = prompt.clone();
+                move |state| {
+                    push_message(state, AcpMessageKind::User, prompt);
                     state.prompt.clear();
                     state.busy = true;
                     state.pending_sql_insert = false;
                     state.status = "Waiting for agent response...".to_string();
-                });
-                prompt_draft.set(String::new());
-                chat_revision += 1;
-            }
-            Err(err) => {
-                panel_state.with_mut(|state| {
-                    state.status = err.clone();
-                    state.busy = false;
-                    push_message(state, AcpMessageKind::Error, err);
-                });
-                chat_revision += 1;
-            }
-        }
+                }
+            },
+            |state, err| {
+                state.status = err.clone();
+                state.busy = false;
+                push_message(state, AcpMessageKind::Error, err);
+            },
+        )
+        .await;
+        prompt_draft.set(String::new());
     });
 }
 
@@ -168,13 +389,23 @@ pub(crate) fn send_describe_object_request(
     mut panel_state: Signal<AcpPanelState>,
     store: TabStore,
     connection_label: String,
-    mut chat_revision: Signal<u64>,
+    chat_revision: Signal<u64>,
     allow_db_read: bool,
     qualified_name: String,
 ) {
     if panel_state().busy {
         return;
     }
+
+    let settings = crate::app_state::APP_UI_SETTINGS();
+    let backend = match resolve_active_chat_backend(&settings) {
+        Ok(backend) => backend,
+        Err(err) => {
+            crate::app_state::toast_error(err);
+            return;
+        }
+    };
+    let history = native_history_messages(&panel_state().messages);
 
     let prompt = format!(
         "Describe the table {qualified_name} in the active database. \
@@ -230,29 +461,30 @@ pub(crate) fn send_describe_object_request(
             ),
         };
 
-        match services::send_acp_prompt_with_routing(contextual_prompt, routing_context) {
-            Ok(()) => {
-                panel_state.with_mut(|state| {
-                    push_message(
-                        state,
-                        AcpMessageKind::User,
-                        format!("Describe: {qualified_name}"),
-                    );
-                    state.busy = true;
-                    state.pending_sql_insert = false;
-                    state.status = "Waiting for agent response...".to_string();
-                });
-                chat_revision += 1;
-            }
-            Err(err) => {
-                panel_state.with_mut(|state| {
-                    state.status = err.clone();
-                    state.busy = false;
-                    push_message(state, AcpMessageKind::Error, err);
-                });
-                chat_revision += 1;
-            }
-        }
+        submit_agent_prompt(
+            panel_state,
+            chat_revision,
+            backend,
+            history,
+            contextual_prompt,
+            routing_context,
+            move |state| {
+                push_message(
+                    state,
+                    AcpMessageKind::User,
+                    format!("Describe: {qualified_name}"),
+                );
+                state.busy = true;
+                state.pending_sql_insert = false;
+                state.status = "Waiting for agent response...".to_string();
+            },
+            |state, err| {
+                state.status = err.clone();
+                state.busy = false;
+                push_message(state, AcpMessageKind::Error, err);
+            },
+        )
+        .await;
     });
 }
 
@@ -262,7 +494,7 @@ pub(crate) fn send_sql_generation_request(
     store: TabStore,
     active_tab_id: u64,
     connection_label: String,
-    mut chat_revision: Signal<u64>,
+    chat_revision: Signal<u64>,
     allow_db_read: bool,
     prompt: String,
     mut prompt_draft: Option<Signal<String>>,
@@ -272,6 +504,15 @@ pub(crate) fn send_sql_generation_request(
     if request.is_empty() || panel_state().busy {
         return;
     }
+
+    let settings = crate::app_state::APP_UI_SETTINGS();
+    let backend = match resolve_active_chat_backend(&settings) {
+        Ok(backend) => backend,
+        Err(err) => {
+            crate::app_state::toast_error(err);
+            return;
+        }
+    };
 
     let connection = if allow_db_read {
         active_editor_connection(store, active_tab_id)
@@ -284,7 +525,11 @@ pub(crate) fn send_sql_generation_request(
     } else {
         None
     };
-    let thread_history = build_thread_history_context(&panel_state().messages);
+    let history = native_history_messages(&panel_state().messages);
+    let thread_history = match &backend {
+        ActiveChatBackend::Native(_) => None,
+        ActiveChatBackend::Acp => build_thread_history_context(&panel_state().messages),
+    };
     panel_state.with_mut(|state| {
         state.busy = true;
         state.pending_sql_insert = true;
@@ -349,39 +594,40 @@ pub(crate) fn send_sql_generation_request(
             ),
         };
 
-        match services::send_acp_prompt_with_routing(prompt, routing_context) {
-            Ok(()) => {
-                panel_state.with_mut(|state| {
-                    if record_in_agent_panel {
-                        push_message(
-                            state,
-                            AcpMessageKind::User,
-                            format!("Generate SQL: {request}"),
-                        );
-                    }
-                    state.prompt.clear();
-                    state.busy = true;
-                    state.pending_sql_insert = true;
-                    state.status = "Waiting for agent SQL to insert into the editor...".to_string();
-                });
-                if let Some(prompt_draft) = prompt_draft.as_mut() {
-                    prompt_draft.set(String::new());
+        submit_agent_prompt(
+            panel_state,
+            chat_revision,
+            backend,
+            history,
+            prompt,
+            routing_context,
+            move |state| {
+                if record_in_agent_panel {
+                    push_message(
+                        state,
+                        AcpMessageKind::User,
+                        format!("Generate SQL: {request}"),
+                    );
                 }
-                chat_revision += 1;
-            }
-            Err(err) => {
-                panel_state.with_mut(|state| {
-                    state.status = err.clone();
-                    state.busy = false;
-                    state.pending_sql_insert = false;
-                    state.suppress_transcript = false;
-                    state.hidden_agent_response.clear();
-                    if record_in_agent_panel {
-                        push_message(state, AcpMessageKind::Error, err);
-                    }
-                });
-                chat_revision += 1;
-            }
+                state.prompt.clear();
+                state.busy = true;
+                state.pending_sql_insert = true;
+                state.status = "Waiting for agent SQL to insert into the editor...".to_string();
+            },
+            move |state, err| {
+                state.status = err.clone();
+                state.busy = false;
+                state.pending_sql_insert = false;
+                state.suppress_transcript = false;
+                state.hidden_agent_response.clear();
+                if record_in_agent_panel {
+                    push_message(state, AcpMessageKind::Error, err);
+                }
+            },
+        )
+        .await;
+        if let Some(prompt_draft) = prompt_draft.as_mut() {
+            prompt_draft.set(String::new());
         }
     });
 }
@@ -412,6 +658,15 @@ pub(crate) fn send_sql_plan_request(
     if panel_state().busy {
         return;
     }
+
+    let settings = crate::app_state::APP_UI_SETTINGS();
+    let backend = match resolve_active_chat_backend(&settings) {
+        Ok(backend) => backend,
+        Err(err) => {
+            crate::app_state::toast_error(err);
+            return;
+        }
+    };
 
     if !allow_read_sql_run {
         panel_state.with_mut(|state| {
@@ -459,7 +714,11 @@ pub(crate) fn send_sql_plan_request(
     } else {
         None
     };
-    let thread_history = build_thread_history_context(&panel_state().messages);
+    let history = native_history_messages(&panel_state().messages);
+    let thread_history = match &backend {
+        ActiveChatBackend::Native(_) => None,
+        ActiveChatBackend::Acp => build_thread_history_context(&panel_state().messages),
+    };
 
     panel_state.with_mut(|state| {
         state.busy = true;
@@ -546,9 +805,16 @@ pub(crate) fn send_sql_plan_request(
             )
         };
 
-        match services::send_acp_prompt_with_routing(prompt, routing_context) {
-            Ok(()) => {
-                panel_state.with_mut(|state| {
+        submit_agent_prompt(
+            panel_state,
+            chat_revision,
+            backend,
+            history,
+            prompt,
+            routing_context,
+            {
+                let active_sql = active_sql.clone();
+                move |state| {
                     push_message(
                         state,
                         AcpMessageKind::User,
@@ -557,18 +823,15 @@ pub(crate) fn send_sql_plan_request(
                     state.busy = true;
                     state.pending_sql_insert = false;
                     state.status = "Waiting for query plan explanation...".to_string();
-                });
-                chat_revision += 1;
-            }
-            Err(err) => {
-                panel_state.with_mut(|state| {
-                    state.status = err.clone();
-                    state.busy = false;
-                    push_message(state, AcpMessageKind::Error, err);
-                });
-                chat_revision += 1;
-            }
-        }
+                }
+            },
+            |state, err| {
+                state.status = err.clone();
+                state.busy = false;
+                push_message(state, AcpMessageKind::Error, err);
+            },
+        )
+        .await;
     });
 }
 
@@ -598,7 +861,19 @@ pub(crate) fn send_sql_explanation_request(
         return;
     }
 
-    let thread_history = build_thread_history_context(&panel_state().messages);
+    let settings = crate::app_state::APP_UI_SETTINGS();
+    let backend = match resolve_active_chat_backend(&settings) {
+        Ok(backend) => backend,
+        Err(err) => {
+            crate::app_state::toast_error(err);
+            return;
+        }
+    };
+    let history = native_history_messages(&panel_state().messages);
+    let thread_history = match &backend {
+        ActiveChatBackend::Native(_) => None,
+        ActiveChatBackend::Acp => build_thread_history_context(&panel_state().messages),
+    };
     let connection = if allow_db_read {
         active_editor_connection(store, active_tab_id)
     } else {
@@ -665,9 +940,16 @@ pub(crate) fn send_sql_explanation_request(
             ),
         };
 
-        match services::send_acp_prompt_with_routing(prompt, routing_context) {
-            Ok(()) => {
-                panel_state.with_mut(|state| {
+        submit_agent_prompt(
+            panel_state,
+            chat_revision,
+            backend,
+            history,
+            prompt,
+            routing_context,
+            {
+                let active_sql = active_sql.clone();
+                move |state| {
                     push_message(
                         state,
                         AcpMessageKind::User,
@@ -676,18 +958,15 @@ pub(crate) fn send_sql_explanation_request(
                     state.busy = true;
                     state.pending_sql_insert = false;
                     state.status = "Waiting for SQL explanation...".to_string();
-                });
-                chat_revision += 1;
-            }
-            Err(err) => {
-                panel_state.with_mut(|state| {
-                    state.status = err.clone();
-                    state.busy = false;
-                    push_message(state, AcpMessageKind::Error, err);
-                });
-                chat_revision += 1;
-            }
-        }
+                }
+            },
+            |state, err| {
+                state.status = err.clone();
+                state.busy = false;
+                push_message(state, AcpMessageKind::Error, err);
+            },
+        )
+        .await;
     });
 }
 
@@ -729,6 +1008,15 @@ pub(super) fn send_sql_error_fix_request(
         return;
     }
 
+    let settings = crate::app_state::APP_UI_SETTINGS();
+    let backend = match resolve_active_chat_backend(&settings) {
+        Ok(backend) => backend,
+        Err(err) => {
+            crate::app_state::toast_error(err);
+            return;
+        }
+    };
+
     let connection = if allow_db_read {
         active_editor_connection(store, active_tab_id)
     } else {
@@ -740,7 +1028,11 @@ pub(super) fn send_sql_error_fix_request(
     } else {
         None
     };
-    let thread_history = build_thread_history_context(&panel_state().messages);
+    let history = native_history_messages(&panel_state().messages);
+    let thread_history = match &backend {
+        ActiveChatBackend::Native(_) => None,
+        ActiveChatBackend::Acp => build_thread_history_context(&panel_state().messages),
+    };
 
     panel_state.with_mut(|state| {
         state.busy = true;
@@ -799,9 +1091,17 @@ pub(super) fn send_sql_error_fix_request(
             ),
         };
 
-        match services::send_acp_prompt_with_routing(prompt, routing_context) {
-            Ok(()) => {
-                panel_state.with_mut(|state| {
+        submit_agent_prompt(
+            panel_state,
+            chat_revision,
+            backend,
+            history,
+            prompt,
+            routing_context,
+            {
+                let error = error.clone();
+                let active_sql = active_sql.clone();
+                move |state| {
                     push_message(
                         state,
                         AcpMessageKind::User,
@@ -810,19 +1110,16 @@ pub(super) fn send_sql_error_fix_request(
                     state.busy = true;
                     state.pending_sql_insert = true;
                     state.status = "Waiting for repaired SQL...".to_string();
-                });
-                chat_revision += 1;
-            }
-            Err(err) => {
-                panel_state.with_mut(|state| {
-                    state.status = err.clone();
-                    state.busy = false;
-                    state.pending_sql_insert = false;
-                    push_message(state, AcpMessageKind::Error, err);
-                });
-                chat_revision += 1;
-            }
-        }
+                }
+            },
+            |state, err| {
+                state.status = err.clone();
+                state.busy = false;
+                state.pending_sql_insert = false;
+                push_message(state, AcpMessageKind::Error, err);
+            },
+        )
+        .await;
     });
 }
 
@@ -1012,7 +1309,42 @@ pub(super) fn read_only_agent_sql_blocked(
 
 #[cfg(test)]
 mod tests {
-    use super::{AgentSqlExecutionMode, build_explain_sql, read_only_agent_sql_blocked};
+    use super::{
+        AgentSqlExecutionMode,
+        build_explain_sql,
+        native_base_url,
+        read_only_agent_sql_blocked,
+    };
+    use models::{AiProviderOverride, AppUiSettings, CustomNativeProvider};
+
+    #[test]
+    fn native_base_url_prefers_custom_then_override() {
+        let mut settings = AppUiSettings::default();
+        settings
+            .ai_catalog
+            .custom_native
+            .push(CustomNativeProvider {
+                id: "custom:1".into(),
+                name: "Mine".into(),
+                base_url: "http://localhost:8080/".into(),
+                models: Vec::new(),
+            });
+        assert_eq!(
+            native_base_url(&settings, "custom:1"),
+            "http://localhost:8080"
+        );
+        settings.ai_catalog.overrides.insert(
+            "openai".into(),
+            AiProviderOverride {
+                base_url: "https://example.com/v1/".into(),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            native_base_url(&settings, "openai"),
+            "https://example.com/v1"
+        );
+    }
 
     #[test]
     fn prefixes_explain_for_regular_sql() {

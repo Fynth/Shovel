@@ -11,12 +11,14 @@ mod query;
 mod saved_query;
 mod semantic_cache;
 mod settings;
+mod ai_catalog;
 
 #[cfg(test)]
 mod settings_roundtrip;
 
 pub use acp::*;
 pub use agent::*;
+pub use ai_catalog::*;
 pub use app::*;
 pub use chat::*;
 pub use config::*;

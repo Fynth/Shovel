@@ -275,6 +275,7 @@ pub(super) fn reset_ui_preserving_secrets(current: &AppUiSettings) -> AppUiSetti
     next.openrouter.api_key = current.openrouter.api_key.clone();
     next.xai.api_key = current.xai.api_key.clone();
     next.mistral.api_key = current.mistral.api_key.clone();
+    next.lm_keys = current.lm_keys.clone();
     next.keybindings = current.keybindings.clone();
     next
 }

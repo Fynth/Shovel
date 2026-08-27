@@ -62,6 +62,8 @@ use self::{
         connect_embedded_deepseek,
         connect_embedded_ollama,
         connect_embedded_openai_compat,
+        is_native_http_connection,
+        set_acp_catalog_active,
         setup_mode_button_class,
     },
     state::{message_kind_class, message_kind_label, permission_button_class, push_message},
@@ -79,6 +81,15 @@ pub(crate) use self::{
     setup::ensure_default_sql_agent_connected,
     state::{apply_acp_events, default_acp_panel_state, replace_messages},
 };
+
+/// Stop a live ACP child. Native HTTP sessions have no child to kill.
+pub(super) fn disconnect_acp_runtime_if_needed(state: &AcpPanelState) {
+    if is_native_http_connection(state) {
+        return;
+    }
+    let _ = services::disconnect_acp_agent();
+    let _ = services::drain_acp_events();
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AgentSqlExecutionMode {
@@ -279,13 +290,18 @@ pub fn AcpAgentPanel(
                             icon: ActionIcon::Close,
                             label: "Disconnect agent".to_string(),
                             onclick: move |_| {
-                                let _ = services::disconnect_acp_agent();
+                                let native = is_native_http_connection(&panel_state());
+                                disconnect_acp_runtime_if_needed(&panel_state());
                                 panel_state.with_mut(|state| {
                                     state.connected = false;
                                     state.busy = false;
                                     state.pending_sql_insert = false;
                                     state.connection = None;
-                                    state.status = "ACP agent is disconnected.".to_string();
+                                    state.status = if native {
+                                        "Language model disconnected.".to_string()
+                                    } else {
+                                        "ACP agent is disconnected.".to_string()
+                                    };
                                 });
                             },
                             small: true,
@@ -709,7 +725,7 @@ pub fn AcpAgentPanel(
                             div { class: "agent-panel__section",
                                 div { class: "agent-panel__section-header",
                                     div { class: "agent-panel__section-copy",
-                                        h4 { class: "agent-panel__section-title", "Built-in DeepSeek ACP" }
+                                        h4 { class: "agent-panel__section-title", "DeepSeek" }
                                         p { class: "agent-panel__hint", "Cloud model via DeepSeek API key. Uses Shovel database context and SQL workflows." }
                                     }
                                     span { class: "agent-panel__badge", "API key" }
@@ -795,17 +811,15 @@ pub fn AcpAgentPanel(
                                         || deepseek_settings.model.trim().is_empty(),
                                     onclick: move |_| {
                                         let deepseek = APP_UI_SETTINGS().deepseek;
-                                        spawn(async move {
-                                            if let Err(err) = connect_embedded_deepseek(
-                                                panel_state,
-                                                chat_revision,
-                                                deepseek,
-                                            ).await {
-                                                panel_state.with_mut(|state| {
-                                                    state.status = err;
-                                                });
-                                            }
-                                        });
+                                        if let Err(err) = connect_embedded_deepseek(
+                                            panel_state,
+                                            chat_revision,
+                                            deepseek,
+                                        ) {
+                                            panel_state.with_mut(|state| {
+                                                state.status = err;
+                                            });
+                                        }
                                     },
                                     "Connect DeepSeek"
                                 }
@@ -896,17 +910,15 @@ pub fn AcpAgentPanel(
                                     disabled: state.busy || ollama_settings.model.trim().is_empty(),
                                     onclick: move |_| {
                                         let ollama = APP_UI_SETTINGS().ollama;
-                                        spawn(async move {
-                                            if let Err(err) = connect_embedded_ollama(
-                                                panel_state,
-                                                chat_revision,
-                                                ollama,
-                                            ).await {
-                                                panel_state.with_mut(|state| {
-                                                    state.status = err;
-                                                });
-                                            }
-                                        });
+                                        if let Err(err) = connect_embedded_ollama(
+                                            panel_state,
+                                            chat_revision,
+                                            ollama,
+                                        ) {
+                                            panel_state.with_mut(|state| {
+                                                state.status = err;
+                                            });
+                                        }
                                     },
                                     "Connect Ollama"
                                 }
@@ -945,6 +957,10 @@ pub fn AcpAgentPanel(
                                             let cwd = panel_state().launch.cwd.clone();
                                             let registry_name = registry_name.to_string();
                                             let registry_agent_id = registry_agent_id.clone();
+                                            let catalog_provider = selected_registry_mode
+                                                .acp_catalog_provider()
+                                                .unwrap_or("acp:custom")
+                                                .to_string();
                                             registry_busy.set(true);
                                             registry_status.set(acp_registry_preparing_text(&registry_name));
                                             spawn(async move {
@@ -958,6 +974,9 @@ pub fn AcpAgentPanel(
                                                         });
                                                         match services::connect_acp_agent(launch).await {
                                                             Ok(connection) => {
+                                                                set_acp_catalog_active(
+                                                                    &catalog_provider,
+                                                                );
                                                                 panel_state.with_mut(|state| {
                                                                     state::apply_connected(state, connection);
                                                                 });
@@ -1064,6 +1083,11 @@ pub fn AcpAgentPanel(
                                         spawn(async move {
                                             match services::connect_acp_agent(launch).await {
                                                 Ok(connection) => {
+                                                    set_acp_catalog_active(
+                                                        AgentSetupMode::Custom
+                                                            .acp_catalog_provider()
+                                                            .unwrap_or("acp:custom"),
+                                                    );
                                                     panel_state.with_mut(|state| {
                                                         state::apply_connected(state, connection);
                                                     });
@@ -1176,20 +1200,16 @@ fn OpenAiCompatSetup(
                     || settings.model.trim().is_empty(),
                 onclick: move |_| {
                     let settings = APP_UI_SETTINGS().openai_compat(provider).clone();
-                    spawn(async move {
-                        if let Err(err) = connect_embedded_openai_compat(
-                            panel_state,
-                            chat_revision,
-                            provider,
-                            settings,
-                        )
-                        .await
-                        {
-                            panel_state.with_mut(|state| {
-                                state.status = err;
-                            });
-                        }
-                    });
+                    if let Err(err) = connect_embedded_openai_compat(
+                        panel_state,
+                        chat_revision,
+                        provider,
+                        settings,
+                    ) {
+                        panel_state.with_mut(|state| {
+                            state.status = err;
+                        });
+                    }
                 },
                 "Connect {provider.label()}"
             }

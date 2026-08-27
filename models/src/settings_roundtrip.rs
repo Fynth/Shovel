@@ -172,8 +172,17 @@ fn settings_json_value_uses_snake_case_field_names() {
         "show_saved_queries",
         "default_page_size",
         "tool_panel_layout",
+        "ai_catalog",
     ];
     for field in required_snake_case {
         assert!(obj.contains_key(field), "missing snake_case field: {field}");
     }
+    assert!(
+        !obj.contains_key("deepseek"),
+        "legacy deepseek must not serialize"
+    );
+    assert!(
+        !obj.contains_key("openai"),
+        "legacy openai must not serialize"
+    );
 }

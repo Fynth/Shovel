@@ -29,6 +29,7 @@
 
 use dioxus::prelude::*;
 use models::{
+    ActiveModel,
     AppState,
     AppThemePreference,
     AppUiSettings,
@@ -333,6 +334,12 @@ pub fn update_ui_settings(update: impl FnOnce(&mut AppUiSettings)) {
     sync_runtime_ui_settings(&settings);
 }
 
+pub fn set_active_model(provider: String, model: String) {
+    update_ui_settings(|current| {
+        current.ai_catalog.active = Some(ActiveModel { provider, model });
+    });
+}
+
 pub fn set_show_saved_queries(visible: bool) {
     update_ui_settings(|current| {
         current.show_saved_queries = visible;
@@ -404,66 +411,105 @@ pub fn is_panel_collapsed(panel: WorkspaceToolPanel) -> bool {
     APP_COLLAPSED_PANELS().contains(&panel)
 }
 
+fn sync_deepseek_catalog_override(current: &mut AppUiSettings) {
+    let deepseek = current.deepseek.clone();
+    let over = current
+        .ai_catalog
+        .overrides
+        .entry("deepseek".into())
+        .or_default();
+    over.enabled = deepseek.enabled;
+    over.base_url = deepseek.base_url;
+    over.thinking_enabled = deepseek.thinking_enabled;
+    over.reasoning_effort = deepseek.reasoning_effort;
+}
+
+fn sync_ollama_catalog_override(current: &mut AppUiSettings) {
+    let ollama = current.ollama.clone();
+    let over = current
+        .ai_catalog
+        .overrides
+        .entry("ollama".into())
+        .or_default();
+    over.enabled = ollama.enabled;
+    over.base_url = ollama.base_url;
+}
+
 pub fn set_deepseek_enabled(enabled: bool) {
     update_ui_settings(|current| {
         current.deepseek.enabled = enabled;
+        sync_deepseek_catalog_override(current);
     });
 }
 
 pub fn set_deepseek_api_key(api_key: String) {
     update_ui_settings(|current| {
-        current.deepseek.api_key = api_key;
+        current.set_lm_api_key("deepseek", api_key);
         if current.deepseek.api_key.trim().is_empty() {
             current.deepseek.enabled = false;
         }
+        sync_deepseek_catalog_override(current);
     });
 }
 
 pub fn set_deepseek_base_url(base_url: String) {
     update_ui_settings(|current| {
         current.deepseek.base_url = base_url;
+        sync_deepseek_catalog_override(current);
     });
 }
 
 pub fn set_deepseek_model(model: String) {
     update_ui_settings(|current| {
         current.deepseek.model = model;
+        sync_deepseek_catalog_override(current);
     });
 }
 
 pub fn set_deepseek_thinking_enabled(enabled: bool) {
     update_ui_settings(|current| {
         current.deepseek.thinking_enabled = enabled;
+        sync_deepseek_catalog_override(current);
     });
 }
 
 pub fn set_deepseek_reasoning_effort(reasoning_effort: String) {
     update_ui_settings(|current| {
         current.deepseek.reasoning_effort = reasoning_effort;
+        sync_deepseek_catalog_override(current);
     });
 }
 
 pub fn set_ollama_enabled(enabled: bool) {
     update_ui_settings(|current| {
         current.ollama.enabled = enabled;
+        sync_ollama_catalog_override(current);
     });
 }
 
 pub fn set_ollama_api_key(api_key: String) {
     update_ui_settings(|current| {
-        current.ollama.api_key = api_key;
+        current.set_lm_api_key("ollama", api_key);
+        sync_ollama_catalog_override(current);
     });
+}
+
+/// In-memory LM key for `provider` (`lm_keys`, then a non-empty vendor blob).
+pub fn lm_api_key(provider: &str) -> String {
+    APP_UI_SETTINGS().lm_api_key(provider)
 }
 
 pub fn set_ollama_base_url(base_url: String) {
     update_ui_settings(|current| {
         current.ollama.base_url = base_url;
+        sync_ollama_catalog_override(current);
     });
 }
 
 pub fn set_ollama_model(model: String) {
     update_ui_settings(|current| {
         current.ollama.model = model;
+        sync_ollama_catalog_override(current);
     });
 }
 

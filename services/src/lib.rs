@@ -111,6 +111,8 @@ pub use storage::{
 // --- ACP agent runtime ---
 
 pub use acp::{
+    NativeChatMessage,
+    NativeChatRequest,
     build_acp_database_context,
     build_embedded_deepseek_launch,
     build_embedded_ollama_launch,
@@ -120,7 +122,9 @@ pub use acp::{
     drain_acp_events,
     install_acp_registry_agent,
     load_acp_registry_agents,
+    native_chat_prompt,
     record_execution,
+    refresh_provider_models,
     respond_acp_permission,
     send_acp_prompt,
     send_acp_prompt_with_routing,
