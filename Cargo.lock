@@ -2212,6 +2212,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 name = "driver-clickhouse"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "database",
  "models",
  "reqwest",
@@ -5278,20 +5279,15 @@ checksum = "b5a041e753da8b807c9255f28de81879c78c876392ff2469cde94799b2896b9d"
 name = "query"
 version = "0.1.0"
 dependencies = [
- "bigdecimal",
  "csv",
  "database",
- "driver-clickhouse",
  "driver-sqlite",
  "models",
  "rust_xlsxwriter",
  "serde",
  "serde_json",
  "sqlformat",
- "sqlx",
- "time",
  "tokio",
- "uuid",
 ]
 
 [[package]]

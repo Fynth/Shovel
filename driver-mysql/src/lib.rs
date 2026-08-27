@@ -1,3 +1,5 @@
+mod explain;
+mod mutate;
 mod rows;
 mod session;
 

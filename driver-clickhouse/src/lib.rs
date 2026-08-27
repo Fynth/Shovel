@@ -1,3 +1,9 @@
+mod explain;
+mod rows;
+mod session;
+
+pub use session::ClickHouseSession;
+
 use models::ClickHouseFormData;
 use std::{sync::OnceLock, time::Duration};
 
@@ -654,5 +660,23 @@ mod tests {
             let _: <ClickHouseDriver as database::DatabaseDriver>::Error = String::new();
         }
         _assert_types()
+    }
+
+    #[test]
+    fn clickhouse_session_has_no_mutate() {
+        let session = ClickHouseSession {
+            config: models::ClickHouseFormData {
+                host: "localhost".into(),
+                port: 8123,
+                username: "default".into(),
+                password: String::new(),
+                database: "default".into(),
+                ssh_tunnel: None,
+            },
+        };
+        let handle = database::SessionHandle::wrap(std::sync::Arc::new(session));
+        assert!(handle.mutate().is_none());
+        assert!(!handle.capabilities().row_editing);
+        assert!(handle.capabilities().import_csv);
     }
 }

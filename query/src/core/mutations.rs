@@ -1,29 +1,11 @@
-use database::{DatabaseDriver, LiveConnection, SessionHandle};
-use driver_clickhouse::ClickHouseDriver;
+use database::SessionHandle;
 use models::{DatabaseError, TablePreviewSource};
-use sqlx::Row;
 
-use super::{
-    build_insert_row_sql,
-    clickhouse_get_primary_key_columns,
-    clickhouse_type_supports_auto_id,
-    invalid_sqlite_locator,
-    mysql_effective_schema_name,
-    mysql_primary_key_columns,
-    mysql_single_primary_key_column,
-    mysql_type_supports_auto_id,
-    parse_clickhouse_locator,
-    parse_mysql_locator,
-    parse_next_numeric_id,
-    postgres_single_primary_key_column,
-    postgres_type_supports_auto_id,
-    quote_identifier,
-    quote_identifier_clickhouse,
-    require_live,
-    sql_literal,
-    sqlite_single_primary_key_column,
-    sqlite_type_supports_auto_id,
-};
+fn require_mutate(handle: &SessionHandle) -> Result<&dyn database::MutateExec, DatabaseError> {
+    handle.mutate().ok_or_else(|| {
+        DatabaseError::Unsupported("row editing is not supported for this session".into())
+    })
+}
 
 pub async fn update_table_cell(
     handle: &SessionHandle,
@@ -32,154 +14,16 @@ pub async fn update_table_cell(
     column_name: String,
     value: String,
 ) -> Result<(), DatabaseError> {
-    if let Some(mutate) = handle.mutate() {
-        match mutate
-            .update_table_cell(
-                source.clone(),
-                locator.clone(),
-                column_name.clone(),
-                value.clone(),
-            )
-            .await
-        {
-            Ok(()) => return Ok(()),
-            Err(DatabaseError::Unsupported(_)) => {}
-            Err(err) => return Err(err),
-        }
-    }
-
-    let column = quote_identifier(&column_name);
-    let value_literal = sql_literal(&value);
-    let connection = require_live(handle)?;
-
-    match connection {
-        LiveConnection::Sqlite(pool) => {
-            let rowid = locator
-                .parse::<i64>()
-                .map_err(|_| invalid_sqlite_locator())?;
-            let sql = format!(
-                "update {} set {} = {} where rowid = {}",
-                source.qualified_name, column, value_literal, rowid
-            );
-            sqlx::query(&sql)
-                .execute(&pool)
-                .await
-                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-            Ok(())
-        }
-        LiveConnection::Postgres(pool) => {
-            let sql = format!(
-                "update {} set {} = {} where ctid = {}::tid",
-                source.qualified_name,
-                column,
-                value_literal,
-                sql_literal(&locator)
-            );
-            sqlx::query(&sql)
-                .execute(&pool)
-                .await
-                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-            Ok(())
-        }
-        LiveConnection::MySql(pool) => {
-            let schema_name = mysql_effective_schema_name(&pool, source.schema.as_deref()).await?;
-            let primary_key_columns =
-                mysql_primary_key_columns(&pool, &schema_name, &source.table_name).await?;
-            if primary_key_columns.is_empty() {
-                return Err(DatabaseError::Unsupported(
-                    "MySQL table must have a primary key for updates".to_string(),
-                ));
-            }
-
-            let conditions = parse_mysql_locator(&locator, &primary_key_columns)?;
-            let where_clause = conditions.join(" AND ");
-            let column = quote_identifier_clickhouse(&column_name);
-            let sql = format!(
-                "update {} set {} = {} where {}",
-                source.qualified_name, column, value_literal, where_clause
-            );
-            sqlx::query(&sql)
-                .execute(&pool)
-                .await
-                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-            Ok(())
-        }
-        LiveConnection::ClickHouse(config) => {
-            let schema_name = source
-                .schema
-                .clone()
-                .unwrap_or_else(|| "default".to_string());
-            let pk_result =
-                clickhouse_get_primary_key_columns(&config, &schema_name, &source.table_name)
-                    .await?;
-
-            let Some((pk_columns, _)) = pk_result else {
-                return Err(DatabaseError::Unsupported(
-                    "ClickHouse table must have a primary key for updates".to_string(),
-                ));
-            };
-
-            let conditions = parse_clickhouse_locator(&locator, &pk_columns);
-            if conditions.is_empty() {
-                return Err(DatabaseError::Unsupported(
-                    "Invalid row locator".to_string(),
-                ));
-            }
-
-            let where_clause = conditions
-                .iter()
-                .map(|(col, val)| format!("{} = {}", quote_identifier_clickhouse(col), val))
-                .collect::<Vec<_>>()
-                .join(" AND ");
-
-            let column = quote_identifier_clickhouse(&column_name);
-            let value_literal = sql_literal(&value);
-
-            let sql = format!(
-                "ALTER TABLE {} UPDATE {} = {} WHERE {}",
-                source.qualified_name, column, value_literal, where_clause
-            );
-
-            ClickHouseDriver.execute_text_query(&config, &sql).await?;
-            Ok(())
-        }
-    }
+    require_mutate(handle)?
+        .update_table_cell(source, locator, column_name, value)
+        .await
 }
 
 pub async fn insert_table_row(
     handle: &SessionHandle,
     source: TablePreviewSource,
 ) -> Result<(), DatabaseError> {
-    let connection = require_live(handle)?;
-    match connection {
-        LiveConnection::Sqlite(pool) => {
-            let sql = format!("insert into {} default values", source.qualified_name);
-            sqlx::query(&sql)
-                .execute(&pool)
-                .await
-                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-            Ok(())
-        }
-        LiveConnection::Postgres(pool) => {
-            let sql = format!("insert into {} default values", source.qualified_name);
-            sqlx::query(&sql)
-                .execute(&pool)
-                .await
-                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-            Ok(())
-        }
-        LiveConnection::MySql(pool) => {
-            let sql = format!("insert into {} values ()", source.qualified_name);
-            sqlx::query(&sql)
-                .execute(&pool)
-                .await
-                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-            Ok(())
-        }
-        LiveConnection::ClickHouse(_) => Err(DatabaseError::Unsupported(
-            "ClickHouse row inserts are not supported yet".to_string(),
-        )),
-    }
+    require_mutate(handle)?.insert_table_row(source).await
 }
 
 pub async fn insert_table_row_with_values(
@@ -187,199 +31,18 @@ pub async fn insert_table_row_with_values(
     source: TablePreviewSource,
     column_values: Vec<(String, String)>,
 ) -> Result<(), DatabaseError> {
-    let connection = require_live(handle)?;
-    match connection {
-        LiveConnection::Sqlite(pool) => {
-            let sql = build_insert_row_sql(&source, &column_values, quote_identifier);
-            sqlx::query(&sql)
-                .execute(&pool)
-                .await
-                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-            Ok(())
-        }
-        LiveConnection::Postgres(pool) => {
-            let sql = build_insert_row_sql(&source, &column_values, quote_identifier);
-            sqlx::query(&sql)
-                .execute(&pool)
-                .await
-                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-            Ok(())
-        }
-        LiveConnection::MySql(pool) => {
-            let sql = build_insert_row_sql(&source, &column_values, quote_identifier_clickhouse);
-            sqlx::query(&sql)
-                .execute(&pool)
-                .await
-                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-            Ok(())
-        }
-        LiveConnection::ClickHouse(config) => {
-            let sql = build_clickhouse_insert_sql(&source, &column_values);
-
-            ClickHouseDriver.execute_text_query(&config, &sql).await?;
-            Ok(())
-        }
-    }
-}
-
-/// ClickHouse rejects `DEFAULT VALUES`, so an empty value list uses the explicit `() values ()` form.
-fn build_clickhouse_insert_sql(
-    source: &TablePreviewSource,
-    column_values: &[(String, String)],
-) -> String {
-    if column_values.is_empty() {
-        return format!("insert into {} () values ()", source.qualified_name);
-    }
-    build_insert_row_sql(source, column_values, quote_identifier_clickhouse)
+    require_mutate(handle)?
+        .insert_table_row_with_values(source, column_values)
+        .await
 }
 
 pub async fn next_table_primary_key_id(
     handle: &SessionHandle,
     source: TablePreviewSource,
 ) -> Result<Option<(String, i64)>, DatabaseError> {
-    let connection = require_live(handle)?;
-    match connection {
-        LiveConnection::Sqlite(pool) => {
-            let schema_name = source.schema.clone().unwrap_or_else(|| "main".to_string());
-            let Some((column_name, data_type)) =
-                sqlite_single_primary_key_column(&pool, &schema_name, &source.table_name).await?
-            else {
-                return Ok(None);
-            };
-            if !sqlite_type_supports_auto_id(&data_type) {
-                return Ok(None);
-            }
-
-            let column = quote_identifier(&column_name);
-            let sql = format!(
-                "select cast(coalesce(max({column}), 0) + 1 as text) from {}",
-                source.qualified_name
-            );
-            let row = sqlx::query(&sql)
-                .fetch_one(&pool)
-                .await
-                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-            Ok(Some((
-                column_name.clone(),
-                parse_next_numeric_id(
-                    row.try_get::<String, _>(0)
-                        .map_err(|e| DatabaseError::Driver(e.to_string()))?,
-                    &column_name,
-                )?,
-            )))
-        }
-        LiveConnection::Postgres(pool) => {
-            let schema_name = source
-                .schema
-                .clone()
-                .unwrap_or_else(|| "public".to_string());
-            let Some((column_name, data_type)) =
-                postgres_single_primary_key_column(&pool, &schema_name, &source.table_name).await?
-            else {
-                return Ok(None);
-            };
-            if !postgres_type_supports_auto_id(&data_type) {
-                return Ok(None);
-            }
-
-            let column = quote_identifier(&column_name);
-            let sql = format!(
-                "select cast(coalesce(max({column})::bigint, 0) + 1 as text) from {}",
-                source.qualified_name
-            );
-            let row = sqlx::query(&sql)
-                .fetch_one(&pool)
-                .await
-                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-            Ok(Some((
-                column_name.clone(),
-                parse_next_numeric_id(
-                    row.try_get::<String, _>(0)
-                        .map_err(|e| DatabaseError::Driver(e.to_string()))?,
-                    &column_name,
-                )?,
-            )))
-        }
-        LiveConnection::MySql(pool) => {
-            let schema_name = mysql_effective_schema_name(&pool, source.schema.as_deref()).await?;
-            let Some((column_name, data_type)) =
-                mysql_single_primary_key_column(&pool, &schema_name, &source.table_name).await?
-            else {
-                return Ok(None);
-            };
-            if !mysql_type_supports_auto_id(&data_type) {
-                return Ok(None);
-            }
-
-            let column = quote_identifier_clickhouse(&column_name);
-            let sql = format!(
-                "select cast(coalesce(max({column}), 0) + 1 as char) from {}",
-                source.qualified_name
-            );
-            let row = sqlx::query(&sql)
-                .fetch_one(&pool)
-                .await
-                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-            Ok(Some((
-                column_name.clone(),
-                parse_next_numeric_id(
-                    row.try_get::<String, _>(0)
-                        .map_err(|e| DatabaseError::Driver(e.to_string()))?,
-                    &column_name,
-                )?,
-            )))
-        }
-        LiveConnection::ClickHouse(config) => {
-            let schema_name = source
-                .schema
-                .clone()
-                .unwrap_or_else(|| "default".to_string());
-            let pk_result =
-                clickhouse_get_primary_key_columns(&config, &schema_name, &source.table_name)
-                    .await?;
-
-            let Some((pk_columns, data_type)) = pk_result else {
-                return Ok(None);
-            };
-
-            if !clickhouse_type_supports_auto_id(&data_type) {
-                return Ok(None);
-            }
-
-            let column = quote_identifier_clickhouse(&pk_columns[0]);
-            let sql = format!(
-                "SELECT toString(COALESCE(MAX({}), 0) + 1) AS next_id FROM {}",
-                column, source.qualified_name
-            );
-            let response = ClickHouseDriver.execute_json_query(&config, &sql).await?;
-
-            if let Some(row) = response.data.first()
-                && let Some(val) = row.first()
-            {
-                let next_id = match val {
-                    serde_json::Value::String(s) => s.parse::<i64>().map_err(|e| {
-                        DatabaseError::Driver(format!(
-                            "next_table_primary_key_id: failed to parse string '{s}' as i64: {e}"
-                        ))
-                    })?,
-                    serde_json::Value::Number(n) => n.as_i64().ok_or_else(|| {
-                        DatabaseError::Driver(format!(
-                            "next_table_primary_key_id: number is not a valid i64: {n}"
-                        ))
-                    })?,
-                    other => {
-                        return Err(DatabaseError::Driver(format!(
-                            "next_table_primary_key_id: unexpected value type {:?}",
-                            other
-                        )));
-                    }
-                };
-                Ok(Some((pk_columns[0].clone(), next_id)))
-            } else {
-                Ok(None)
-            }
-        }
-    }
+    require_mutate(handle)?
+        .next_table_primary_key_id(source)
+        .await
 }
 
 pub async fn delete_table_row(
@@ -387,122 +50,7 @@ pub async fn delete_table_row(
     source: TablePreviewSource,
     locator: String,
 ) -> Result<(), DatabaseError> {
-    let connection = require_live(handle)?;
-    match connection {
-        LiveConnection::Sqlite(pool) => {
-            let rowid = locator
-                .parse::<i64>()
-                .map_err(|_| invalid_sqlite_locator())?;
-            let sql = format!(
-                "delete from {} where rowid = {}",
-                source.qualified_name, rowid
-            );
-            sqlx::query(&sql)
-                .execute(&pool)
-                .await
-                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-            Ok(())
-        }
-        LiveConnection::Postgres(pool) => {
-            let sql = format!(
-                "delete from {} where ctid = {}::tid",
-                source.qualified_name,
-                sql_literal(&locator)
-            );
-            sqlx::query(&sql)
-                .execute(&pool)
-                .await
-                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-            Ok(())
-        }
-        LiveConnection::MySql(pool) => {
-            let schema_name = mysql_effective_schema_name(&pool, source.schema.as_deref()).await?;
-            let primary_key_columns =
-                mysql_primary_key_columns(&pool, &schema_name, &source.table_name).await?;
-            if primary_key_columns.is_empty() {
-                return Err(DatabaseError::Unsupported(
-                    "MySQL table must have a primary key for deletes".to_string(),
-                ));
-            }
-
-            let conditions = parse_mysql_locator(&locator, &primary_key_columns)?;
-            let where_clause = conditions.join(" AND ");
-            let sql = format!(
-                "delete from {} where {}",
-                source.qualified_name, where_clause
-            );
-            sqlx::query(&sql)
-                .execute(&pool)
-                .await
-                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-            Ok(())
-        }
-        LiveConnection::ClickHouse(config) => {
-            let schema_name = source
-                .schema
-                .clone()
-                .unwrap_or_else(|| "default".to_string());
-            let pk_result =
-                clickhouse_get_primary_key_columns(&config, &schema_name, &source.table_name)
-                    .await?;
-
-            let Some((pk_columns, _)) = pk_result else {
-                return Err(DatabaseError::Unsupported(
-                    "ClickHouse table must have a primary key for deletes".to_string(),
-                ));
-            };
-
-            let conditions = parse_clickhouse_locator(&locator, &pk_columns);
-            if conditions.is_empty() {
-                return Err(DatabaseError::Unsupported(
-                    "Invalid row locator".to_string(),
-                ));
-            }
-
-            let where_clause = conditions
-                .iter()
-                .map(|(col, val)| format!("{} = {}", quote_identifier_clickhouse(col), val))
-                .collect::<Vec<_>>()
-                .join(" AND ");
-
-            let sql = format!(
-                "ALTER TABLE {} DELETE WHERE {}",
-                source.qualified_name, where_clause
-            );
-
-            ClickHouseDriver.execute_text_query(&config, &sql).await?;
-            Ok(())
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::build_clickhouse_insert_sql;
-    use models::TablePreviewSource;
-
-    fn source() -> TablePreviewSource {
-        TablePreviewSource {
-            schema: Some("analytics".to_string()),
-            table_name: "events".to_string(),
-            qualified_name: "analytics.events".to_string(),
-        }
-    }
-
-    #[test]
-    fn clickhouse_empty_insert_uses_explicit_empty_column_list() {
-        let sql = build_clickhouse_insert_sql(&source(), &[]);
-        assert_eq!(sql, "insert into analytics.events () values ()");
-        assert!(!sql.contains("default values"));
-    }
-
-    #[test]
-    fn clickhouse_non_empty_insert_keeps_build_insert_row_sql_path() {
-        let sql =
-            build_clickhouse_insert_sql(&source(), &[("name".to_string(), "launch".to_string())]);
-        assert_eq!(
-            sql,
-            "insert into analytics.events (`name`) values ('launch')"
-        );
-    }
+    require_mutate(handle)?
+        .delete_table_row(source, locator)
+        .await
 }

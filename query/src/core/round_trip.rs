@@ -6,18 +6,15 @@
 //! integration tests inside the crate (rather than as a `tests/` directory)
 //! so they can access the same private helpers the production code uses.
 
-#![allow(unused_imports)]
-
 use super::*;
-use database::SessionHandle;
-use driver_sqlite::SqliteSession;
-use sqlx::sqlite::SqlitePool;
+use database::{DatabaseDriver, SessionHandle};
+use driver_sqlite::{SqliteDriver, SqliteSession};
 use std::sync::Arc;
 
 /// Connects to a fresh `:memory:` SQLite database and returns it as a
 /// `SessionHandle` that the public `query` API can consume.
 async fn fresh_sqlite() -> SessionHandle {
-    let pool = SqlitePool::connect(":memory:")
+    let pool = SqliteDriver::connect(":memory:".into())
         .await
         .expect("connect to in-memory sqlite");
     SessionHandle::wrap(Arc::new(SqliteSession { pool }))
@@ -93,7 +90,6 @@ async fn insert_then_update_then_delete_round_trip() {
     let conn = fresh_sqlite().await;
     seed_two_rows(&conn).await;
 
-    // Insert a new row through the public `execute_query` API.
     execute_query(
         &conn,
         "insert into widgets (id, name, qty) values (3, 'gamma', 30)".to_string(),
@@ -109,7 +105,6 @@ async fn insert_then_update_then_delete_round_trip() {
         other => panic!("expected table result, got {other:?}"),
     }
 
-    // Update the newly inserted row.
     execute_query(
         &conn,
         "update widgets set qty = 99 where id = 3".to_string(),
@@ -125,7 +120,6 @@ async fn insert_then_update_then_delete_round_trip() {
         other => panic!("expected table result, got {other:?}"),
     }
 
-    // Delete the row through plain SQL.
     execute_query(&conn, "delete from widgets where id = 3".to_string())
         .await
         .expect("delete third row");
@@ -161,8 +155,6 @@ async fn create_then_drop_table_lifecycle() {
         other => panic!("expected table result, got {other:?}"),
     }
 
-    // `drop_table` consumes a `TablePreviewSource` derived from a SELECT.
-    // For a freshly created table the simpler path is the underlying SQL.
     execute_query(&conn, "drop table ephemeral".to_string())
         .await
         .expect("drop ephemeral table");
@@ -196,6 +188,5 @@ async fn is_read_only_sql_rejects_writes() {
     assert!(!is_read_only_sql("drop table widgets"));
     assert!(!is_read_only_sql("create table t (id int)"));
     assert!(!is_read_only_sql("truncate table widgets"));
-    // Mixed: one read, one write in a single script must be rejected.
     assert!(!is_read_only_sql("select 1; drop table widgets"));
 }

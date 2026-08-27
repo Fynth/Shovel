@@ -13,10 +13,11 @@ use database::{
     MutateExec,
     QueryExec,
     SchemaExec,
-    quote_ident_double,
+    quote_ident_backtick,
 };
 use models::{
     Capabilities,
+    ClickHouseFormData,
     DatabaseError,
     DatabaseKind,
     ExplorerNode,
@@ -24,59 +25,50 @@ use models::{
     QueryFilterOperator,
     QueryOutput,
     TableForeignKey,
-    TablePreviewSource,
-};
-use sqlx::{Column, Row};
-
-use crate::rows::{
-    LOCATOR_COLUMN,
-    postgres_preview_rows_to_paginated_page,
-    postgres_rows_to_page,
-    postgres_rows_to_paginated_page,
 };
 
-pub struct PostgresSession {
-    pub pool: sqlx::PgPool,
+use crate::rows::{clickhouse_rows_to_page, clickhouse_rows_to_paginated_page};
+
+pub struct ClickHouseSession {
+    pub config: ClickHouseFormData,
 }
 
-impl PostgresSession {
+impl ClickHouseSession {
     fn dialect() -> Dialect {
         Dialect {
-            quote_identifier: quote_ident_double,
-            filter_expression: postgres_filter_expression,
-            format_flavor: FormatFlavor::Postgres,
+            quote_identifier: quote_ident_backtick,
+            filter_expression: clickhouse_filter_expression,
+            format_flavor: FormatFlavor::Generic,
         }
     }
 }
 
 #[async_trait]
-impl QueryExec for PostgresSession {
+impl QueryExec for ClickHouseSession {
     async fn execute_sql(&self, sql: &str) -> Result<QueryOutput, DatabaseError> {
         if statement_returns_rows(sql) {
-            let rows = sqlx::query(sql)
-                .fetch_all(&self.pool)
+            let response = crate::execute_json_query(&self.config, sql)
                 .await
-                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-            return Ok(QueryOutput::Table(decode_postgres_rows(rows, sql)));
+                .map_err(DatabaseError::Driver)?;
+            return Ok(QueryOutput::Table(decode_clickhouse_rows(response, sql)));
         }
 
-        let result = sqlx::query(sql)
-            .execute(&self.pool)
+        crate::execute_text_query(&self.config, sql)
             .await
-            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-        Ok(QueryOutput::AffectedRows(result.rows_affected()))
+            .map_err(DatabaseError::Driver)?;
+        Ok(QueryOutput::AffectedRows(0))
     }
 }
 
 #[async_trait]
-impl SchemaExec for PostgresSession {
+impl SchemaExec for ClickHouseSession {
     async fn describe_table(
         &self,
         _schema: Option<String>,
         _table: String,
     ) -> Result<QueryOutput, DatabaseError> {
         Err(DatabaseError::Unsupported(
-            "postgres schema exec is not implemented yet".into(),
+            "clickhouse schema exec is not implemented yet".into(),
         ))
     }
 
@@ -86,19 +78,19 @@ impl SchemaExec for PostgresSession {
         _table: String,
     ) -> Result<Vec<String>, DatabaseError> {
         Err(DatabaseError::Unsupported(
-            "postgres schema exec is not implemented yet".into(),
+            "clickhouse schema exec is not implemented yet".into(),
         ))
     }
 
     async fn load_connection_tree(&self) -> Result<Vec<ExplorerNode>, DatabaseError> {
         Err(DatabaseError::Unsupported(
-            "postgres schema exec is not implemented yet".into(),
+            "clickhouse schema exec is not implemented yet".into(),
         ))
     }
 
     async fn load_foreign_keys(&self) -> Result<Vec<TableForeignKey>, DatabaseError> {
         Err(DatabaseError::Unsupported(
-            "postgres schema exec is not implemented yet".into(),
+            "clickhouse schema exec is not implemented yet".into(),
         ))
     }
 
@@ -109,18 +101,18 @@ impl SchemaExec for PostgresSession {
         _kind: ExplorerNodeKind,
     ) -> Result<Option<String>, DatabaseError> {
         Err(DatabaseError::Unsupported(
-            "postgres schema exec is not implemented yet".into(),
+            "clickhouse schema exec is not implemented yet".into(),
         ))
     }
 }
 
-impl DriverSession for PostgresSession {
+impl DriverSession for ClickHouseSession {
     fn kind(&self) -> DatabaseKind {
-        DatabaseKind::Postgres
+        DatabaseKind::ClickHouse
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::for_kind(DatabaseKind::Postgres)
+        Capabilities::for_kind(DatabaseKind::ClickHouse)
     }
 
     fn dialect(&self) -> Dialect {
@@ -128,7 +120,7 @@ impl DriverSession for PostgresSession {
     }
 
     fn as_mutate(&self) -> Option<&dyn MutateExec> {
-        Some(self)
+        None
     }
 
     fn as_explain(&self) -> Option<&dyn ExplainExec> {
@@ -140,35 +132,18 @@ impl DriverSession for PostgresSession {
     }
 
     fn as_legacy(&self) -> Option<LiveConnection> {
-        Some(LiveConnection::Postgres(self.pool.clone()))
+        Some(LiveConnection::ClickHouse(self.config.clone()))
     }
 }
 
-fn decode_postgres_rows(rows: Vec<sqlx::postgres::PgRow>, sql: &str) -> models::QueryPage {
-    let has_locator = rows
-        .first()
-        .and_then(|row| row.columns().first())
-        .is_some_and(|column| column.name() == LOCATOR_COLUMN);
-    let page_meta = trailing_limit_offset(sql);
-
-    if has_locator {
-        let (page_size, offset) = match page_meta {
-            Some((limit, offset)) => (limit.saturating_sub(1) as u32, offset),
-            None => (rows.len() as u32, 0),
-        };
-        postgres_preview_rows_to_paginated_page(rows, unknown_preview_source(), page_size, offset)
-    } else if let Some((limit, offset)) = page_meta {
-        postgres_rows_to_paginated_page(rows, limit.saturating_sub(1) as u32, offset)
+fn decode_clickhouse_rows(
+    response: models::ClickHouseJsonResponse,
+    sql: &str,
+) -> models::QueryPage {
+    if let Some((limit, offset)) = trailing_limit_offset(sql) {
+        clickhouse_rows_to_paginated_page(response, limit.saturating_sub(1) as u32, offset)
     } else {
-        postgres_rows_to_page(rows)
-    }
-}
-
-fn unknown_preview_source() -> TablePreviewSource {
-    TablePreviewSource {
-        schema: None,
-        table_name: String::new(),
-        qualified_name: String::new(),
+        clickhouse_rows_to_page(response)
     }
 }
 
@@ -232,47 +207,33 @@ fn leading_keyword(sql: &str) -> Option<String> {
     (index > start).then(|| sql[start..index].to_ascii_lowercase())
 }
 
-fn postgres_filter_expression(
+fn clickhouse_filter_expression(
     column_name: &str,
     operator: QueryFilterOperator,
     value: &str,
 ) -> String {
-    let text_expr = format!("cast({} as text)", quote_ident_double(column_name));
+    let column = quote_ident_backtick(column_name);
+    let text_expr = format!("lowerUTF8(toString({column}))");
+    let lower_literal = format!("lowerUTF8({})", sql_literal(value));
     match operator {
-        QueryFilterOperator::Contains => {
-            format!(
-                "{text_expr} ilike {} escape '\\'",
-                sql_contains_literal(value)
-            )
-        }
-        QueryFilterOperator::NotContains => {
-            format!(
-                "{text_expr} not ilike {} escape '\\'",
-                sql_contains_literal(value)
-            )
-        }
-        QueryFilterOperator::Equals => {
-            format!("lower({text_expr}) = lower({})", sql_literal(value))
-        }
-        QueryFilterOperator::NotEquals => {
-            format!("lower({text_expr}) != lower({})", sql_literal(value))
-        }
+        QueryFilterOperator::Contains => format!(
+            "positionCaseInsensitiveUTF8(toString({column}), {}) > 0",
+            sql_literal(value)
+        ),
+        QueryFilterOperator::NotContains => format!(
+            "positionCaseInsensitiveUTF8(toString({column}), {}) = 0",
+            sql_literal(value)
+        ),
+        QueryFilterOperator::Equals => format!("{text_expr} = {lower_literal}"),
+        QueryFilterOperator::NotEquals => format!("{text_expr} != {lower_literal}"),
         QueryFilterOperator::StartsWith => {
-            format!(
-                "{text_expr} ilike {} escape '\\'",
-                sql_prefix_literal(value)
-            )
+            format!("startsWith({text_expr}, {lower_literal})")
         }
         QueryFilterOperator::EndsWith => {
-            format!(
-                "{text_expr} ilike {} escape '\\'",
-                sql_suffix_literal(value)
-            )
+            format!("endsWith({text_expr}, {lower_literal})")
         }
-        QueryFilterOperator::IsNull => format!("{} is null", quote_ident_double(column_name)),
-        QueryFilterOperator::IsNotNull => {
-            format!("{} is not null", quote_ident_double(column_name))
-        }
+        QueryFilterOperator::IsNull => format!("isNull({column})"),
+        QueryFilterOperator::IsNotNull => format!("isNotNull({column})"),
     }
 }
 
@@ -282,27 +243,4 @@ fn sql_literal(value: &str) -> String {
     } else {
         format!("'{}'", value.replace('\'', "''"))
     }
-}
-
-fn sql_contains_literal(value: &str) -> String {
-    let escaped = escape_like_literal(value);
-    format!("'%{escaped}%'")
-}
-
-fn sql_prefix_literal(value: &str) -> String {
-    let escaped = escape_like_literal(value);
-    format!("'{escaped}%'")
-}
-
-fn sql_suffix_literal(value: &str) -> String {
-    let escaped = escape_like_literal(value);
-    format!("'%{escaped}'")
-}
-
-fn escape_like_literal(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
-        .replace('\'', "''")
 }

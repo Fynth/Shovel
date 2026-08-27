@@ -7,6 +7,7 @@ license = "MIT"
 publish = false
 
 [dependencies]
+async-trait = "0.1.89"
 database.workspace = true
 models.workspace = true
 reqwest.workspace = true

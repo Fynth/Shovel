@@ -24,6 +24,15 @@ pub trait QueryExec: Send + Sync {
     /// Run already-built SQL and decode rows. Pagination SQL is built by
     /// `query` via `Dialect`.
     async fn execute_sql(&self, sql: &str) -> Result<QueryOutput, DatabaseError>;
+
+    /// Optional locator SQL for editable `SELECT` wrappers (MySQL PK `json_array`).
+    async fn locator_expression(
+        &self,
+        _schema: Option<String>,
+        _table: String,
+    ) -> Result<Option<String>, DatabaseError> {
+        Ok(None)
+    }
 }
 
 #[async_trait]
@@ -57,6 +66,32 @@ pub trait MutateExec: Send + Sync {
         column_name: String,
         value: String,
     ) -> Result<(), DatabaseError>;
+
+    async fn insert_table_row(&self, source: TablePreviewSource) -> Result<(), DatabaseError>;
+
+    async fn insert_table_row_with_values(
+        &self,
+        source: TablePreviewSource,
+        column_values: Vec<(String, String)>,
+    ) -> Result<(), DatabaseError>;
+
+    async fn delete_table_row(
+        &self,
+        source: TablePreviewSource,
+        locator: String,
+    ) -> Result<(), DatabaseError>;
+
+    async fn next_table_primary_key_id(
+        &self,
+        source: TablePreviewSource,
+    ) -> Result<Option<(String, i64)>, DatabaseError>;
+
+    async fn import_csv(
+        &self,
+        source: TablePreviewSource,
+        headers: Vec<String>,
+        rows: Vec<Vec<String>>,
+    ) -> Result<u64, DatabaseError>;
 }
 
 #[async_trait]

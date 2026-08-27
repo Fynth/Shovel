@@ -66,6 +66,21 @@ impl QueryExec for MysqlSession {
             .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         Ok(QueryOutput::AffectedRows(result.rows_affected()))
     }
+
+    async fn locator_expression(
+        &self,
+        schema: Option<String>,
+        table: String,
+    ) -> Result<Option<String>, DatabaseError> {
+        let schema_name = mysql_effective_schema_name(&self.pool, schema.as_deref()).await?;
+        let primary_key_columns =
+            mysql_primary_key_columns(&self.pool, &schema_name, &table).await?;
+        if primary_key_columns.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(mysql_locator_expression(&primary_key_columns)))
+        }
+    }
 }
 
 #[async_trait]
@@ -128,11 +143,11 @@ impl DriverSession for MysqlSession {
     }
 
     fn as_mutate(&self) -> Option<&dyn MutateExec> {
-        None
+        Some(self)
     }
 
     fn as_explain(&self) -> Option<&dyn ExplainExec> {
-        None
+        Some(self)
     }
 
     fn as_introspect(&self) -> Option<&dyn IntrospectExec> {
@@ -293,4 +308,138 @@ fn escape_like_literal(value: &str) -> String {
         .replace('%', "\\%")
         .replace('_', "\\_")
         .replace('\'', "''")
+}
+
+pub(crate) fn mysql_locator_expression(pk_columns: &[String]) -> String {
+    let args = pk_columns
+        .iter()
+        .map(|column| format!("cast({} as char)", quote_ident_backtick(column)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("json_array({args})")
+}
+
+pub(crate) fn parse_mysql_locator(
+    locator: &str,
+    pk_columns: &[String],
+) -> Result<Vec<String>, DatabaseError> {
+    let values = serde_json::from_str::<Vec<String>>(locator)
+        .map_err(|_| DatabaseError::Unsupported("Invalid MySQL row locator".to_string()))?;
+
+    if values.len() != pk_columns.len() {
+        return Err(DatabaseError::Unsupported(
+            "Invalid MySQL row locator".to_string(),
+        ));
+    }
+
+    Ok(pk_columns
+        .iter()
+        .zip(values)
+        .map(|(column, value)| {
+            format!(
+                "cast({} as char) = {}",
+                quote_ident_backtick(column),
+                sql_literal(&value)
+            )
+        })
+        .collect())
+}
+
+pub(crate) async fn mysql_effective_schema_name(
+    pool: &sqlx::MySqlPool,
+    schema: Option<&str>,
+) -> Result<String, DatabaseError> {
+    if let Some(schema) = schema.map(str::trim).filter(|schema| !schema.is_empty()) {
+        return Ok(schema.to_string());
+    }
+
+    sqlx::query_scalar::<_, Option<String>>("select database()")
+        .fetch_one(pool)
+        .await
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            DatabaseError::Unsupported(
+                "No MySQL database selected. Set a default database or use a qualified table name."
+                    .to_string(),
+            )
+        })
+}
+
+pub(crate) async fn mysql_primary_key_columns(
+    pool: &sqlx::MySqlPool,
+    schema_name: &str,
+    table_name: &str,
+) -> Result<Vec<String>, DatabaseError> {
+    let rows = sqlx::query(
+        r#"
+        select kcu.column_name
+        from information_schema.table_constraints tc
+        join information_schema.key_column_usage kcu
+          on tc.constraint_name = kcu.constraint_name
+         and tc.table_schema = kcu.table_schema
+         and tc.table_name = kcu.table_name
+        where tc.constraint_type = 'PRIMARY KEY'
+          and tc.table_schema = ?
+          and tc.table_name = ?
+        order by kcu.ordinal_position
+        "#,
+    )
+    .bind(schema_name)
+    .bind(table_name)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
+
+    rows.into_iter()
+        .map(|row| {
+            row.try_get::<String, _>("column_name")
+                .map_err(|e| DatabaseError::Driver(e.to_string()))
+        })
+        .collect()
+}
+
+pub(crate) async fn mysql_single_primary_key_column(
+    pool: &sqlx::MySqlPool,
+    schema_name: &str,
+    table_name: &str,
+) -> Result<Option<(String, String)>, DatabaseError> {
+    let rows = sqlx::query(
+        r#"
+        select
+          kcu.column_name,
+          cols.data_type
+        from information_schema.table_constraints tc
+        join information_schema.key_column_usage kcu
+          on tc.constraint_name = kcu.constraint_name
+         and tc.table_schema = kcu.table_schema
+         and tc.table_name = kcu.table_name
+        join information_schema.columns cols
+          on cols.table_schema = kcu.table_schema
+         and cols.table_name = kcu.table_name
+         and cols.column_name = kcu.column_name
+        where tc.constraint_type = 'PRIMARY KEY'
+          and tc.table_schema = ?
+          and tc.table_name = ?
+        order by kcu.ordinal_position
+        "#,
+    )
+    .bind(schema_name)
+    .bind(table_name)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
+
+    if rows.len() != 1 {
+        return Ok(None);
+    }
+
+    let row = &rows[0];
+    let column_name = row
+        .try_get::<String, _>("column_name")
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
+    let data_type = row
+        .try_get::<String, _>("data_type")
+        .unwrap_or_else(|_| String::new());
+    Ok(Some((column_name, data_type)))
 }

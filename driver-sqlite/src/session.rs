@@ -128,11 +128,11 @@ impl DriverSession for SqliteSession {
     }
 
     fn as_mutate(&self) -> Option<&dyn MutateExec> {
-        None
+        Some(self)
     }
 
     fn as_explain(&self) -> Option<&dyn ExplainExec> {
-        None
+        Some(self)
     }
 
     fn as_introspect(&self) -> Option<&dyn IntrospectExec> {

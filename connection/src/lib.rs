@@ -4,7 +4,12 @@ mod registry;
 pub use database::SessionHandle;
 pub use registry::{register_session, session, unregister_session};
 
-#[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
+#[cfg(any(
+    feature = "sqlite",
+    feature = "postgres",
+    feature = "mysql",
+    feature = "clickhouse"
+))]
 use std::sync::Arc;
 
 use connection_ssh::{OpenedSshTunnel, open_ssh_tunnel, register_ssh_tunnel};
@@ -15,9 +20,8 @@ use connection_ssh::{OpenedSshTunnel, open_ssh_tunnel, register_ssh_tunnel};
     feature = "clickhouse"
 ))]
 use database::DatabaseDriver;
-use database::LiveConnection;
 #[cfg(feature = "clickhouse")]
-use driver_clickhouse::ClickHouseDriver;
+use driver_clickhouse::{ClickHouseDriver, ClickHouseSession};
 #[cfg(feature = "mysql")]
 use driver_mysql::{MySqlConfig, MySqlDriver, MysqlSession};
 #[cfg(feature = "postgres")]
@@ -312,12 +316,12 @@ pub async fn connect_to_db(request: ConnectionRequest) -> Result<SessionHandle, 
                 ClickHouseDriver::connect(data.clone())
                     .await
                     .map_err(DatabaseError::Driver)
-                    .map(LiveConnection::ClickHouse)
+                    .map(|config| SessionHandle::wrap(Arc::new(ClickHouseSession { config })))
             }
             .await;
 
             finalize_tunnel(&session_key, resolved, &result);
-            result.map(SessionHandle::from_legacy)
+            result
         }
         #[allow(unreachable_patterns)]
         _ => Err(DatabaseError::Unsupported(

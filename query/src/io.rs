@@ -1,8 +1,5 @@
-use database::{LiveConnection, SessionHandle};
-
-use crate::core::require_live;
-use driver_clickhouse::execute_text_query;
-use models::{QueryPage, TablePreviewSource};
+use database::SessionHandle;
+use models::{DatabaseKind, QueryPage, TablePreviewSource};
 use rust_xlsxwriter::Workbook;
 use serde_json::{Map, Value};
 use std::{
@@ -80,99 +77,32 @@ pub async fn import_csv_into_table(
         return Ok(0);
     }
 
-    let connection = require_live(handle).map_err(|err| err.to_string())?;
-    match connection {
-        LiveConnection::Sqlite(pool) => {
-            let mut transaction = pool
-                .begin()
+    let row_count = import.rows.len() as u64;
+    if handle.kind() == DatabaseKind::ClickHouse {
+        for chunk in import.rows.chunks(IMPORT_BATCH_SIZE) {
+            let sql = build_insert_sql(
+                &source,
+                &import.headers,
+                chunk,
+                quote_clickhouse_identifier,
+                sql_literal,
+            );
+            handle
+                .query()
+                .execute_sql(&sql)
                 .await
-                .map_err(|err| format!("failed to start SQLite import transaction: {err}"))?;
-
-            for chunk in import.rows.chunks(IMPORT_BATCH_SIZE) {
-                let sql = build_insert_sql(
-                    &source,
-                    &import.headers,
-                    chunk,
-                    quote_sql_identifier,
-                    sql_literal,
-                );
-                sqlx::query(&sql)
-                    .execute(&mut *transaction)
-                    .await
-                    .map_err(|err| format!("SQLite import failed: {err}"))?;
-            }
-
-            transaction
-                .commit()
-                .await
-                .map_err(|err| format!("failed to commit SQLite import: {err}"))?;
+                .map_err(|err| format!("ClickHouse import failed: {err}"))?;
         }
-        LiveConnection::Postgres(pool) => {
-            let mut transaction = pool
-                .begin()
-                .await
-                .map_err(|err| format!("failed to start PostgreSQL import transaction: {err}"))?;
-
-            for chunk in import.rows.chunks(IMPORT_BATCH_SIZE) {
-                let sql = build_insert_sql(
-                    &source,
-                    &import.headers,
-                    chunk,
-                    quote_sql_identifier,
-                    sql_literal,
-                );
-                sqlx::query(&sql)
-                    .execute(&mut *transaction)
-                    .await
-                    .map_err(|err| format!("PostgreSQL import failed: {err}"))?;
-            }
-
-            transaction
-                .commit()
-                .await
-                .map_err(|err| format!("failed to commit PostgreSQL import: {err}"))?;
-        }
-        LiveConnection::MySql(pool) => {
-            let mut transaction = pool
-                .begin()
-                .await
-                .map_err(|err| format!("failed to start MySQL import transaction: {err}"))?;
-
-            for chunk in import.rows.chunks(IMPORT_BATCH_SIZE) {
-                let sql = build_insert_sql(
-                    &source,
-                    &import.headers,
-                    chunk,
-                    quote_clickhouse_identifier,
-                    sql_literal,
-                );
-                sqlx::query(&sql)
-                    .execute(&mut *transaction)
-                    .await
-                    .map_err(|err| format!("MySQL import failed: {err}"))?;
-            }
-
-            transaction
-                .commit()
-                .await
-                .map_err(|err| format!("failed to commit MySQL import: {err}"))?;
-        }
-        LiveConnection::ClickHouse(config) =>
-            for chunk in import.rows.chunks(IMPORT_BATCH_SIZE) {
-                let sql = build_insert_sql(
-                    &source,
-                    &import.headers,
-                    chunk,
-                    quote_clickhouse_identifier,
-                    sql_literal,
-                );
-                execute_text_query(&config, &sql)
-                    .await
-                    .map_err(|err| format!("ClickHouse import failed: {err}"))?;
-            },
+    } else if let Some(mutate) = handle.mutate() {
+        mutate
+            .import_csv(source, import.headers, import.rows)
+            .await
+            .map_err(|err| err.to_string())?;
+    } else {
+        return Err("csv import is not supported for this session".to_string());
     }
 
-    Ok(import.rows.len() as u64)
+    Ok(row_count)
 }
 
 fn export_query_page_csv_sync(page: QueryPage, path: PathBuf) -> Result<usize, String> {
