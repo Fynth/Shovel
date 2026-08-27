@@ -6,6 +6,9 @@ use models::{
     AiProviderKind,
     AppUiSettings,
     builtin_providers,
+    is_native_http_ready,
+    needs_acp_reconnect,
+    provider_kind,
     resolve_picker_models,
 };
 
@@ -19,7 +22,7 @@ use super::{
         send_sql_generation_request,
         send_sql_plan_request,
     },
-    setup::{connect_registry_agent, ensure_opencode_connected, native_provider_label},
+    setup::{apply_native_connected_signal, connect_registry_agent, native_provider_label},
 };
 
 use crate::screens::workspace::tab_store::TabStore;
@@ -246,6 +249,7 @@ fn AgentModelPicker(
     let native_sections = native_picker_sections(&settings);
     let acp_agents = acp_picker_agents();
     let active = settings.ai_catalog.active.clone();
+    let picker_locked = busy || panel_state().busy;
     let trigger_class = if show_picker() {
         "button button--ghost button--small button--active agent-panel__model-trigger"
     } else {
@@ -256,10 +260,15 @@ fn AgentModelPicker(
         div { class: "agent-panel__composer-footer",
             button {
                 class: trigger_class,
-                disabled: busy,
+                disabled: picker_locked,
                 title: "Select language model",
                 "aria-expanded": "{show_picker()}",
-                onclick: move |_| show_picker.set(!show_picker()),
+                onclick: move |_| {
+                    if panel_state().busy {
+                        return;
+                    }
+                    show_picker.set(!show_picker());
+                },
                 {trigger_label}
             }
             if show_picker() {
@@ -278,9 +287,12 @@ fn AgentModelPicker(
                                         if section.supports_refresh {
                                             button {
                                                 class: "button button--ghost button--small",
-                                                disabled: busy,
+                                                disabled: picker_locked,
                                                 onclick: move |event| {
                                                     event.stop_propagation();
+                                                    if panel_state().busy {
+                                                        return;
+                                                    }
                                                     refresh_picker_models(refresh_slug.clone());
                                                 },
                                                 "Refresh"
@@ -291,6 +303,7 @@ fn AgentModelPicker(
                                         {
                                             let provider = section_slug.clone();
                                             let model_id = model.id.clone();
+                                            let previous = active.clone();
                                             let is_active = active.as_ref().is_some_and(|current| {
                                                 current.provider == provider && current.model == model_id
                                             });
@@ -302,11 +315,19 @@ fn AgentModelPicker(
                                             rsx! {
                                                 button {
                                                     class: item_class,
-                                                    disabled: busy,
+                                                    disabled: picker_locked,
                                                     onclick: move |_| {
-                                                        crate::app_state::set_active_model(
-                                                            provider.clone(),
-                                                            model_id.clone(),
+                                                        if panel_state().busy {
+                                                            return;
+                                                        }
+                                                        apply_active_model_change(
+                                                            panel_state,
+                                                            chat_revision,
+                                                            previous.clone(),
+                                                            ActiveModel {
+                                                                provider: provider.clone(),
+                                                                model: model_id.clone(),
+                                                            },
                                                         );
                                                         show_picker.set(false);
                                                     },
@@ -327,6 +348,7 @@ fn AgentModelPicker(
                     p { class: "agent-panel__model-picker-group-title", "Agents" }
                     for (slug, label) in acp_agents {
                         {
+                            let previous = active.clone();
                             let is_active = active
                                 .as_ref()
                                 .is_some_and(|current| current.provider == slug);
@@ -338,12 +360,19 @@ fn AgentModelPicker(
                             rsx! {
                                 button {
                                     class: item_class,
-                                    disabled: busy,
+                                    disabled: picker_locked,
                                     onclick: move |_| {
-                                        connect_acp_from_picker(
+                                        if panel_state().busy {
+                                            return;
+                                        }
+                                        apply_active_model_change(
                                             panel_state,
                                             chat_revision,
-                                            slug.clone(),
+                                            previous.clone(),
+                                            ActiveModel {
+                                                provider: slug.clone(),
+                                                model: String::new(),
+                                            },
                                         );
                                         show_picker.set(false);
                                     },
@@ -504,24 +533,115 @@ fn refresh_picker_models(slug: String) {
     });
 }
 
-fn connect_acp_from_picker(
-    panel_state: Signal<AcpPanelState>,
+fn apply_active_model_change(
+    mut panel_state: Signal<AcpPanelState>,
     chat_revision: Signal<u64>,
-    provider: String,
+    previous: Option<ActiveModel>,
+    next: ActiveModel,
 ) {
+    let reconnect = match previous.as_ref() {
+        Some(prev) => needs_acp_reconnect(&prev.provider, &next.provider),
+        None => provider_kind(&next.provider) == Some(AiProviderKind::Acp),
+    };
+
+    crate::app_state::set_active_model(next.provider.clone(), next.model.clone());
+
+    if !reconnect {
+        if provider_kind(&next.provider) == Some(AiProviderKind::NativeHttp) {
+            apply_native_http_session(panel_state, &next.provider);
+        }
+        return;
+    }
+
+    panel_state.with_mut(|state| {
+        state.busy = true;
+        state.status = "Switching language model...".to_string();
+    });
+
     spawn(async move {
-        match provider.as_str() {
-            "acp:opencode" => {
-                let _ = ensure_opencode_connected(panel_state, chat_revision).await;
+        super::disconnect_acp_runtime_if_needed(&panel_state());
+
+        let outcome = match provider_kind(&next.provider) {
+            Some(AiProviderKind::Acp) =>
+                connect_acp_provider(panel_state, chat_revision, &next.provider).await,
+            Some(AiProviderKind::NativeHttp) => {
+                apply_native_http_session(panel_state, &next.provider);
+                Ok(())
             }
-            "acp:codex" => {
-                let _ =
-                    connect_registry_agent(panel_state, chat_revision, "codex-acp", "Codex CLI")
-                        .await;
+            None => {
+                panel_state.with_mut(|state| {
+                    state.busy = false;
+                });
+                Ok(())
             }
-            _ => {}
+        };
+
+        if let Err(err) = outcome {
+            restore_active_model(previous.as_ref());
+            if let Some(prev) = previous.as_ref()
+                && provider_kind(&prev.provider) == Some(AiProviderKind::NativeHttp)
+            {
+                apply_native_http_session(panel_state, &prev.provider);
+            } else {
+                panel_state.with_mut(|state| {
+                    state.busy = false;
+                });
+            }
+            crate::app_state::toast_error(err);
         }
     });
+}
+
+fn restore_active_model(previous: Option<&ActiveModel>) {
+    crate::app_state::update_ui_settings(|current| {
+        current.ai_catalog.active = previous.cloned();
+    });
+}
+
+fn apply_native_http_session(mut panel_state: Signal<AcpPanelState>, provider: &str) {
+    let settings = crate::app_state::APP_UI_SETTINGS();
+    let key = settings.lm_api_key(provider);
+    let label = native_provider_label(&settings, provider);
+    apply_native_connected_signal(panel_state, label.clone());
+    if !is_native_http_ready(provider, &key) {
+        panel_state.with_mut(|state| {
+            state.status = format!("Add an API key for {label}.");
+        });
+    }
+}
+
+async fn connect_acp_provider(
+    mut panel_state: Signal<AcpPanelState>,
+    mut chat_revision: Signal<u64>,
+    provider: &str,
+) -> Result<(), String> {
+    match provider {
+        "acp:opencode" =>
+            connect_registry_agent(panel_state, chat_revision, "opencode", "OpenCode").await,
+        "acp:codex" =>
+            connect_registry_agent(panel_state, chat_revision, "codex-acp", "Codex CLI").await,
+        _ => {
+            let launch = panel_state().launch.clone();
+            match services::connect_acp_agent(launch).await {
+                Ok(connection) => {
+                    panel_state.with_mut(|state| {
+                        super::state::apply_connected(state, connection);
+                    });
+                    Ok(())
+                }
+                Err(err) => {
+                    panel_state.with_mut(|state| {
+                        state.busy = false;
+                        state.connected = false;
+                        state.connection = None;
+                        state.status = err.clone();
+                    });
+                    chat_revision += 1;
+                    Err(err)
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

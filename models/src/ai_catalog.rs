@@ -361,6 +361,16 @@ pub fn is_native_http_ready(provider: &str, api_key: &str) -> bool {
     }
 }
 
+/// True when switching `from` → `to` must tear down or launch an ACP child.
+/// NativeHttp ↔ NativeHttp is a persist-only hot-swap.
+pub fn needs_acp_reconnect(from: &str, to: &str) -> bool {
+    let from_kind = provider_kind(from);
+    let to_kind = provider_kind(to);
+    from_kind != to_kind
+        || ((from_kind == Some(AiProviderKind::Acp) || to_kind == Some(AiProviderKind::Acp))
+            && from != to)
+}
+
 /// Remove a custom native provider. If it was the active model, clear `active`.
 pub fn delete_custom_provider(cat: &mut AiCatalogSettings, id: &str) {
     cat.custom_native.retain(|provider| provider.id != id);
@@ -490,5 +500,13 @@ mod tests {
         assert_eq!(provider_kind("acp:custom"), Some(AiProviderKind::Acp));
         assert_eq!(provider_kind("acp:opencode"), Some(AiProviderKind::Acp));
         assert!(!is_native_http_ready("acp:custom", "sk"));
+    }
+
+    #[test]
+    fn native_to_native_does_not_need_reconnect() {
+        assert!(!needs_acp_reconnect("openai", "deepseek"));
+        assert!(needs_acp_reconnect("openai", "acp:opencode"));
+        assert!(needs_acp_reconnect("acp:opencode", "openai"));
+        assert!(!needs_acp_reconnect("openai", "openai"));
     }
 }

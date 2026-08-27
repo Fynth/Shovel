@@ -83,6 +83,15 @@ pub(crate) use self::{
     state::{apply_acp_events, default_acp_panel_state, replace_messages},
 };
 
+/// Stop a live ACP child. Native HTTP sessions have no child to kill.
+pub(super) fn disconnect_acp_runtime_if_needed(state: &AcpPanelState) {
+    if is_native_http_connection(state) {
+        return;
+    }
+    let _ = services::disconnect_acp_agent();
+    let _ = services::drain_acp_events();
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AgentSqlExecutionMode {
     Manual,
@@ -267,9 +276,7 @@ pub fn AcpAgentPanel(
                             label: "Disconnect agent".to_string(),
                             onclick: move |_| {
                                 let native = is_native_http_connection(&panel_state());
-                                if !native {
-                                    let _ = services::disconnect_acp_agent();
-                                }
+                                disconnect_acp_runtime_if_needed(&panel_state());
                                 panel_state.with_mut(|state| {
                                     state.connected = false;
                                     state.busy = false;
