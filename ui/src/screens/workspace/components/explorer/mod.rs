@@ -82,7 +82,7 @@ pub fn SidebarConnectionTree(
                                 let Some(target) = target.clone() else {
                                     return;
                                 };
-                                let connection = crate::app_state::session_connection(target.session_id);
+                                let session_id = crate::app_state::live_session_id(target.session_id);
                                 let (bridge, mut rx) = crate::windows::create_table_bridge();
                                 spawn(async move {
                                     while rx.recv().await.is_some() {
@@ -92,7 +92,7 @@ pub fn SidebarConnectionTree(
                                 crate::windows::open_create_table_window(
                                     bridge,
                                     target,
-                                    connection,
+                                    session_id,
                                     read_only_mode,
                                     APP_THEME(),
                                 );
@@ -505,7 +505,7 @@ pub fn open_selected_rename(
     let Some(session_id) = selected_table_session(&sections, &selected) else {
         return;
     };
-    let session = crate::app_state::session_connection(session_id);
+    let live_session_id = crate::app_state::live_session_id(session_id);
     let connection_name = crate::app_state::APP_STATE
         .read()
         .session(session_id)
@@ -533,7 +533,7 @@ pub fn open_selected_rename(
     crate::windows::open_rename_table_window(
         bridge,
         target,
-        session,
+        live_session_id,
         crate::app_state::APP_READ_ONLY_MODE(),
         crate::app_state::APP_THEME(),
     );

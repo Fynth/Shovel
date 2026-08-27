@@ -12,7 +12,6 @@ dependencies = [
  "async-trait",
  "connection",
  "database",
- "driver-clickhouse",
  "explorer",
  "futures-util",
  "models",
@@ -23,7 +22,6 @@ dependencies = [
  "serde",
  "serde_json",
  "shlex",
- "sqlx",
  "storage",
  "tokenizers",
  "tokio",
@@ -1450,6 +1448,7 @@ checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 name = "database"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "models",
  "tokio",
 ]
@@ -2210,6 +2209,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 name = "driver-clickhouse"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "database",
  "models",
  "reqwest",
@@ -2221,25 +2221,42 @@ dependencies = [
 name = "driver-mysql"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "bigdecimal",
  "database",
+ "models",
+ "serde_json",
  "sqlx",
+ "time",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
 name = "driver-postgres"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "bigdecimal",
  "database",
+ "models",
+ "serde_json",
  "sqlx",
+ "time",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
 name = "driver-sqlite"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "database",
  "libsqlite3-sys",
+ "models",
  "sqlx",
+ "tokio",
 ]
 
 [[package]]
@@ -2418,10 +2435,8 @@ name = "explorer"
 version = "0.1.0"
 dependencies = [
  "database",
- "driver-clickhouse",
  "models",
- "serde_json",
- "sqlx",
+ "tokio",
 ]
 
 [[package]]
@@ -4154,7 +4169,6 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
- "sqlx",
  "toml 0.8.23",
  "url",
 ]
@@ -5262,20 +5276,15 @@ checksum = "b5a041e753da8b807c9255f28de81879c78c876392ff2469cde94799b2896b9d"
 name = "query"
 version = "0.1.0"
 dependencies = [
- "bigdecimal",
  "csv",
  "database",
- "driver-clickhouse",
  "driver-sqlite",
  "models",
  "rust_xlsxwriter",
  "serde",
  "serde_json",
  "sqlformat",
- "sqlx",
- "time",
  "tokio",
- "uuid",
 ]
 
 [[package]]
@@ -6098,12 +6107,14 @@ version = "0.1.0"
 dependencies = [
  "acp",
  "connection",
+ "database",
  "dirs",
  "explorer",
  "futures-util",
  "models",
  "query",
  "storage",
+ "tokio",
 ]
 
 [[package]]

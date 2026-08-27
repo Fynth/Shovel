@@ -1,7 +1,51 @@
+// async-trait boxes Result-returning futures and adds `#[must_use]`, which
+// trips clippy::double_must_use on every exec-trait method.
+#![allow(clippy::double_must_use)]
+
+use async_trait::async_trait;
+use database::{SchemaExec, quote_ident_backtick};
 use models::{DatabaseError, ExplorerNode, ExplorerNodeKind, QueryOutput, TableForeignKey};
 use sqlx::Row;
 
-pub async fn describe_table_mysql(
+use crate::session::{MysqlSession, mysql_effective_schema_name};
+
+#[async_trait]
+impl SchemaExec for MysqlSession {
+    async fn describe_table(
+        &self,
+        schema: Option<String>,
+        table: String,
+    ) -> Result<QueryOutput, DatabaseError> {
+        describe_table(&self.pool, schema, table).await
+    }
+
+    async fn load_table_columns(
+        &self,
+        schema: Option<String>,
+        table: String,
+    ) -> Result<Vec<String>, DatabaseError> {
+        load_table_columns(&self.pool, schema, table).await
+    }
+
+    async fn load_connection_tree(&self) -> Result<Vec<ExplorerNode>, DatabaseError> {
+        load_connection_tree(&self.pool).await
+    }
+
+    async fn load_foreign_keys(&self) -> Result<Vec<TableForeignKey>, DatabaseError> {
+        load_foreign_keys(&self.pool).await
+    }
+
+    async fn load_object_ddl(
+        &self,
+        schema: Option<String>,
+        object: String,
+        kind: ExplorerNodeKind,
+    ) -> Result<Option<String>, DatabaseError> {
+        load_object_ddl(&self.pool, schema, object, kind).await
+    }
+}
+
+async fn describe_table(
     pool: &sqlx::MySqlPool,
     schema: Option<String>,
     table: String,
@@ -22,7 +66,7 @@ pub async fn describe_table_mysql(
     .bind(&table)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::MySql)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     if let Some(row) = overview_rows.first() {
         let table_type = row
             .try_get::<String, _>("table_type")
@@ -48,7 +92,7 @@ pub async fn describe_table_mysql(
     if let Some(row) = sqlx::query(&create_sql)
         .fetch_optional(pool)
         .await
-        .map_err(DatabaseError::MySql)?
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?
     {
         let create_statement = row
             .try_get::<String, _>(1)
@@ -79,11 +123,11 @@ pub async fn describe_table_mysql(
     .bind(&table)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::MySql)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in column_rows {
         let column_name = row
             .try_get::<String, _>("column_name")
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let column_type = row
             .try_get::<String, _>("column_type")
             .unwrap_or_else(|_| "text".to_string());
@@ -121,13 +165,13 @@ pub async fn describe_table_mysql(
     .bind(&table)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::MySql)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     let mut grouped_indexes: std::collections::BTreeMap<String, (bool, String, Vec<String>)> =
         std::collections::BTreeMap::new();
     for row in index_rows {
         let index_name = row
             .try_get::<String, _>("index_name")
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let non_unique = row.try_get::<i64, _>("non_unique").unwrap_or(1) != 0;
         let index_type = row
             .try_get::<Option<String>, _>("index_type")
@@ -185,7 +229,7 @@ pub async fn describe_table_mysql(
     .bind(&table)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::MySql)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     let mut grouped_constraints: std::collections::BTreeMap<
         String,
         (String, Vec<String>, Vec<String>),
@@ -193,7 +237,7 @@ pub async fn describe_table_mysql(
     for row in constraint_rows {
         let constraint_name = row
             .try_get::<String, _>("constraint_name")
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let constraint_type = row
             .try_get::<String, _>("constraint_type")
             .unwrap_or_else(|_| "CONSTRAINT".to_string());
@@ -257,11 +301,11 @@ pub async fn describe_table_mysql(
     .bind(&table)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::MySql)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in trigger_rows {
         let trigger_name = row
             .try_get::<String, _>("trigger_name")
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let timing = row
             .try_get::<String, _>("action_timing")
             .unwrap_or_else(|_| String::new());
@@ -274,7 +318,7 @@ pub async fn describe_table_mysql(
         rows.push(structure_row(
             "trigger",
             trigger_name,
-            super::join_non_empty([
+            join_non_empty([
                 (!timing.is_empty()).then_some(timing),
                 (!event.is_empty()).then_some(event),
             ]),
@@ -290,9 +334,7 @@ pub async fn describe_table_mysql(
 /// `information_schema.key_column_usage` даёт по строке на колонку FK
 /// (для составных FK `constraint_name` повторяется — каждая пара колонок
 /// становится отдельной связью на диаграмме). Системные базы отбрасываем.
-pub async fn load_foreign_keys_mysql(
-    pool: &sqlx::MySqlPool,
-) -> Result<Vec<TableForeignKey>, DatabaseError> {
+async fn load_foreign_keys(pool: &sqlx::MySqlPool) -> Result<Vec<TableForeignKey>, DatabaseError> {
     let rows = sqlx::query(
         r#"
         select
@@ -311,7 +353,7 @@ pub async fn load_foreign_keys_mysql(
     )
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::MySql)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
     let mut foreign_keys = Vec::new();
     for row in rows {
@@ -345,7 +387,7 @@ pub async fn load_foreign_keys_mysql(
 /// Возвращает DDL объекта через `SHOW CREATE TABLE` (работает и для таблиц,
 /// и для представлений — колонка результата `Create Table`/`Create View`).
 /// `None`, если объект не найден.
-pub async fn load_object_ddl_mysql(
+async fn load_object_ddl(
     pool: &sqlx::MySqlPool,
     schema: Option<String>,
     object: String,
@@ -401,7 +443,7 @@ async fn fetch_mysql_create_ddl(
     let Some(row) = sqlx::query(sql)
         .fetch_optional(pool)
         .await
-        .map_err(DatabaseError::MySql)?
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?
     else {
         return Ok(None);
     };
@@ -423,7 +465,7 @@ async fn fetch_mysql_create_ddl(
     })
 }
 
-pub async fn load_table_columns_mysql(
+async fn load_table_columns(
     pool: &sqlx::MySqlPool,
     schema: Option<String>,
     table: String,
@@ -442,19 +484,17 @@ pub async fn load_table_columns_mysql(
     .bind(table)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::MySql)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
     rows.into_iter()
         .map(|row| {
             row.try_get::<String, _>("column_name")
-                .map_err(DatabaseError::MySql)
+                .map_err(|e| DatabaseError::Driver(e.to_string()))
         })
         .collect()
 }
 
-pub async fn load_connection_tree_mysql(
-    pool: &sqlx::MySqlPool,
-) -> Result<Vec<ExplorerNode>, DatabaseError> {
+async fn load_connection_tree(pool: &sqlx::MySqlPool) -> Result<Vec<ExplorerNode>, DatabaseError> {
     let mut grouped: std::collections::BTreeMap<String, Vec<ExplorerNode>> =
         std::collections::BTreeMap::new();
 
@@ -489,17 +529,17 @@ pub async fn load_connection_tree_mysql(
     )
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::MySql)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in rows {
         let schema = row
             .try_get::<String, _>("table_schema")
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let name = row
             .try_get::<String, _>("table_name")
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let table_type = row
             .try_get::<String, _>("table_type")
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let kind = if table_type.eq_ignore_ascii_case("view") {
             ExplorerNodeKind::View
         } else {
@@ -527,14 +567,14 @@ pub async fn load_connection_tree_mysql(
     )
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::MySql)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in rows {
         let schema = row
             .try_get::<String, _>("routine_schema")
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let name = row
             .try_get::<String, _>("routine_name")
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let routine_type = row.try_get::<String, _>("routine_type").unwrap_or_default();
         let kind = if routine_type.eq_ignore_ascii_case("procedure") {
             ExplorerNodeKind::Procedure
@@ -555,21 +595,21 @@ pub async fn load_connection_tree_mysql(
     )
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::MySql)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in rows {
         let schema = row
             .try_get::<String, _>("trigger_schema")
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let name = row
             .try_get::<String, _>("trigger_name")
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         push_node(&mut grouped, schema, name, ExplorerNodeKind::Trigger, None);
     }
 
     Ok(grouped
         .into_iter()
         .map(|(schema, children)| ExplorerNode {
-            qualified_name: super::quote_clickhouse_identifier(&schema),
+            qualified_name: quote_ident_backtick(&schema),
             schema: Some(schema.clone()),
             name: schema,
             kind: ExplorerNodeKind::Schema,
@@ -579,32 +619,11 @@ pub async fn load_connection_tree_mysql(
         .collect())
 }
 
-pub async fn mysql_effective_schema_name(
-    pool: &sqlx::MySqlPool,
-    schema: Option<&str>,
-) -> Result<String, DatabaseError> {
-    if let Some(schema) = schema.map(str::trim).filter(|schema| !schema.is_empty()) {
-        return Ok(schema.to_string());
-    }
-
-    sqlx::query_scalar::<_, Option<String>>("select database()")
-        .fetch_one(pool)
-        .await
-        .map_err(DatabaseError::MySql)?
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| {
-            DatabaseError::UnsupportedDriver(
-                "No MySQL database selected. Set a default database or use a qualified table name."
-                    .to_string(),
-            )
-        })
-}
-
 fn qualified_mysql_table_name(schema_name: &str, table_name: &str) -> String {
     format!(
         "{}.{}",
-        super::quote_clickhouse_identifier(schema_name),
-        super::quote_clickhouse_identifier(table_name)
+        quote_ident_backtick(schema_name),
+        quote_ident_backtick(table_name)
     )
 }
 
@@ -643,11 +662,20 @@ fn structure_page(rows: Vec<Vec<String>>) -> models::QueryPage {
 }
 
 fn mysql_column_details(is_nullable: &str, default_value: Option<String>, extra: &str) -> String {
-    super::join_non_empty([
+    join_non_empty([
         is_nullable
             .eq_ignore_ascii_case("NO")
             .then(|| "NOT NULL".to_string()),
         default_value.map(|value| format!("default {value}")),
         (!extra.trim().is_empty()).then(|| extra.trim().to_string()),
     ])
+}
+
+fn join_non_empty(parts: impl IntoIterator<Item = Option<String>>) -> String {
+    parts
+        .into_iter()
+        .flatten()
+        .filter(|part| !part.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ")
 }

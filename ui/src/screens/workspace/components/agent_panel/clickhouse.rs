@@ -1,4 +1,5 @@
-use models::{DatabaseConnection, ExplorerNode, TablePreviewSource};
+use dioxus::prelude::*;
+use models::{ConnectionRequest, DatabaseKind, ExplorerNode, TablePreviewSource};
 use services::{load_connection_tree, preview_source_for_sql};
 use std::collections::BTreeSet;
 
@@ -9,14 +10,32 @@ pub(super) struct ResolvedAgentSql {
 }
 
 pub(super) async fn resolve_agent_sql_execution(
-    connection: DatabaseConnection,
+    session_id: u64,
     sql: &str,
 ) -> Result<ResolvedAgentSql, String> {
-    let DatabaseConnection::ClickHouse(config) = &connection else {
-        return Ok(ResolvedAgentSql {
-            sql: sql.to_string(),
-            correction_note: None,
-        });
+    let default_schema = {
+        let state = crate::app_state::APP_STATE.read();
+        let Some(session) = state.session(session_id) else {
+            return Ok(ResolvedAgentSql {
+                sql: sql.to_string(),
+                correction_note: None,
+            });
+        };
+        if session.kind != DatabaseKind::ClickHouse {
+            return Ok(ResolvedAgentSql {
+                sql: sql.to_string(),
+                correction_note: None,
+            });
+        }
+        match &session.request {
+            ConnectionRequest::ClickHouse(data) => data.effective_database().to_string(),
+            _ => {
+                return Ok(ResolvedAgentSql {
+                    sql: sql.to_string(),
+                    correction_note: None,
+                });
+            }
+        }
     };
     let Some(source) = preview_source_for_sql(sql) else {
         return Ok(ResolvedAgentSql {
@@ -24,8 +43,7 @@ pub(super) async fn resolve_agent_sql_execution(
             correction_note: None,
         });
     };
-    let default_schema = config.effective_database().to_string();
-    let tree = load_connection_tree(connection).await.map_err(|err| {
+    let tree = load_connection_tree(session_id).await.map_err(|err| {
         format!("Failed to refresh ClickHouse catalog before running ACP SQL: {err}")
     })?;
 

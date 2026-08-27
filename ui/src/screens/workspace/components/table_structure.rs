@@ -1,12 +1,6 @@
-use crate::screens::workspace::{actions::tab_connection_or_error, tab_store::TabStore};
+use crate::screens::workspace::{actions::tab_session_or_error, tab_store::TabStore};
 use dioxus::prelude::*;
-use models::{
-    DatabaseConnection,
-    ExplorerNodeKind,
-    QueryOutput,
-    TableForeignKey,
-    TablePreviewSource,
-};
+use models::{ExplorerNodeKind, QueryOutput, TableForeignKey, TablePreviewSource};
 
 /// State tracked by every lazy panel: a load has been kicked off
 /// (so we don't fire one per sub-tab re-select) and a status message
@@ -41,17 +35,13 @@ fn cache_key(source: &TablePreviewSource, suffix: &str) -> String {
     )
 }
 
-/// Lightweight "open a connection for this tab" wrapper. Surfaces
+/// Lightweight "open a session for this tab" wrapper. Surfaces
 /// the standard closed-connection status message via
-/// `tab_connection_or_error` and returns the live connection on
+/// `tab_session_or_error` and returns the live session id on
 /// success. Mirrors the helpers in `actions.rs` so panels share the
 /// same UX message.
-fn panel_connection(store: TabStore, session_id: u64) -> Option<DatabaseConnection> {
-    if tab_connection_or_error(store, store.active_tab_id(), session_id).is_some() {
-        crate::app_state::session_connection(session_id)
-    } else {
-        None
-    }
+fn panel_session(store: TabStore, session_id: u64) -> Option<u64> {
+    tab_session_or_error(store, store.active_tab_id(), session_id)
 }
 
 /// The Structure sub-tab: renders the columns of the previewed
@@ -77,13 +67,13 @@ pub fn StructurePanel(
     let mut last_key = use_signal(String::new);
     if last_key() != key {
         last_key.set(key.clone());
-        if let Some(connection) = panel_connection(store, session_id) {
+        if let Some(session_id) = panel_session(store, session_id) {
             state.set(PanelState::Loading);
             let mut store_sig = store;
             let source_clone = source.clone();
             spawn(async move {
                 match services::describe_table(
-                    connection,
+                    session_id,
                     source_clone.schema.clone(),
                     source_clone.table_name.clone(),
                 )
@@ -164,12 +154,12 @@ pub fn DdlPanel(store: TabStore, source: TablePreviewSource, session_id: u64) ->
     let mut last_key = use_signal(String::new);
     if last_key() != key {
         last_key.set(key.clone());
-        if let Some(connection) = panel_connection(store, session_id) {
+        if let Some(session_id) = panel_session(store, session_id) {
             state.set(PanelState::Loading);
             let source_clone = source.clone();
             spawn(async move {
                 match services::load_object_ddl(
-                    connection,
+                    session_id,
                     source_clone.schema.clone(),
                     source_clone.table_name.clone(),
                     ExplorerNodeKind::Table,
@@ -243,11 +233,11 @@ pub fn RelationsPanel(store: TabStore, source: TablePreviewSource, session_id: u
     let mut last_key = use_signal(String::new);
     if last_key() != key {
         last_key.set(key.clone());
-        if let Some(connection) = panel_connection(store, session_id) {
+        if let Some(session_id) = panel_session(store, session_id) {
             state.set(PanelState::Loading);
             let source_clone = source.clone();
             spawn(async move {
-                match services::load_foreign_keys(connection).await {
+                match services::load_foreign_keys(session_id).await {
                     Ok(all_keys) => {
                         let table_name = source_clone.table_name.as_str();
                         let schema_name = source_clone.schema.as_deref().unwrap_or("");

@@ -958,15 +958,12 @@ pub fn Workspace() -> Element {
             }
             x if x == CMD_ER_DIAGRAM.0 => {
                 let sections = tree_sections();
-                let connection = APP_STATE
-                    .read()
-                    .active_session()
-                    .map(|s| s.connection.clone());
-                let Some(connection) = connection else {
+                let session_id = APP_STATE.read().active_session().map(|s| s.id);
+                let Some(session_id) = session_id else {
                     return;
                 };
                 spawn(async move {
-                    let fks = services::load_foreign_keys(connection)
+                    let fks = services::load_foreign_keys(session_id)
                         .await
                         .unwrap_or_default();
                     if let Some(diagram) = helpers::build_er_diagram_async(sections, fks).await {
@@ -1354,14 +1351,14 @@ fn open_object_hit(store: TabStore, _tree_reload: Signal<u64>, object: &GlobalSe
         .get(&current_id)
         .map(|m| m.session_id)
         .unwrap_or(0);
-    let Some(connection) = actions::tab_connection_or_error(store, current_id, session_id) else {
+    let Some(session_id) = actions::tab_session_or_error(store, current_id, session_id) else {
         return;
     };
 
     actions::run_table_preview_for_tab(
         store,
         current_id,
-        connection,
+        session_id,
         source,
         0,
         current_tab.page_size,

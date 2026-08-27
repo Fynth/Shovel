@@ -1,3 +1,12 @@
+mod explain;
+mod introspect;
+mod mutate;
+mod rows;
+mod schema;
+mod session;
+
+pub use session::SqliteSession;
+
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use std::{path::PathBuf, str::FromStr, time::Duration};
 
@@ -32,22 +41,71 @@ impl database::DatabaseDriver for SqliteDriver {
 
 #[cfg(test)]
 mod tests {
-    // SqliteDriver::connect requires a real SQLite database file (or :memory:).
-    // The driver's entire logic is inside the `connect` async method which
-    // dispatches to `sqlx::SqlitePool::connect_with`. There are no pure helper
-    // functions to unit-test in this crate.
-    //
-    // Integration tests should cover:
-    //   - Connecting to an in-memory database (`:memory:`)
-    //   - Connecting to a file path that exists
-    //   - Error when the file does not exist (create_if_missing is false)
-    //   - Connecting with a `sqlite:` DSN prefix
-    //   - Whitespace trimming of the target string
+    use super::{SqliteDriver, SqliteSession};
+    use database::{DatabaseDriver, SessionHandle};
+    use models::QueryOutput;
+    use std::sync::Arc;
 
-    #[test]
-    fn sqlite_driver_connect_requires_database() {
-        // `SqliteDriver::connect` delegates entirely to `sqlx::SqlitePool`.
-        // It should be tested with integration tests using `:memory:` or
-        // temporary database files on disk.
+    #[tokio::test]
+    async fn sqlite_session_executes_select() {
+        let pool = SqliteDriver::connect(":memory:".into()).await.unwrap();
+        sqlx::query("create table items (id integer, name text)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("insert into items values (1, 'a')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let handle = SessionHandle::wrap(Arc::new(SqliteSession { pool }));
+        let out = handle
+            .query()
+            .execute_sql("select id, name from items")
+            .await
+            .unwrap();
+        match out {
+            QueryOutput::Table(page) => assert_eq!(page.rows.len(), 1),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn sqlite_session_lists_created_table() {
+        let pool = SqliteDriver::connect(":memory:".into()).await.unwrap();
+        sqlx::query("create table items (id integer)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let handle = SessionHandle::wrap(Arc::new(SqliteSession { pool }));
+        let tree = handle.schema().load_connection_tree().await.unwrap();
+        assert!(
+            tree_contains_name(&tree, "items"),
+            "expected items in {tree:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn sqlite_session_has_introspect() {
+        let pool = SqliteDriver::connect(":memory:".into()).await.unwrap();
+        let handle = SessionHandle::wrap(Arc::new(SqliteSession { pool }));
+        let exec = handle
+            .introspect()
+            .expect("sqlite must implement IntrospectExec");
+        let result = exec.introspect().await;
+        assert!(result.collected_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn sqlite_capabilities_match_exec_options() {
+        let pool = SqliteDriver::connect(":memory:".into()).await.unwrap();
+        let handle = SessionHandle::wrap(Arc::new(SqliteSession { pool }));
+        assert_eq!(handle.capabilities().row_editing, handle.mutate().is_some());
+        assert_eq!(handle.capabilities().explain, handle.explain().is_some());
+    }
+
+    fn tree_contains_name(nodes: &[models::ExplorerNode], needle: &str) -> bool {
+        nodes
+            .iter()
+            .any(|n| n.name.contains(needle) || tree_contains_name(&n.children, needle))
     }
 }

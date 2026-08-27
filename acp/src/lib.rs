@@ -78,9 +78,6 @@ pub use introspection::{
     SchemaInfo,
     TableInfo,
     TableStat,
-    explain_query_plan_mysql,
-    explain_query_plan_postgres,
-    explain_query_plan_sqlite,
 };
 #[cfg(feature = "embedding")]
 pub use semantic_cache::{SemanticCache, SemanticCacheBuilder};

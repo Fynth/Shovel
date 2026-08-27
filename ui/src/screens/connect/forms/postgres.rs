@@ -70,7 +70,7 @@ pub fn PostgresForm(mut saved_connections_revision: Signal<u64>) -> Element {
                 spawn(async move {
                     match services::connect_and_save_request(request.clone()).await {
                         Ok(result) => {
-                            add_connection_session(request, result.connection);
+                            add_connection_session(request, result.handle);
                             saved_connections_revision += 1;
                             match result.save_warning {
                                 Some(err) => status.set(format!(

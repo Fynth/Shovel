@@ -26,6 +26,9 @@ fn facade_surface_compiles() {
     // --- Connection management ---
     let _ = &services::release_ssh_tunnel;
     let _ = &services::connect_to_db;
+    let _ = &services::register_session;
+    let _ = &services::unregister_session;
+    let _ = &services::session;
 
     // --- Schema exploration ---
     let _ = &services::describe_table;
@@ -49,6 +52,7 @@ fn facade_surface_compiles() {
     let _ = &services::is_read_only_sql;
     let _ = &services::preview_source_for_sql;
     let _ = &services::format_sql;
+    let _ = &services::format_sql_for_session;
 
     // --- Import / export ---
     let _ = &services::export_query_page_csv;

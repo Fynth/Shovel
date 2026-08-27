@@ -6,6 +6,11 @@ edition = "2024"
 license = "MIT"
 publish = false
 
+[features]
+default = []
+fake = []
+
 [dependencies]
 tokio.workspace = true
 models.workspace = true
+async-trait = "0.1.89"

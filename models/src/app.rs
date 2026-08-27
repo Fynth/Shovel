@@ -1,4 +1,4 @@
-use crate::{ConnectionRequest, DatabaseConnection, DatabaseKind};
+use crate::{Capabilities, ConnectionRequest, DatabaseKind};
 
 #[derive(Clone, Debug)]
 pub struct ConnectionSession {
@@ -6,7 +6,7 @@ pub struct ConnectionSession {
     pub name: String,
     pub kind: DatabaseKind,
     pub request: ConnectionRequest,
-    pub connection: DatabaseConnection,
+    pub capabilities: Capabilities,
 }
 
 #[derive(Clone, Debug)]
@@ -42,10 +42,6 @@ impl AppState {
         self.sessions
             .iter()
             .find(|session| session.id == session_id)
-    }
-
-    pub fn session_connection(&self, session_id: u64) -> Option<&DatabaseConnection> {
-        self.session(session_id).map(|session| &session.connection)
     }
 
     pub fn session_name(&self, session_id: u64) -> Option<String> {

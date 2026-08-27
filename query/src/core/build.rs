@@ -1,12 +1,7 @@
+use database::Dialect;
 use models::{QueryFilter, QueryFilterMode, QueryFilterOperator, QueryFilterRule, QuerySort};
 
 use super::{LOCATOR_COLUMN, editable::EditableSelectPlan};
-
-#[derive(Clone, Copy)]
-pub(super) struct SqlBuildDialect {
-    pub(super) quote_identifier: fn(&str) -> String,
-    pub(super) filter_expression: fn(&str, QueryFilterOperator, &str) -> String,
-}
 
 pub(super) fn build_paginated_query(
     sql: &str,
@@ -14,7 +9,7 @@ pub(super) fn build_paginated_query(
     offset: u64,
     filter: Option<&QueryFilter>,
     sort: Option<&QuerySort>,
-    dialect: SqlBuildDialect,
+    dialect: Dialect,
 ) -> String {
     let base_sql = sql.trim().trim_end_matches(';');
     build_outer_paginated_query(
@@ -34,7 +29,7 @@ pub(super) fn build_editable_paginated_query(
     locator_expr: &str,
     filter: Option<&QueryFilter>,
     sort: Option<&QuerySort>,
-    dialect: SqlBuildDialect,
+    dialect: Dialect,
 ) -> String {
     let base_query = if plan.tail.is_empty() {
         format!(
@@ -57,7 +52,7 @@ pub(super) fn build_outer_paginated_query(
     offset: u64,
     filter: Option<&QueryFilter>,
     sort: Option<&QuerySort>,
-    dialect: SqlBuildDialect,
+    dialect: Dialect,
 ) -> String {
     let limit = page_size as u64 + 1;
     let where_clause = build_filter_clause(filter, dialect.filter_expression);
@@ -133,175 +128,10 @@ pub(super) fn quote_identifier_clickhouse(identifier: &str) -> String {
     format!("`{}`", identifier.replace('`', "``"))
 }
 
-pub(super) fn sqlite_filter_expression(
-    column_name: &str,
-    operator: QueryFilterOperator,
-    value: &str,
-) -> String {
-    let text_expr = format!("cast({} as text)", quote_identifier(column_name));
-    match operator {
-        QueryFilterOperator::Contains => format!(
-            "{text_expr} like {} escape '\\' collate nocase",
-            sql_contains_literal(value)
-        ),
-        QueryFilterOperator::NotContains => format!(
-            "{text_expr} not like {} escape '\\' collate nocase",
-            sql_contains_literal(value)
-        ),
-        QueryFilterOperator::Equals => {
-            format!("{text_expr} = {} collate nocase", sql_literal(value))
-        }
-        QueryFilterOperator::NotEquals => {
-            format!("{text_expr} != {} collate nocase", sql_literal(value))
-        }
-        QueryFilterOperator::StartsWith => format!(
-            "{text_expr} like {} escape '\\' collate nocase",
-            sql_prefix_literal(value)
-        ),
-        QueryFilterOperator::EndsWith => format!(
-            "{text_expr} like {} escape '\\' collate nocase",
-            sql_suffix_literal(value)
-        ),
-        QueryFilterOperator::IsNull => format!("{} is null", quote_identifier(column_name)),
-        QueryFilterOperator::IsNotNull => format!("{} is not null", quote_identifier(column_name)),
-    }
-}
-
-pub(super) fn postgres_filter_expression(
-    column_name: &str,
-    operator: QueryFilterOperator,
-    value: &str,
-) -> String {
-    let text_expr = format!("cast({} as text)", quote_identifier(column_name));
-    match operator {
-        QueryFilterOperator::Contains => {
-            format!(
-                "{text_expr} ilike {} escape '\\'",
-                sql_contains_literal(value)
-            )
-        }
-        QueryFilterOperator::NotContains => {
-            format!(
-                "{text_expr} not ilike {} escape '\\'",
-                sql_contains_literal(value)
-            )
-        }
-        QueryFilterOperator::Equals => {
-            format!("lower({text_expr}) = lower({})", sql_literal(value))
-        }
-        QueryFilterOperator::NotEquals => {
-            format!("lower({text_expr}) != lower({})", sql_literal(value))
-        }
-        QueryFilterOperator::StartsWith => {
-            format!(
-                "{text_expr} ilike {} escape '\\'",
-                sql_prefix_literal(value)
-            )
-        }
-        QueryFilterOperator::EndsWith => {
-            format!(
-                "{text_expr} ilike {} escape '\\'",
-                sql_suffix_literal(value)
-            )
-        }
-        QueryFilterOperator::IsNull => format!("{} is null", quote_identifier(column_name)),
-        QueryFilterOperator::IsNotNull => format!("{} is not null", quote_identifier(column_name)),
-    }
-}
-
-pub(super) fn clickhouse_filter_expression(
-    column_name: &str,
-    operator: QueryFilterOperator,
-    value: &str,
-) -> String {
-    let column = quote_identifier_clickhouse(column_name);
-    let text_expr = format!("lowerUTF8(toString({column}))");
-    let lower_literal = format!("lowerUTF8({})", sql_literal(value));
-    match operator {
-        QueryFilterOperator::Contains => format!(
-            "positionCaseInsensitiveUTF8(toString({column}), {}) > 0",
-            sql_literal(value)
-        ),
-        QueryFilterOperator::NotContains => format!(
-            "positionCaseInsensitiveUTF8(toString({column}), {}) = 0",
-            sql_literal(value)
-        ),
-        QueryFilterOperator::Equals => format!("{text_expr} = {lower_literal}"),
-        QueryFilterOperator::NotEquals => format!("{text_expr} != {lower_literal}"),
-        QueryFilterOperator::StartsWith => {
-            format!("startsWith({text_expr}, {lower_literal})")
-        }
-        QueryFilterOperator::EndsWith => {
-            format!("endsWith({text_expr}, {lower_literal})")
-        }
-        QueryFilterOperator::IsNull => format!("isNull({column})"),
-        QueryFilterOperator::IsNotNull => format!("isNotNull({column})"),
-    }
-}
-
-pub(super) fn mysql_filter_expression(
-    column_name: &str,
-    operator: QueryFilterOperator,
-    value: &str,
-) -> String {
-    let column = quote_identifier_clickhouse(column_name);
-    let text_expr = format!("lower(cast({column} as char))");
-    let lower_literal = format!("lower({})", sql_literal(value));
-    match operator {
-        QueryFilterOperator::Contains => format!(
-            "{text_expr} like lower({}) escape '\\\\'",
-            sql_contains_literal(value)
-        ),
-        QueryFilterOperator::NotContains => format!(
-            "{text_expr} not like lower({}) escape '\\\\'",
-            sql_contains_literal(value)
-        ),
-        QueryFilterOperator::Equals => format!("{text_expr} = {lower_literal}"),
-        QueryFilterOperator::NotEquals => format!("{text_expr} != {lower_literal}"),
-        QueryFilterOperator::StartsWith => format!(
-            "{text_expr} like lower({}) escape '\\\\'",
-            sql_prefix_literal(value)
-        ),
-        QueryFilterOperator::EndsWith => format!(
-            "{text_expr} like lower({}) escape '\\\\'",
-            sql_suffix_literal(value)
-        ),
-        QueryFilterOperator::IsNull => format!("{column} is null"),
-        QueryFilterOperator::IsNotNull => format!("{column} is not null"),
-    }
-}
-
 pub(super) fn sql_literal(value: &str) -> String {
     if value.eq_ignore_ascii_case("null") {
         "NULL".to_string()
     } else {
         format!("'{}'", value.replace('\'', "''"))
     }
-}
-
-fn sql_contains_literal(value: &str) -> String {
-    let escaped = value
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
-        .replace('\'', "''");
-    format!("'%{escaped}%'")
-}
-
-fn sql_prefix_literal(value: &str) -> String {
-    let escaped = value
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
-        .replace('\'', "''");
-    format!("'{escaped}%'")
-}
-
-fn sql_suffix_literal(value: &str) -> String {
-    let escaped = value
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
-        .replace('\'', "''");
-    format!("'%{escaped}'")
 }

@@ -3,8 +3,8 @@
 //! These tests exercise the public API surface that the rest of the workspace
 //! depends on, including:
 //!
-//! - `DatabaseConnection` / `ConnectionRequest` serde roundtrips
-//! - `DatabaseError` display + kinds
+//! - `ConnectionRequest` serde roundtrips
+//! - `DatabaseError` display
 //! - `DatabaseKind` <-> `ConnectionRequest` conversions
 //! - Form-data construction
 //!
@@ -13,6 +13,7 @@
 //! the module are filtered out.
 
 use models::{
+    Capabilities,
     ClickHouseFormData,
     ConnectionRequest,
     DatabaseError,
@@ -124,21 +125,15 @@ fn saved_connection_roundtrips_through_json() {
 }
 
 #[test]
-fn database_error_kind_reports_origin() {
-    let ch = DatabaseError::ClickHouse("bad request".into());
-    assert_eq!(ch.kind(), Some(DatabaseKind::ClickHouse));
-    let tunnel = DatabaseError::Tunnel("ssh down".into());
-    assert_eq!(tunnel.kind(), None);
+fn database_error_display_is_unprefixed_driver_string() {
+    let err = DatabaseError::Driver("bad request".into());
+    assert_eq!(err.to_string(), "bad request");
 }
 
 #[test]
-fn database_error_displays_with_kind_prefix() {
-    let err = DatabaseError::ClickHouse("bad request".into());
-    let rendered = err.to_string();
-    assert!(
-        rendered.contains("ClickHouse"),
-        "Display impl should mention the driver kind, got: {rendered}"
-    );
+fn session_not_found_display_includes_id() {
+    let err = DatabaseError::SessionNotFound(7);
+    assert!(err.to_string().contains("7"));
 }
 
 #[test]
@@ -174,4 +169,43 @@ fn request_kind_matches_database_kind() {
     assert_eq!(postgres_request().kind(), DatabaseKind::Postgres);
     assert_eq!(mysql_request().kind(), DatabaseKind::MySql);
     assert_eq!(clickhouse_request().kind(), DatabaseKind::ClickHouse);
+}
+
+#[test]
+fn capabilities_for_kind_match_current_product() {
+    let sqlite = Capabilities::for_kind(DatabaseKind::Sqlite);
+    assert!(sqlite.row_editing);
+    assert!(sqlite.explain);
+    assert!(sqlite.transactions);
+    assert!(sqlite.import_csv);
+    assert!(!sqlite.ssh_tunnel);
+    assert!(!sqlite.schemas);
+
+    let postgres = Capabilities::for_kind(DatabaseKind::Postgres);
+    assert!(postgres.row_editing && postgres.explain && postgres.transactions);
+    assert!(postgres.schemas && postgres.import_csv && postgres.ssh_tunnel);
+
+    let mysql = Capabilities::for_kind(DatabaseKind::MySql);
+    assert!(mysql.row_editing && mysql.explain && mysql.transactions);
+    assert!(mysql.schemas && mysql.import_csv && mysql.ssh_tunnel);
+
+    let ch = Capabilities::for_kind(DatabaseKind::ClickHouse);
+    assert!(!ch.row_editing);
+    assert!(ch.explain);
+    assert!(!ch.transactions);
+    assert!(ch.schemas);
+    assert!(ch.import_csv);
+    assert!(ch.ssh_tunnel);
+}
+
+#[test]
+fn models_connection_session_has_no_live_pool_field() {
+    let session = models::ConnectionSession {
+        id: 1,
+        name: "s".into(),
+        kind: DatabaseKind::Sqlite,
+        request: sqlite_request(),
+        capabilities: Capabilities::for_kind(DatabaseKind::Sqlite),
+    };
+    assert!(session.capabilities.row_editing);
 }

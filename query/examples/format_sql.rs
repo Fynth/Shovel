@@ -10,7 +10,8 @@
 //! cargo run --example format_sql -- "select id, name from users where active = true"
 //! ```
 
-use models::{DatabaseKind, SqlFormatSettings, SqlKeywordCase};
+use database::FormatFlavor;
+use models::{SqlFormatSettings, SqlKeywordCase};
 use query::format_sql;
 
 fn main() {
@@ -31,7 +32,7 @@ fn main() {
         max_inline_top_level: Some(40),
     };
 
-    let formatted = format_sql(Some(DatabaseKind::Postgres), &sql, &settings);
+    let formatted = format_sql(FormatFlavor::Postgres, &sql, &settings);
     println!("--- input ---");
     println!("{sql}");
     println!("--- formatted ---");

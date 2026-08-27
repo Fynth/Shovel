@@ -36,6 +36,17 @@
 //! crate does not expose any concrete error enum or configuration struct; it
 //! only publishes the trait contract.
 
+mod dialect;
+pub use dialect::*;
+
+mod handle;
+pub use handle::*;
+
+#[cfg(feature = "fake")]
+mod fake;
+#[cfg(feature = "fake")]
+pub use fake::*;
+
 /// A generic trait for establishing a connection pool to a database.
 ///
 /// `DatabaseDriver` is the primary abstraction at the boundary between the
@@ -107,38 +118,6 @@ pub trait DatabaseDriver {
     /// * Invalid connection string or DSN format
     /// * Database does not exist or is not accessible
     async fn connect(info: Self::Config) -> Result<Self::Pool, Self::Error>;
-
-    /// Execute a SQL query against ClickHouse and return the parsed JSON
-    /// response.
-    ///
-    /// The default implementation returns
-    /// [`DatabaseError::UnsupportedDriver`]. Drivers that support
-    /// ClickHouse-style HTTP query execution must override this.
-    async fn execute_json_query(
-        &self,
-        _config: &models::ClickHouseFormData,
-        _sql: &str,
-    ) -> Result<models::ClickHouseJsonResponse, models::DatabaseError> {
-        Err(models::DatabaseError::UnsupportedDriver(
-            "execute_json_query is not supported for this driver".to_string(),
-        ))
-    }
-
-    /// Execute a SQL query against ClickHouse and return the raw text
-    /// response.
-    ///
-    /// The default implementation returns
-    /// [`DatabaseError::UnsupportedDriver`]. Drivers that support
-    /// ClickHouse-style HTTP query execution must override this.
-    async fn execute_text_query(
-        &self,
-        _config: &models::ClickHouseFormData,
-        _sql: &str,
-    ) -> Result<String, models::DatabaseError> {
-        Err(models::DatabaseError::UnsupportedDriver(
-            "execute_text_query is not supported for this driver".to_string(),
-        ))
-    }
 }
 
 #[cfg(test)]
@@ -159,5 +138,20 @@ mod tests {
     fn database_driver_trait_has_no_pure_logic() {
         // The trait is a contract; its implementations are tested in their
         // respective crates.
+    }
+}
+
+#[cfg(test)]
+mod dialect_tests {
+    use super::{quote_ident_backtick, quote_ident_double};
+
+    #[test]
+    fn double_quote_escapes_inner_quotes() {
+        assert_eq!(quote_ident_double("a\"b"), "\"a\"\"b\"");
+    }
+
+    #[test]
+    fn backtick_escapes_inner_backticks() {
+        assert_eq!(quote_ident_backtick("a`b"), "`a``b`");
     }
 }

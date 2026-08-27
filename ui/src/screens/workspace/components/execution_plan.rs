@@ -3,7 +3,7 @@ use crate::screens::workspace::{
         apply_optimized_sql_impl,
         run_explain_for_tab,
         set_active_tab_status,
-        tab_connection_or_error,
+        tab_session_or_error,
     },
     components::{
         ActionIcon,
@@ -1158,12 +1158,12 @@ pub fn ExecutionPlanView(plan: ExecutionPlan, store: TabStore) -> Element {
                                                     let Some(session_id) = active_session_id else {
                                                         return;
                                                     };
-                                                    let Some(connection) =
-                                                        tab_connection_or_error(store, store.active_tab_id(), session_id)
+                                                    let Some(session_id) =
+                                                        tab_session_or_error(store, store.active_tab_id(), session_id)
                                                     else {
                                                         return;
                                                     };
-                                                    run_explain_for_tab(store, store.active_tab_id(), connection, sql.clone());
+                                                    run_explain_for_tab(store, store.active_tab_id(), session_id, sql.clone());
                                                 }
                                             },
                                             "Run EXPLAIN on optimized"

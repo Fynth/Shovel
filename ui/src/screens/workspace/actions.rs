@@ -6,7 +6,6 @@ use crate::app_state::{
     APP_UI_SETTINGS,
     LastQuerySummary,
     activate_session,
-    session_connection,
     set_last_query,
     set_show_sql_editor,
 };
@@ -16,7 +15,7 @@ use models::{
     BatchResult,
     BatchRunState,
     BatchTransactionState,
-    DatabaseConnection,
+    DatabaseKind,
     PendingTableChanges,
     QueryFilter,
     QueryFilterMode,
@@ -29,16 +28,19 @@ use models::{
 };
 use std::time::Instant;
 
-use super::tab_store::{
-    TabEditorState,
-    TabMeta,
-    TabPendingState,
-    TabResultState,
-    TabStore,
-    tab_editor,
-    tab_meta,
-    tab_pending,
-    tab_result,
+use super::{
+    helpers::{can_explain, session_capabilities},
+    tab_store::{
+        TabEditorState,
+        TabMeta,
+        TabPendingState,
+        TabResultState,
+        TabStore,
+        tab_editor,
+        tab_meta,
+        tab_pending,
+        tab_result,
+    },
 };
 
 fn redact_sql(sql: &str) -> String {
@@ -72,22 +74,34 @@ fn redact_sql(sql: &str) -> String {
     }
 }
 
-fn get_connection_type(connection: &DatabaseConnection) -> String {
-    match connection {
-        DatabaseConnection::Sqlite(_) => "sqlite".to_string(),
-        DatabaseConnection::Postgres(_) => "postgres".to_string(),
-        DatabaseConnection::MySql(_) => "mysql".to_string(),
-        DatabaseConnection::ClickHouse(_) => "clickhouse".to_string(),
+fn kind_type_label(kind: DatabaseKind) -> String {
+    match kind {
+        DatabaseKind::Sqlite => "sqlite".to_string(),
+        DatabaseKind::Postgres => "postgres".to_string(),
+        DatabaseKind::MySql => "mysql".to_string(),
+        DatabaseKind::ClickHouse => "clickhouse".to_string(),
     }
 }
 
+fn connection_type_for_session(session_id: u64) -> String {
+    APP_STATE
+        .read()
+        .session(session_id)
+        .map(|session| kind_type_label(session.kind))
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
 /// Возвращает семейство БД для планирования пакетного выполнения.
-fn connection_family(connection: &DatabaseConnection) -> services::DatabaseFamily {
-    match connection {
-        DatabaseConnection::Sqlite(_) => services::DatabaseFamily::Sqlite,
-        DatabaseConnection::Postgres(_) => services::DatabaseFamily::Postgres,
-        DatabaseConnection::MySql(_) => services::DatabaseFamily::MySql,
-        DatabaseConnection::ClickHouse(_) => services::DatabaseFamily::ClickHouse,
+fn connection_family_for_session(session_id: u64) -> services::DatabaseFamily {
+    match APP_STATE
+        .read()
+        .session(session_id)
+        .map(|session| session.kind)
+    {
+        Some(DatabaseKind::Postgres) => services::DatabaseFamily::Postgres,
+        Some(DatabaseKind::MySql) => services::DatabaseFamily::MySql,
+        Some(DatabaseKind::ClickHouse) => services::DatabaseFamily::ClickHouse,
+        Some(DatabaseKind::Sqlite) | None => services::DatabaseFamily::Sqlite,
     }
 }
 
@@ -458,12 +472,7 @@ pub fn replace_active_tab_sql(
     });
 }
 
-pub fn open_structure_tab(
-    mut store: TabStore,
-    session_id: u64,
-    connection: DatabaseConnection,
-    source: TablePreviewSource,
-) {
+pub fn open_structure_tab(mut store: TabStore, session_id: u64, source: TablePreviewSource) {
     let mut next_tab_id = store.next_tab_id;
     let tab_id = next_tab_id();
     next_tab_id += 1;
@@ -489,7 +498,7 @@ pub fn open_structure_tab(
     store.active_tab_id.set(tab_id);
 
     spawn(async move {
-        match services::describe_table(connection, source.schema.clone(), source.table_name.clone())
+        match services::describe_table(session_id, source.schema.clone(), source.table_name.clone())
             .await
         {
             Ok(output) => {
@@ -523,30 +532,28 @@ pub fn open_structure_tab(
     });
 }
 
-pub fn tab_connection_or_error(
-    store: TabStore,
-    tab_id: u64,
-    session_id: u64,
-) -> Option<DatabaseConnection> {
-    match session_connection(session_id) {
-        Some(connection) => Some(connection),
-        None => {
-            set_active_tab_status(store, tab_id, "The bound connection was closed".to_string());
-            None
-        }
+pub fn tab_session_or_error(store: TabStore, tab_id: u64, session_id: u64) -> Option<u64> {
+    if APP_STATE.read().session(session_id).is_some() {
+        Some(session_id)
+    } else {
+        set_active_tab_status(store, tab_id, "The bound connection was closed".to_string());
+        None
     }
 }
 
 pub fn maybe_format_sql(
     sql: String,
     auto_format: bool,
-    kind: Option<models::DatabaseKind>,
+    session_id: Option<u64>,
     format_settings: &models::SqlFormatSettings,
 ) -> String {
     if !auto_format {
         return sql;
     }
-    services::format_sql(kind, &sql, format_settings)
+    let Some(session_id) = session_id else {
+        return sql;
+    };
+    services::format_sql_for_session(session_id, &sql, format_settings).unwrap_or(sql)
 }
 
 fn apply_auto_format_on_run(store: TabStore, current_id: u64, sql: String) -> String {
@@ -556,8 +563,7 @@ fn apply_auto_format_on_run(store: TabStore, current_id: u64, sql: String) -> St
         return sql;
     }
     let session_id = store.meta.read().get(&current_id).map(|m| m.session_id);
-    let kind = session_id.and_then(|sid| APP_STATE.read().session(sid).map(|s| s.kind));
-    let formatted = maybe_format_sql(sql.clone(), true, kind, &format_settings);
+    let formatted = maybe_format_sql(sql.clone(), true, session_id, &format_settings);
     if formatted != sql {
         replace_active_tab_sql(
             store,
@@ -572,7 +578,7 @@ fn apply_auto_format_on_run(store: TabStore, current_id: u64, sql: String) -> St
 pub fn run_query_for_tab(
     mut store: TabStore,
     current_id: u64,
-    connection: DatabaseConnection,
+    session_id: u64,
     sql: String,
     offset: u64,
     page_size: u32,
@@ -612,7 +618,6 @@ pub fn run_query_for_tab(
                     p.pending_table_changes = PendingTableChanges::default();
                 }
             });
-            let _ = connection;
             let _ = history;
             return;
         }
@@ -626,7 +631,7 @@ pub fn run_query_for_tab(
         .filter(|stmt| !stmt.is_empty())
         .count();
     if non_empty_count > 1 {
-        run_batch_for_tab(store, current_id, connection, sql, page_size, history);
+        run_batch_for_tab(store, current_id, session_id, sql, page_size, history);
         return;
     }
 
@@ -663,11 +668,11 @@ pub fn run_query_for_tab(
         }
     });
 
-    let connection_type = get_connection_type(&connection);
+    let connection_type = connection_type_for_session(session_id);
 
     spawn(async move {
         let start_time = Instant::now();
-        match services::execute_query_page(connection, sql.clone(), page_size, offset, filter, sort)
+        match services::execute_query_page(session_id, sql.clone(), page_size, offset, filter, sort)
             .await
         {
             Ok(output) => {
@@ -809,13 +814,13 @@ pub fn run_query_for_tab(
 fn run_batch_for_tab(
     mut store: TabStore,
     current_id: u64,
-    connection: DatabaseConnection,
+    session_id: u64,
     sql: String,
     page_size: u32,
     history: Option<QueryHistorySignals>,
 ) {
     let sql = apply_auto_format_on_run(store, current_id, sql);
-    let family = connection_family(&connection);
+    let family = connection_family_for_session(session_id);
     let plan = services::plan_batch(&sql, family);
 
     if APP_READ_ONLY_MODE() && plan.has_writes {
@@ -842,7 +847,7 @@ fn run_batch_for_tab(
         })
         .collect();
     let statement_count = results.len();
-    let connection_type = get_connection_type(&connection);
+    let connection_type = connection_type_for_session(session_id);
 
     store.result.with_mut(|m| {
         if let Some(res) = m.get_mut(&current_id) {
@@ -880,7 +885,7 @@ fn run_batch_for_tab(
             }
             let stmt_start = Instant::now();
             let executed = services::execute_query_page(
-                connection.clone(),
+                session_id,
                 stmt.sql.clone(),
                 page_size,
                 0,
@@ -1042,12 +1047,15 @@ fn run_batch_for_tab(
     });
 }
 
-pub fn run_explain_for_tab(
-    mut store: TabStore,
-    current_id: u64,
-    connection: DatabaseConnection,
-    sql: String,
-) {
+pub fn run_explain_for_tab(mut store: TabStore, current_id: u64, session_id: u64, sql: String) {
+    if !session_capabilities(session_id).is_some_and(can_explain) {
+        set_active_tab_status(
+            store,
+            current_id,
+            "Explain Plan is not supported for this connection".to_string(),
+        );
+        return;
+    }
     if sql.trim().is_empty() {
         store.result.with_mut(|m| {
             if let Some(res) = m.get_mut(&current_id) {
@@ -1065,7 +1073,7 @@ pub fn run_explain_for_tab(
     });
 
     spawn(async move {
-        match services::execute_explain(connection, &sql, false).await {
+        match services::execute_explain(session_id, &sql, false).await {
             Ok(plan) => {
                 let node_count = plan.flattened_with_depth().len();
                 store.result.with_mut(|m| {
@@ -1097,7 +1105,7 @@ fn clear_query_chrome_for_preview(res: &mut TabResultState) {
 pub fn run_table_preview_for_tab(
     mut store: TabStore,
     current_id: u64,
-    connection: DatabaseConnection,
+    session_id: u64,
     source: TablePreviewSource,
     offset: u64,
     page_size: u32,
@@ -1142,7 +1150,6 @@ pub fn run_table_preview_for_tab(
                     meta.title = source.table_name.clone();
                 }
             });
-            let _ = connection;
             return;
         }
     }
@@ -1187,7 +1194,7 @@ pub fn run_table_preview_for_tab(
 
     spawn(async move {
         match services::load_table_preview_page(
-            connection,
+            session_id,
             source.clone(),
             page_size,
             offset,
@@ -1302,7 +1309,7 @@ pub fn append_next_tab_page(mut store: TabStore, current_tab: QueryTabState) {
     let expected_filter = current_tab.filter.clone();
     let expected_sort = current_tab.sort.clone();
 
-    let Some(connection) = tab_connection_or_error(store, current_tab.id, current_tab.session_id)
+    let Some(session_id) = tab_session_or_error(store, current_tab.id, current_tab.session_id)
     else {
         return;
     };
@@ -1317,7 +1324,7 @@ pub fn append_next_tab_page(mut store: TabStore, current_tab: QueryTabState) {
     spawn(async move {
         let next_page_result = if let Some(source) = expected_preview_source.clone() {
             services::load_table_preview_page(
-                connection,
+                session_id,
                 source,
                 current_tab.page_size,
                 next_offset,
@@ -1327,7 +1334,7 @@ pub fn append_next_tab_page(mut store: TabStore, current_tab: QueryTabState) {
             .await
         } else if let Some(sql) = expected_sql.clone() {
             services::execute_query_page(
-                connection,
+                session_id,
                 sql,
                 current_tab.page_size,
                 next_offset,
@@ -1436,7 +1443,7 @@ pub(crate) fn rows_toolbar_summary(offset: u64, row_count: usize, page_size: u32
 }
 
 pub fn load_tab_page(store: TabStore, current_tab: QueryTabState, offset: u64) {
-    let Some(connection) = tab_connection_or_error(store, current_tab.id, current_tab.session_id)
+    let Some(session_id) = tab_session_or_error(store, current_tab.id, current_tab.session_id)
     else {
         return;
     };
@@ -1445,7 +1452,7 @@ pub fn load_tab_page(store: TabStore, current_tab: QueryTabState, offset: u64) {
         run_table_preview_for_tab(
             store,
             current_tab.id,
-            connection,
+            session_id,
             source,
             offset,
             current_tab.page_size,
@@ -1457,7 +1464,7 @@ pub fn load_tab_page(store: TabStore, current_tab: QueryTabState, offset: u64) {
         run_query_for_tab(
             store,
             current_tab.id,
-            connection,
+            session_id,
             sql,
             offset,
             current_tab.page_size,
@@ -1476,7 +1483,7 @@ pub fn refresh_tab_result(
         return;
     }
 
-    let Some(connection) = tab_connection_or_error(store, current_tab.id, current_tab.session_id)
+    let Some(session_id) = tab_session_or_error(store, current_tab.id, current_tab.session_id)
     else {
         return;
     };
@@ -1485,7 +1492,7 @@ pub fn refresh_tab_result(
         run_table_preview_for_tab(
             store,
             current_tab.id,
-            connection,
+            session_id,
             source,
             current_tab.current_offset,
             current_tab.page_size,
@@ -1553,12 +1560,7 @@ pub fn mark_table_deleted(mut store: TabStore, session_id: u64, source: TablePre
     }
 }
 
-pub fn mark_table_truncated(
-    mut store: TabStore,
-    session_id: u64,
-    connection: DatabaseConnection,
-    source: TablePreviewSource,
-) {
+pub fn mark_table_truncated(mut store: TabStore, session_id: u64, source: TablePreviewSource) {
     let mut preview_tabs = Vec::new();
 
     let tab_ids: Vec<u64> = store
@@ -1624,14 +1626,7 @@ pub fn mark_table_truncated(
     }
 
     for (tab_id, page_size) in preview_tabs {
-        run_table_preview_for_tab(
-            store,
-            tab_id,
-            connection.clone(),
-            source.clone(),
-            0,
-            page_size,
-        );
+        run_table_preview_for_tab(store, tab_id, session_id, source.clone(), 0, page_size);
     }
 }
 
@@ -1847,14 +1842,14 @@ pub fn run_active_tab(
         return;
     }
 
-    let Some(connection) = tab_connection_or_error(store, current_id, session_id) else {
+    let Some(session_id) = tab_session_or_error(store, current_id, session_id) else {
         return;
     };
 
     run_query_for_tab(
         store,
         current_id,
-        connection,
+        session_id,
         sql,
         0,
         page_size,
@@ -1894,10 +1889,10 @@ pub fn run_active_tab_explain(store: TabStore, active_tab_id: u64) {
     let Some(session_id) = session_id else {
         return;
     };
-    let Some(connection) = tab_connection_or_error(store, current_id, session_id) else {
+    let Some(session_id) = tab_session_or_error(store, current_id, session_id) else {
         return;
     };
-    run_explain_for_tab(store, current_id, connection, sql);
+    run_explain_for_tab(store, current_id, session_id, sql);
 }
 
 /// Format the active tab's SQL in place. Mirrors the toolbar's
@@ -1927,13 +1922,14 @@ pub fn format_active_tab(
         return;
     }
 
-    let session_id = store.meta.read().get(&current_id).map(|m| m.session_id);
-    let session_kind = session_id.and_then(|sid| APP_STATE.read().session(sid).map(|s| s.kind));
+    let Some(session_id) = store.meta.read().get(&current_id).map(|m| m.session_id) else {
+        return;
+    };
     let sql = sql.to_string();
     let fallback_sql = sql.clone();
     spawn(async move {
         let formatted = tokio::task::spawn_blocking(move || {
-            services::format_sql(session_kind, &sql, &format_settings)
+            services::format_sql_for_session(session_id, &sql, &format_settings).unwrap_or(sql)
         })
         .await
         .unwrap_or(fallback_sql);

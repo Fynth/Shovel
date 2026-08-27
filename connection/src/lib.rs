@@ -1,5 +1,17 @@
 //! Database connection orchestration and SSH tunnel lifecycle management for Shovel.
 
+mod registry;
+pub use database::SessionHandle;
+pub use registry::{register_session, session, unregister_session};
+
+#[cfg(any(
+    feature = "sqlite",
+    feature = "postgres",
+    feature = "mysql",
+    feature = "clickhouse"
+))]
+use std::sync::Arc;
+
 use connection_ssh::{OpenedSshTunnel, open_ssh_tunnel, register_ssh_tunnel};
 #[cfg(any(
     feature = "sqlite",
@@ -9,20 +21,14 @@ use connection_ssh::{OpenedSshTunnel, open_ssh_tunnel, register_ssh_tunnel};
 ))]
 use database::DatabaseDriver;
 #[cfg(feature = "clickhouse")]
-use driver_clickhouse::ClickHouseDriver;
+use driver_clickhouse::{ClickHouseDriver, ClickHouseSession};
 #[cfg(feature = "mysql")]
-use driver_mysql::{MySqlConfig, MySqlDriver};
+use driver_mysql::{MySqlConfig, MySqlDriver, MysqlSession};
 #[cfg(feature = "postgres")]
-use driver_postgres::{PgConfig, PgDriver};
+use driver_postgres::{PgConfig, PgDriver, PostgresSession};
 #[cfg(feature = "sqlite")]
-use driver_sqlite::SqliteDriver;
-use models::{
-    ClickHouseFormData,
-    ConnectionRequest,
-    DatabaseConnection,
-    DatabaseError,
-    SshTunnelConfig,
-};
+use driver_sqlite::{SqliteDriver, SqliteSession};
+use models::{ClickHouseFormData, ConnectionRequest, DatabaseError, SshTunnelConfig};
 #[cfg(feature = "clickhouse")]
 use reqwest::Url;
 
@@ -179,35 +185,40 @@ pub async fn test_connection(request: ConnectionRequest) -> Result<(), DatabaseE
 ///
 /// # Returns
 ///
-/// * `Ok(DatabaseConnection)` — a type-erased handle to the live connection
-///   (one of `DatabaseConnection::Sqlite`, `::Postgres`, `::MySql`, or
-///   `::ClickHouse`).
+/// * `Ok(SessionHandle)` — a type-erased session wrapping `SqliteSession`,
+///   `PostgresSession`, `MysqlSession`, or `ClickHouseSession`.
 ///
 /// # Errors
 ///
 /// Returns [`DatabaseError`] in the following cases:
 ///
-/// * `DatabaseError::Sqlite` — the SQLite driver failed to open the
-///   database file.
-/// * `DatabaseError::Postgres` — the PostgreSQL driver failed to connect
-///   (bad credentials, unreachable host, etc.).
-/// * `DatabaseError::MySql` — the MySQL driver failed to connect.
-/// * `DatabaseError::ClickHouse` — the ClickHouse driver failed to connect.
+/// * `DatabaseError::Driver` — a backend driver failed to connect (bad
+///   credentials, unreachable host, missing file, HTTP error, etc.).
 /// * `DatabaseError::Tunnel` — SSH tunnel configuration is invalid (e.g.
 ///   host or username is empty, DSN input used with tunneling, HTTPS
 ///   ClickHouse endpoint requested over SSH, unparseable ClickHouse URL).
-pub async fn connect_to_db(
-    request: ConnectionRequest,
-) -> Result<DatabaseConnection, DatabaseError> {
-    let session_key = request.identity_key();
+/// * `DatabaseError::Unsupported` — the requested driver is not compiled in.
+pub async fn connect_to_db(request: ConnectionRequest) -> Result<SessionHandle, DatabaseError> {
+    let tunnel_key = request.identity_key();
+    connect_to_db_with_tunnel_key(request, &tunnel_key).await
+}
 
+/// Like [`connect_to_db`], but registers any SSH tunnel under `tunnel_key`
+/// instead of [`ConnectionRequest::identity_key`].
+///
+/// Use this for ephemeral connections (ACP introspection) so they cannot
+/// replace a UI session tunnel registered under the request identity key.
+pub async fn connect_to_db_with_tunnel_key(
+    request: ConnectionRequest,
+    tunnel_key: &str,
+) -> Result<SessionHandle, DatabaseError> {
     match request {
         #[cfg(feature = "sqlite")]
         ConnectionRequest::Sqlite(data) => {
             let pool = SqliteDriver::connect(data.path)
                 .await
-                .map_err(DatabaseError::Sqlite)?;
-            Ok(DatabaseConnection::Sqlite(pool))
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
+            Ok(SessionHandle::wrap(Arc::new(SqliteSession { pool })))
         }
         #[cfg(feature = "postgres")]
         ConnectionRequest::Postgres(mut data) => {
@@ -236,12 +247,12 @@ pub async fn connect_to_db(
                 };
                 PgDriver::connect(config)
                     .await
-                    .map_err(DatabaseError::Postgres)
-                    .map(DatabaseConnection::Postgres)
+                    .map_err(|e| DatabaseError::Driver(e.to_string()))
+                    .map(|pool| SessionHandle::wrap(Arc::new(PostgresSession { pool })))
             }
             .await;
 
-            finalize_tunnel(&session_key, resolved, &result);
+            finalize_tunnel(tunnel_key, resolved, &result);
             result
         }
         #[cfg(feature = "mysql")]
@@ -275,12 +286,12 @@ pub async fn connect_to_db(
                 };
                 MySqlDriver::connect(config)
                     .await
-                    .map_err(DatabaseError::MySql)
-                    .map(DatabaseConnection::MySql)
+                    .map_err(|e| DatabaseError::Driver(e.to_string()))
+                    .map(|pool| SessionHandle::wrap(Arc::new(MysqlSession { pool })))
             }
             .await;
 
-            finalize_tunnel(&session_key, resolved, &result);
+            finalize_tunnel(tunnel_key, resolved, &result);
             result
         }
         #[cfg(feature = "clickhouse")]
@@ -314,16 +325,16 @@ pub async fn connect_to_db(
             let result = async {
                 ClickHouseDriver::connect(data.clone())
                     .await
-                    .map_err(DatabaseError::ClickHouse)
-                    .map(DatabaseConnection::ClickHouse)
+                    .map_err(DatabaseError::Driver)
+                    .map(|config| SessionHandle::wrap(Arc::new(ClickHouseSession { config })))
             }
             .await;
 
-            finalize_tunnel(&session_key, resolved, &result);
+            finalize_tunnel(tunnel_key, resolved, &result);
             result
         }
         #[allow(unreachable_patterns)]
-        _ => Err(DatabaseError::UnsupportedDriver(
+        _ => Err(DatabaseError::Unsupported(
             "this database driver is not compiled in".to_string(),
         )),
     }

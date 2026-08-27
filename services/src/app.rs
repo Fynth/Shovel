@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 
+use connection::SessionHandle;
 use futures_util::future::join_all;
 use models::{
     AiProviderKind,
     AppBehavior,
     AppUiSettings,
     ConnectionRequest,
-    DatabaseConnection,
     EditorBehavior,
     KeybindingMap,
     PanelBehavior,
@@ -43,13 +43,13 @@ pub struct AppStartupSettings {
 
 #[derive(Clone, Debug)]
 pub struct ConnectAndSaveResult {
-    pub connection: DatabaseConnection,
+    pub handle: SessionHandle,
     pub save_warning: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct SessionRestoreResult {
-    pub restored: Vec<(ConnectionRequest, DatabaseConnection)>,
+    pub restored: Vec<(ConnectionRequest, SessionHandle)>,
     pub active_connection_name: Option<String>,
     pub failed_requests: Vec<(ConnectionRequest, String)>,
     pub tab_drafts: Vec<models::TabDraft>,
@@ -287,7 +287,7 @@ pub async fn restore_saved_sessions() -> Result<SessionRestoreResult, String> {
 
     let restored_results = join_all(open_requests.into_iter().map(|request| async move {
         match connection::connect_to_db(request.clone()).await {
-            Ok(connection) => Ok((request, connection)),
+            Ok(handle) => Ok((request, handle)),
             Err(err) => Err((request, err.to_string())),
         }
     }))
@@ -313,13 +313,13 @@ pub async fn restore_saved_sessions() -> Result<SessionRestoreResult, String> {
 pub async fn connect_and_save_request(
     request: ConnectionRequest,
 ) -> Result<ConnectAndSaveResult, String> {
-    let connection = connection::connect_to_db(request.clone())
+    let handle = connection::connect_to_db(request.clone())
         .await
         .map_err(|err| err.to_string())?;
     let save_warning = storage::save_connection_request(request).await.err();
 
     Ok(ConnectAndSaveResult {
-        connection,
+        handle,
         save_warning,
     })
 }

@@ -1,3 +1,12 @@
+mod explain;
+mod introspect;
+mod mutate;
+mod rows;
+mod schema;
+mod session;
+
+pub use session::MysqlSession;
+
 use sqlx::mysql::{MySqlConnectOptions, MySqlSslMode};
 use std::str::FromStr;
 
@@ -134,6 +143,21 @@ fn parse_mysql_ssl_mode(mode: &str) -> MySqlSslMode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mysql_session_is_a_driver_session() {
+        fn assert_session<T: database::DriverSession>() {}
+        assert_session::<crate::MysqlSession>();
+    }
+
+    #[tokio::test]
+    async fn mysql_capabilities_match_exec_options() {
+        let pool = sqlx::MySqlPool::connect_lazy_with(sqlx::mysql::MySqlConnectOptions::new());
+        let handle =
+            database::SessionHandle::wrap(std::sync::Arc::new(crate::MysqlSession { pool }));
+        assert_eq!(handle.capabilities().row_editing, handle.mutate().is_some());
+        assert_eq!(handle.capabilities().explain, handle.explain().is_some());
+    }
 
     // ── looks_like_dsn ───────────────────────────────────────────────
 

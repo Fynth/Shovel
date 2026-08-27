@@ -1,7 +1,8 @@
-use models::{DatabaseKind, SqlFormatSettings, SqlKeywordCase};
+use database::FormatFlavor;
+use models::{SqlFormatSettings, SqlKeywordCase};
 use sqlformat::{Dialect, FormatOptions, Indent, QueryParams};
 
-pub fn format_sql(kind: Option<DatabaseKind>, sql: &str, settings: &SqlFormatSettings) -> String {
+pub fn format_sql(flavor: FormatFlavor, sql: &str, settings: &SqlFormatSettings) -> String {
     let trimmed = sql.trim();
     if trimmed.is_empty() {
         return String::new();
@@ -27,12 +28,9 @@ pub fn format_sql(kind: Option<DatabaseKind>, sql: &str, settings: &SqlFormatSet
                 .unwrap_or(settings.max_inline_block)
                 .max(20) as usize,
         ),
-        dialect: match kind {
-            Some(DatabaseKind::Postgres) => Dialect::PostgreSql,
-            Some(DatabaseKind::MySql)
-            | Some(DatabaseKind::Sqlite)
-            | Some(DatabaseKind::ClickHouse) => Dialect::Generic,
-            _ => Dialect::Generic,
+        dialect: match flavor {
+            FormatFlavor::Postgres => Dialect::PostgreSql,
+            FormatFlavor::Generic => Dialect::Generic,
         },
         ..FormatOptions::default()
     };
@@ -66,9 +64,9 @@ mod tests {
     #[test]
     fn format_sql_empty_input_returns_empty_string() {
         let settings = default_settings();
-        assert_eq!(format_sql(None, "", &settings), "");
-        assert_eq!(format_sql(None, "   ", &settings), "");
-        assert_eq!(format_sql(None, "\n\t", &settings), "");
+        assert_eq!(format_sql(FormatFlavor::Generic, "", &settings), "");
+        assert_eq!(format_sql(FormatFlavor::Generic, "   ", &settings), "");
+        assert_eq!(format_sql(FormatFlavor::Generic, "\n\t", &settings), "");
     }
 
     // ── basic formatting ─────────────────────────────────────────────
@@ -76,7 +74,7 @@ mod tests {
     #[test]
     fn format_sql_simple_select() {
         let settings = default_settings();
-        let result = format_sql(None, "select * from users", &settings);
+        let result = format_sql(FormatFlavor::Generic, "select * from users", &settings);
         assert!(result.contains("SELECT"));
         assert!(result.contains("FROM"));
         assert!(result.contains("users"));
@@ -86,14 +84,14 @@ mod tests {
     #[test]
     fn format_sql_preserves_trailing_newline() {
         let settings = default_settings();
-        let result = format_sql(None, "select 1", &settings);
+        let result = format_sql(FormatFlavor::Generic, "select 1", &settings);
         assert!(result.ends_with('\n'));
     }
 
     #[test]
     fn format_sql_trims_leading_whitespace() {
         let settings = default_settings();
-        let result = format_sql(None, "   select 1", &settings);
+        let result = format_sql(FormatFlavor::Generic, "   select 1", &settings);
         assert!(!result.starts_with(' '));
         assert!(result.contains("SELECT"));
     }
@@ -106,7 +104,7 @@ mod tests {
             keyword_case: SqlKeywordCase::Uppercase,
             ..default_settings()
         };
-        let result = format_sql(None, "select * from users", &settings);
+        let result = format_sql(FormatFlavor::Generic, "select * from users", &settings);
         assert!(result.contains("SELECT"));
         assert!(result.contains("FROM"));
     }
@@ -117,7 +115,7 @@ mod tests {
             keyword_case: SqlKeywordCase::Lowercase,
             ..default_settings()
         };
-        let result = format_sql(None, "SELECT * FROM users", &settings);
+        let result = format_sql(FormatFlavor::Generic, "SELECT * FROM users", &settings);
         assert!(result.contains("select"));
         assert!(result.contains("from"));
     }
@@ -128,7 +126,7 @@ mod tests {
             keyword_case: SqlKeywordCase::Preserve,
             ..default_settings()
         };
-        let result = format_sql(None, "Select * From users", &settings);
+        let result = format_sql(FormatFlavor::Generic, "Select * From users", &settings);
         // When Preserve is set, uppercase is None so sqlformat preserves original case
         assert!(result.contains("Select"));
     }
@@ -141,7 +139,11 @@ mod tests {
             indent_width: 4,
             ..default_settings()
         };
-        let result = format_sql(None, "select id, name from users where id = 1", &settings);
+        let result = format_sql(
+            FormatFlavor::Generic,
+            "select id, name from users where id = 1",
+            &settings,
+        );
         // With indent_width 4, any indentation should use 4-space groups
         // The exact formatting depends on sqlformat, but we verify it doesn't panic
         assert!(result.contains("SELECT"));
@@ -154,45 +156,48 @@ mod tests {
             indent_width: 0, // should be clamped to 1 by .max(1)
             ..default_settings()
         };
-        let result = format_sql(None, "select id, name from users where id = 1", &settings);
+        let result = format_sql(
+            FormatFlavor::Generic,
+            "select id, name from users where id = 1",
+            &settings,
+        );
         assert!(result.contains("SELECT"));
     }
 
     // ── dialect selection ────────────────────────────────────────────
 
     #[test]
+    fn format_sql_uses_format_flavor_not_database_kind() {
+        let settings = SqlFormatSettings::default();
+        let out = format_sql(FormatFlavor::Postgres, "select 1", &settings);
+        assert!(!out.is_empty());
+    }
+
+    #[test]
     fn format_sql_postgres_dialect() {
         let settings = default_settings();
-        let result = format_sql(
-            Some(DatabaseKind::Postgres),
-            "select * from users",
-            &settings,
-        );
+        let result = format_sql(FormatFlavor::Postgres, "select * from users", &settings);
         assert!(result.contains("SELECT"));
     }
 
     #[test]
     fn format_sql_mysql_dialect() {
         let settings = default_settings();
-        let result = format_sql(Some(DatabaseKind::MySql), "select * from users", &settings);
+        let result = format_sql(FormatFlavor::Generic, "select * from users", &settings);
         assert!(result.contains("SELECT"));
     }
 
     #[test]
     fn format_sql_sqlite_dialect() {
         let settings = default_settings();
-        let result = format_sql(Some(DatabaseKind::Sqlite), "select * from users", &settings);
+        let result = format_sql(FormatFlavor::Generic, "select * from users", &settings);
         assert!(result.contains("SELECT"));
     }
 
     #[test]
     fn format_sql_clickhouse_dialect() {
         let settings = default_settings();
-        let result = format_sql(
-            Some(DatabaseKind::ClickHouse),
-            "select * from users",
-            &settings,
-        );
+        let result = format_sql(FormatFlavor::Generic, "select * from users", &settings);
         assert!(result.contains("SELECT"));
     }
 
@@ -204,7 +209,7 @@ mod tests {
             lines_between_queries: 2,
             ..default_settings()
         };
-        let result = format_sql(None, "select 1; select 2;", &settings);
+        let result = format_sql(FormatFlavor::Generic, "select 1; select 2;", &settings);
         assert!(result.contains("SELECT"));
         assert!(result.ends_with('\n'));
     }
@@ -217,7 +222,7 @@ mod tests {
             max_inline_block: 0, // should be clamped to 20 by .max(20)
             ..default_settings()
         };
-        let result = format_sql(None, "select * from users", &settings);
+        let result = format_sql(FormatFlavor::Generic, "select * from users", &settings);
         assert!(result.contains("SELECT"));
     }
 }

@@ -18,7 +18,7 @@ use crate::{
             refresh_tab_result,
             rows_toolbar_summary,
             set_active_tab_status,
-            tab_connection_or_error,
+            tab_session_or_error,
             toggle_active_tab_sort,
         },
         components::{
@@ -38,7 +38,7 @@ use crate::{
                 format_row_tsv,
             },
         },
-        helpers::format_duration,
+        helpers::{can_edit_rows, format_duration, session_capabilities},
         tab_store::{TabResultState, TabStore},
     },
     windows,
@@ -301,6 +301,12 @@ pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
         .map(|p| p.pending_table_changes.clone())
         .unwrap_or_default();
     let has_pending_changes = !pending_changes.is_empty();
+    let allow_row_editing = store
+        .meta
+        .read()
+        .get(&store.active_tab_id())
+        .and_then(|meta| session_capabilities(meta.session_id))
+        .is_some_and(can_edit_rows);
     let is_loading_more = active_tab.as_ref().is_some_and(|tab| tab.is_loading_more);
     let sort_enabled = active_tab.as_ref().is_some_and(can_sort_tab);
     let filter_enabled = active_tab.as_ref().is_some_and(can_filter_tab);
@@ -443,7 +449,8 @@ pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
                 let has_next_page =
                     page.has_next && can_paginate && !is_loading_more && !has_pending_changes;
                 let read_only_mode = read_only_mode_enabled();
-                let table_cells_editable = page.editable.is_some() && !read_only_mode;
+                let table_cells_editable =
+                    page.editable.is_some() && !read_only_mode && allow_row_editing;
                 let hidden_columns_vec = hidden_columns();
                 let visible_columns: Vec<(usize, String)> =
                     filter_visible_columns(&page.columns, &hidden_columns_vec);
@@ -623,7 +630,7 @@ pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
                                                 }
                                             },
                                         }
-                                        if page.editable.is_some() {
+                                        if page.editable.is_some() && allow_row_editing {
                                             IconButton {
                                                 icon: ActionIcon::InsertRow,
                                                 label: if read_only_mode {
@@ -2165,7 +2172,7 @@ fn build_cell_context_menu(
                 value_editor.set(Some(ValueEditorState {
                     column_name: column_name.clone(),
                     value: cell_value.clone(),
-                    editable: true,
+                    editable,
                     mode: ValueEditorMode::Text,
                     width: 520.0,
                 }));
@@ -3107,6 +3114,15 @@ fn original_cell_value(
     page.rows.get(row_index)?.get(col_index).cloned()
 }
 
+fn tab_can_edit_rows(store: TabStore, tab_id: u64) -> bool {
+    store
+        .meta
+        .read()
+        .get(&tab_id)
+        .and_then(|meta| session_capabilities(meta.session_id))
+        .is_some_and(can_edit_rows)
+}
+
 fn commit_cell_edit(
     mut editing_cell: Signal<Option<EditingCell>>,
     mut store: TabStore,
@@ -3116,6 +3132,15 @@ fn commit_cell_edit(
     if read_only_mode_enabled() {
         editing_cell.set(None);
         set_active_tab_status(store, current_id, read_only_mode_block_status("cell edit"));
+        return;
+    }
+    if !tab_can_edit_rows(store, current_id) {
+        editing_cell.set(None);
+        set_active_tab_status(
+            store,
+            current_id,
+            "Row editing is not supported for this connection".to_string(),
+        );
         return;
     }
 
@@ -3202,6 +3227,14 @@ fn insert_empty_row(mut store: TabStore) {
         );
         return;
     }
+    if !tab_can_edit_rows(store, current_id) {
+        set_active_tab_status(
+            store,
+            current_id,
+            "Row editing is not supported for this connection".to_string(),
+        );
+        return;
+    }
 
     let current_tab = store.result.read().get(&current_id).cloned();
     let Some(current_tab) = current_tab else {
@@ -3251,12 +3284,12 @@ fn insert_empty_row(mut store: TabStore) {
         .get(&current_id)
         .map(|m| m.session_id)
         .unwrap_or(0);
-    let Some(connection) = tab_connection_or_error(store, current_id, session_id) else {
+    let Some(session_id) = tab_session_or_error(store, current_id, session_id) else {
         return;
     };
 
     spawn(async move {
-        match services::next_table_primary_key_id(connection, editable.source.clone()).await {
+        match services::next_table_primary_key_id(session_id, editable.source.clone()).await {
             Ok(Some((column_name, remote_next_id))) => {
                 store.pending.with_mut(|pending| {
                     let Some(tab) = pending.get_mut(&current_id) else {
@@ -3312,6 +3345,14 @@ fn apply_pending_changes(mut store: TabStore) {
         );
         return;
     }
+    if !tab_can_edit_rows(store, current_id) {
+        set_active_tab_status(
+            store,
+            current_id,
+            "Row editing is not supported for this connection".to_string(),
+        );
+        return;
+    }
 
     let current_tab = store.result.read().get(&current_id).cloned();
     let Some(current_tab) = current_tab else {
@@ -3346,7 +3387,7 @@ fn apply_pending_changes(mut store: TabStore) {
         .get(&current_id)
         .map(|m| m.session_id)
         .unwrap_or(0);
-    let Some(connection) = tab_connection_or_error(store, current_id, session_id) else {
+    let Some(session_id) = tab_session_or_error(store, current_id, session_id) else {
         return;
     };
 
@@ -3364,7 +3405,7 @@ fn apply_pending_changes(mut store: TabStore) {
                 .collect::<Vec<_>>();
 
             if let Err(err) = services::insert_table_row_with_values(
-                connection.clone(),
+                session_id,
                 editable.source.clone(),
                 column_values,
             )
@@ -3377,7 +3418,7 @@ fn apply_pending_changes(mut store: TabStore) {
 
         for change in pending_changes.updated_cells {
             if let Err(err) = services::update_table_cell(
-                connection.clone(),
+                session_id,
                 editable.source.clone(),
                 change.locator,
                 change.column_name,
@@ -3391,12 +3432,9 @@ fn apply_pending_changes(mut store: TabStore) {
         }
 
         for delete in pending_changes.deleted_rows {
-            if let Err(err) = services::delete_table_row(
-                connection.clone(),
-                editable.source.clone(),
-                delete.locator,
-            )
-            .await
+            if let Err(err) =
+                services::delete_table_row(session_id, editable.source.clone(), delete.locator)
+                    .await
             {
                 set_active_tab_status(store, current_id, format_row_edit_error("Row delete", err));
                 return;
@@ -3440,6 +3478,14 @@ fn delete_selected_row(mut store: TabStore, row_index: usize) {
     let current_id = store.active_tab_id();
     if read_only_mode_enabled() {
         set_active_tab_status(store, current_id, read_only_mode_block_status("row delete"));
+        return;
+    }
+    if !tab_can_edit_rows(store, current_id) {
+        set_active_tab_status(
+            store,
+            current_id,
+            "Row editing is not supported for this connection".to_string(),
+        );
         return;
     }
 

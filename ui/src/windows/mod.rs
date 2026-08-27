@@ -30,11 +30,8 @@ use crate::{
             ErDiagramState,
             ErDiagramViewer,
             explorer::{
-                create_table_modal,
                 create_table_modal::{CreateTableModal, CreateTableTarget},
-                duplicate_table_modal,
                 duplicate_table_modal::{DuplicateTableModal, DuplicateTableTarget},
-                rename_table_modal,
                 rename_table_modal::{RenameTableModal, RenameTableTarget},
             },
         },
@@ -330,38 +327,23 @@ pub fn create_table_bridge() -> (
 }
 
 /// Props for [`CreateTableWindowRoot`].
-#[derive(Props, Clone)]
+#[derive(Props, Clone, PartialEq)]
 pub struct CreateTableWindowRootProps {
     pub bridge: DialogBridge<CreateTableResult>,
     pub target: CreateTableTarget,
-    /// Live connection resolved by the main window before opening the dialog.
+    /// Live session resolved by the main window before opening the dialog.
     /// `None` means the connection was closed in the meantime.
-    pub connection: Option<models::DatabaseConnection>,
+    pub session_id: Option<u64>,
     pub read_only: bool,
     /// Active theme class (e.g. `"theme-dark"`) for the modal's CSS tokens.
     pub theme_class: String,
-}
-
-// `DatabaseConnection` does not implement `PartialEq` (sqlx pools are
-// opaque), so we cannot derive it on this struct. The dialog window is
-// opened once and its props never change for the lifetime of the window,
-// so the comparison only needs to match the seed values the main window
-// hands in — the connection is treated as opaque.
-impl PartialEq for CreateTableWindowRootProps {
-    fn eq(&self, other: &Self) -> bool {
-        self.bridge == other.bridge
-            && self.target == other.target
-            && self.connection.is_some() == other.connection.is_some()
-            && self.read_only == other.read_only
-            && self.theme_class == other.theme_class
-    }
 }
 
 /// Open the create-table dialog as a separate native OS window.
 pub fn open_create_table_window(
     bridge: DialogBridge<CreateTableResult>,
     target: CreateTableTarget,
-    connection: Option<models::DatabaseConnection>,
+    session_id: Option<u64>,
     read_only: bool,
     theme_class: String,
 ) {
@@ -371,7 +353,7 @@ pub fn open_create_table_window(
             CreateTableWindowRootProps {
                 bridge,
                 target,
-                connection,
+                session_id,
                 read_only,
                 theme_class,
             },
@@ -396,7 +378,7 @@ fn create_table_window_config() -> Config {
 pub fn CreateTableWindowRoot(props: CreateTableWindowRootProps) -> Element {
     let bridge = props.bridge;
     let target = props.target;
-    let connection = props.connection;
+    let session_id = props.session_id;
     let read_only = props.read_only;
     let theme_class = props.theme_class;
 
@@ -405,7 +387,7 @@ pub fn CreateTableWindowRoot(props: CreateTableWindowRootProps) -> Element {
         div { class: "table-window-shell {theme_class}",
             CreateTableModal {
                 target,
-                connection: create_table_modal::ModalConnection(connection),
+                session_id,
                 read_only,
                 on_saved: move |_| {
                     bridge.send(CreateTableResult {});
@@ -440,35 +422,21 @@ pub fn create_duplicate_table_bridge() -> (
 }
 
 /// Props for [`DuplicateTableWindowRoot`].
-#[derive(Props, Clone)]
+#[derive(Props, Clone, PartialEq)]
 pub struct DuplicateTableWindowRootProps {
     pub bridge: DialogBridge<DuplicateTableResult>,
     pub target: DuplicateTableTarget,
-    /// Live connection resolved by the main window before opening the dialog.
-    pub session: Option<models::DatabaseConnection>,
+    /// Live session resolved by the main window before opening the dialog.
+    pub session_id: Option<u64>,
     pub read_only: bool,
     pub theme_class: String,
-}
-
-// See `CreateTableWindowRootProps` — `DatabaseConnection` is opaque so we
-// cannot derive `PartialEq` and instead compare the connection as
-// present/absent (the dialog window is opened once and its props never
-// change for the lifetime of the window).
-impl PartialEq for DuplicateTableWindowRootProps {
-    fn eq(&self, other: &Self) -> bool {
-        self.bridge == other.bridge
-            && self.target == other.target
-            && self.session.is_some() == other.session.is_some()
-            && self.read_only == other.read_only
-            && self.theme_class == other.theme_class
-    }
 }
 
 /// Open the duplicate-table dialog as a separate native OS window.
 pub fn open_duplicate_table_window(
     bridge: DialogBridge<DuplicateTableResult>,
     target: DuplicateTableTarget,
-    session: Option<models::DatabaseConnection>,
+    session_id: Option<u64>,
     read_only: bool,
     theme_class: String,
 ) {
@@ -478,7 +446,7 @@ pub fn open_duplicate_table_window(
             DuplicateTableWindowRootProps {
                 bridge,
                 target,
-                session,
+                session_id,
                 read_only,
                 theme_class,
             },
@@ -503,7 +471,7 @@ fn duplicate_table_window_config() -> Config {
 pub fn DuplicateTableWindowRoot(props: DuplicateTableWindowRootProps) -> Element {
     let bridge = props.bridge;
     let target = props.target;
-    let session = props.session;
+    let session_id = props.session_id;
     let read_only = props.read_only;
     let theme_class = props.theme_class;
 
@@ -512,7 +480,7 @@ pub fn DuplicateTableWindowRoot(props: DuplicateTableWindowRootProps) -> Element
         div { class: "table-window-shell {theme_class}",
             DuplicateTableModal {
                 target,
-                session: duplicate_table_modal::ModalConnection(session),
+                session_id,
                 read_only,
                 on_saved: move |new_qualified_name: String| {
                     bridge.send(DuplicateTableResult { new_qualified_name });
@@ -547,31 +515,21 @@ pub fn create_rename_table_bridge() -> (
 }
 
 /// Props for [`RenameTableWindowRoot`].
-#[derive(Props, Clone)]
+#[derive(Props, Clone, PartialEq)]
 pub struct RenameTableWindowRootProps {
     pub bridge: DialogBridge<RenameTableResult>,
     pub target: RenameTableTarget,
-    /// Live connection resolved by the main window before opening the dialog.
-    pub session: Option<models::DatabaseConnection>,
+    /// Live session resolved by the main window before opening the dialog.
+    pub session_id: Option<u64>,
     pub read_only: bool,
     pub theme_class: String,
-}
-
-impl PartialEq for RenameTableWindowRootProps {
-    fn eq(&self, other: &Self) -> bool {
-        self.bridge == other.bridge
-            && self.target == other.target
-            && self.session.is_some() == other.session.is_some()
-            && self.read_only == other.read_only
-            && self.theme_class == other.theme_class
-    }
 }
 
 /// Open the rename-table dialog as a separate native OS window.
 pub fn open_rename_table_window(
     bridge: DialogBridge<RenameTableResult>,
     target: RenameTableTarget,
-    session: Option<models::DatabaseConnection>,
+    session_id: Option<u64>,
     read_only: bool,
     theme_class: String,
 ) {
@@ -581,7 +539,7 @@ pub fn open_rename_table_window(
             RenameTableWindowRootProps {
                 bridge,
                 target,
-                session,
+                session_id,
                 read_only,
                 theme_class,
             },
@@ -606,7 +564,7 @@ fn rename_table_window_config() -> Config {
 pub fn RenameTableWindowRoot(props: RenameTableWindowRootProps) -> Element {
     let bridge = props.bridge;
     let target = props.target;
-    let session = props.session;
+    let session_id = props.session_id;
     let read_only = props.read_only;
     let theme_class = props.theme_class;
 
@@ -615,7 +573,7 @@ pub fn RenameTableWindowRoot(props: RenameTableWindowRootProps) -> Element {
         div { class: "table-window-shell {theme_class}",
             RenameTableModal {
                 target,
-                session: rename_table_modal::ModalConnection(session),
+                session_id,
                 read_only,
                 on_saved: move |new_qualified_name: String| {
                     bridge.send(RenameTableResult { new_qualified_name });

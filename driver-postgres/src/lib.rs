@@ -1,3 +1,12 @@
+mod explain;
+mod introspect;
+mod mutate;
+mod rows;
+mod schema;
+mod session;
+
+pub use session::PostgresSession;
+
 use sqlx::postgres::{PgConnectOptions, PgSslMode};
 use std::str::FromStr;
 
@@ -102,6 +111,21 @@ fn parse_pg_ssl_mode(mode: &str) -> PgSslMode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn postgres_session_is_a_driver_session() {
+        fn assert_session<T: database::DriverSession>() {}
+        assert_session::<crate::PostgresSession>();
+    }
+
+    #[tokio::test]
+    async fn postgres_capabilities_match_exec_options() {
+        let pool = sqlx::PgPool::connect_lazy_with(sqlx::postgres::PgConnectOptions::new());
+        let handle =
+            database::SessionHandle::wrap(std::sync::Arc::new(crate::PostgresSession { pool }));
+        assert_eq!(handle.capabilities().row_editing, handle.mutate().is_some());
+        assert_eq!(handle.capabilities().explain, handle.explain().is_some());
+    }
 
     // ── looks_like_dsn ───────────────────────────────────────────────
 

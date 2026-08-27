@@ -38,6 +38,25 @@ pub fn format_duration(ms: u64) -> String {
     }
 }
 
+pub fn can_edit_rows(capabilities: models::Capabilities) -> bool {
+    capabilities.row_editing
+}
+
+pub fn can_import_csv(capabilities: models::Capabilities) -> bool {
+    capabilities.import_csv
+}
+
+pub fn can_explain(capabilities: models::Capabilities) -> bool {
+    capabilities.explain
+}
+
+pub fn session_capabilities(session_id: u64) -> Option<models::Capabilities> {
+    crate::app_state::APP_STATE
+        .read()
+        .session(session_id)
+        .map(|session| session.capabilities)
+}
+
 /// Строит данные ER-диаграммы из секций дерева + загруженных внешних ключей.
 /// Линии связей создаются только для FK, у которых обе таблицы (источник и
 /// цель) присутствуют в дереве — чтобы не рисовать линии в никуда для FK,
@@ -280,12 +299,7 @@ pub async fn load_explorer_section(
     active_session_id: Option<u64>,
     use_cache: bool,
 ) -> ExplorerConnectionSection {
-    let kind_label = match session.kind {
-        models::DatabaseKind::Sqlite => "SQLite".to_string(),
-        models::DatabaseKind::Postgres => "PostgreSQL".to_string(),
-        models::DatabaseKind::MySql => "MySQL".to_string(),
-        models::DatabaseKind::ClickHouse => "ClickHouse".to_string(),
-    };
+    let kind_label = session.kind.display_name().to_string();
 
     // Dev-only: the mock session uses a `:memory:` SQLite pool but
     // ships a hand-crafted tree. We short-circuit before the real
@@ -317,7 +331,7 @@ pub async fn load_explorer_section(
     }
 
     // Загружаем из БД
-    match services::load_connection_tree(session.connection.clone()).await {
+    match services::load_connection_tree(session.id).await {
         Ok(nodes) => {
             let section = ExplorerConnectionSection {
                 session_id: session.id,
@@ -353,12 +367,7 @@ pub fn unloaded_explorer_section(
     active_session_id: Option<u64>,
     status: &str,
 ) -> ExplorerConnectionSection {
-    let kind_label = match session.kind {
-        models::DatabaseKind::Sqlite => "SQLite".to_string(),
-        models::DatabaseKind::Postgres => "PostgreSQL".to_string(),
-        models::DatabaseKind::MySql => "MySQL".to_string(),
-        models::DatabaseKind::ClickHouse => "ClickHouse".to_string(),
-    };
+    let kind_label = session.kind.display_name().to_string();
 
     ExplorerConnectionSection {
         session_id: session.id,
@@ -551,13 +560,41 @@ mod tests {
     use super::{
         ExplorerConnectionSection,
         build_er_diagram,
+        can_edit_rows,
+        can_import_csv,
         derive_chat_thread_title,
         format_explorer_error,
         is_low_signal_explorer_status,
         reset_panel_for_thread,
         should_render_explorer_status,
     };
-    use models::{AcpLaunchRequest, AcpOllamaConfig, AcpPanelState, AcpUiMessage};
+    use models::{
+        AcpLaunchRequest,
+        AcpOllamaConfig,
+        AcpPanelState,
+        AcpUiMessage,
+        Capabilities,
+        DatabaseKind,
+    };
+
+    #[test]
+    fn clickhouse_cannot_edit_rows() {
+        assert!(!can_edit_rows(Capabilities::for_kind(
+            DatabaseKind::ClickHouse
+        )));
+    }
+
+    #[test]
+    fn sqlite_can_edit_rows() {
+        assert!(can_edit_rows(Capabilities::for_kind(DatabaseKind::Sqlite)));
+    }
+
+    #[test]
+    fn clickhouse_can_import_csv() {
+        assert!(can_import_csv(Capabilities::for_kind(
+            DatabaseKind::ClickHouse
+        )));
+    }
 
     #[test]
     fn default_chat_title_stays_compact() {
