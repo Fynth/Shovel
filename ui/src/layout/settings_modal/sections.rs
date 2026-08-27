@@ -1,34 +1,44 @@
 use crate::{components::tooltip_target::TooltipTarget, screens::SqlFormatSettingsFields};
 use dioxus::prelude::*;
-use models::{AppThemePreference, AppUiSettings, SqlFormatSettings, UiDensity, WorkspaceSplitMode};
+use models::{
+    AppThemePreference,
+    AppUiSettings,
+    NullDisplay,
+    SqlFormatSettings,
+    UiDensity,
+    WorkspaceSplitMode,
+};
 
-use super::{SettingsCategory, SettingsSectionProps};
+use super::{
+    SettingsSectionProps,
+    reset_ui_preserving_secrets,
+    widgets::{ColorField, FontSelect, SliderField},
+};
 
-/// Props for the empty-state placeholder used by categories that have no
-/// sections yet.
-#[derive(Props, Clone, PartialEq)]
-pub(super) struct CategoryEmptyStateProps {
-    category: SettingsCategory,
-    hint: String,
-}
+const UI_FONT_OPTIONS: [(&str, &str); 3] = [
+    (
+        "SF Pro Text, IBM Plex Sans, Segoe UI, sans-serif",
+        "System UI",
+    ),
+    ("IBM Plex Sans, sans-serif", "IBM Plex Sans"),
+    ("Segoe UI, sans-serif", "Segoe UI"),
+];
 
-/// Rendered for categories that have no sections yet. Keeps the category
-/// discoverable in the nav while explicitly inviting future work.
-#[component]
-pub(super) fn CategoryEmptyState(props: CategoryEmptyStateProps) -> Element {
-    let category = props.category;
-    let hint = props.hint;
-    rsx! {
-        section {
-            class: "settings-modal__section settings-modal__section--empty",
-            div {
-                class: "settings-modal__section-header",
-                h3 { class: "settings-modal__section-title", "{category.label()}" }
-            }
-            p { class: "settings-modal__section-hint", {hint.to_string()} }
-            p { class: "settings-modal__section-hint", "More options will land here as the editor grows." }
-        }
-    }
+const EDITOR_FONT_OPTIONS: [(&str, &str); 4] = [
+    (
+        "JetBrains Mono, SF Mono, Cascadia Code, monospace",
+        "JetBrains Mono",
+    ),
+    ("SF Mono, ui-monospace, monospace", "SF Mono"),
+    ("Cascadia Code, ui-monospace, monospace", "Cascadia Code"),
+    ("ui-monospace, monospace", "ui-monospace"),
+];
+
+fn font_options(options: &[(&str, &str)]) -> Vec<(String, String)> {
+    options
+        .iter()
+        .map(|(family, label)| ((*family).to_string(), (*label).to_string()))
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -47,6 +57,23 @@ pub(super) fn AppearanceSection(props: SettingsSectionProps) -> Element {
     let settings = props.settings.clone();
     let on_change = props.on_change;
     let section_props_signal = use_signal(|| props.clone());
+    let accent = settings
+        .theme_overrides
+        .primary
+        .clone()
+        .unwrap_or_else(|| "#5eb1ff".to_string());
+    let ui_font = settings
+        .theme_overrides
+        .font_family
+        .clone()
+        .unwrap_or_else(|| UI_FONT_OPTIONS[0].0.to_string());
+    let editor_font = settings
+        .theme_overrides
+        .font_family_mono
+        .clone()
+        .unwrap_or_else(|| EDITOR_FONT_OPTIONS[0].0.to_string());
+    let ui_font_size = settings.theme_overrides.font_size.unwrap_or(12);
+    let radius = settings.theme_overrides.radius_small.unwrap_or(7);
 
     rsx! {
         section {
@@ -114,12 +141,66 @@ pub(super) fn AppearanceSection(props: SettingsSectionProps) -> Element {
                 class: "settings-modal__section-hint",
                 "Compact for an IDE-style dense workspace; Comfortable for larger tap targets."
             }
+            ColorField {
+                label: "Accent".to_string(),
+                value: accent,
+                on_change: move |hex| {
+                    let mut next = section_props_signal.read().settings.clone();
+                    next.theme_overrides.primary = Some(hex);
+                    on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                },
+            }
+            FontSelect {
+                label: "UI font".to_string(),
+                value: ui_font,
+                options: font_options(&UI_FONT_OPTIONS),
+                on_change: move |family| {
+                    let mut next = section_props_signal.read().settings.clone();
+                    next.theme_overrides.font_family = Some(family);
+                    on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                },
+            }
+            FontSelect {
+                label: "Editor font".to_string(),
+                value: editor_font,
+                options: font_options(&EDITOR_FONT_OPTIONS),
+                on_change: move |family| {
+                    let mut next = section_props_signal.read().settings.clone();
+                    next.theme_overrides.font_family_mono = Some(family);
+                    on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                },
+            }
+            SliderField {
+                label: "UI font size".to_string(),
+                value: ui_font_size,
+                min: 10,
+                max: 16,
+                on_change: move |n| {
+                    let mut next = section_props_signal.read().settings.clone();
+                    next.theme_overrides.font_size = Some(n);
+                    next.theme_overrides.font_size_small = Some(n.saturating_sub(1).max(10));
+                    on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                },
+            }
+            SliderField {
+                label: "Corner radius".to_string(),
+                value: radius,
+                min: 0,
+                max: 12,
+                on_change: move |n| {
+                    let mut next = section_props_signal.read().settings.clone();
+                    next.theme_overrides.radius_small = Some(n);
+                    next.theme_overrides.radius_medium = Some(n + 2);
+                    next.theme_overrides.radius_large = Some(n + 4);
+                    on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                },
+            }
         }
     }
 }
 
 #[component]
-pub(super) fn DeepSeekAgentSection(props: SettingsSectionProps) -> Element {
+pub(super) fn DatabaseSection(props: SettingsSectionProps) -> Element {
     let settings = props.settings.clone();
     let on_change = props.on_change;
     let section_props_signal = use_signal(|| props.clone());
@@ -129,154 +210,7 @@ pub(super) fn DeepSeekAgentSection(props: SettingsSectionProps) -> Element {
             class: "settings-modal__section",
             div {
                 class: "settings-modal__section-header",
-                h3 { class: "settings-modal__section-title", "DeepSeek Agent" }
-                p {
-                    class: "settings-modal__section-hint",
-                    "Primary API-key agent for database chat, SQL generation and SQL fixes."
-                }
-            }
-            label {
-                class: "settings-modal__toggle",
-                input {
-                    r#type: "checkbox",
-                    checked: settings.deepseek.enabled,
-                    disabled: settings.deepseek.api_key.is_empty(),
-                    oninput: move |event| {
-                        let mut next = section_props_signal.read().settings.clone();
-                        next.deepseek.enabled = event.checked();
-                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
-                    },
-                }
-                span { "Use DeepSeek as the default embedded SQL agent" }
-            }
-            div {
-                class: "settings-modal__grid",
-                div {
-                    class: "field",
-                    span { class: "field__label", "API Key" }
-                    input {
-                        class: "input",
-                        r#type: "password",
-                        placeholder: "sk-...",
-                        value: "{settings.deepseek.api_key}",
-                        oninput: move |event| {
-                            let mut next = section_props_signal.read().settings.clone();
-                            let value = event.value();
-                            next.deepseek.api_key = value.clone();
-                            if value.trim().is_empty() {
-                                next.deepseek.enabled = false;
-                            }
-                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
-                        },
-                    }
-                }
-                div {
-                    class: "field",
-                    span { class: "field__label", "Base URL" }
-                    input {
-                        class: "input",
-                        placeholder: "https://api.deepseek.com",
-                        value: "{settings.deepseek.base_url}",
-                        oninput: move |event| {
-                            let mut next = section_props_signal.read().settings.clone();
-                            next.deepseek.base_url = event.value();
-                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
-                        },
-                    }
-                }
-                div {
-                    class: "field",
-                    span { class: "field__label", "Model" }
-                    select {
-                        class: "input",
-                        value: "{settings.deepseek.model}",
-                        oninput: move |event| {
-                            let mut next = section_props_signal.read().settings.clone();
-                            next.deepseek.model = event.value();
-                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
-                        },
-                        option { value: "deepseek-chat", "deepseek-chat (fast, recommended)" }
-                        option { value: "deepseek-v4-pro", "deepseek-v4-pro (reasoning)" }
-                        option { value: "deepseek-v4-flash", "deepseek-v4-flash (reasoning, fast)" }
-                    }
-                }
-                div {
-                    class: "field",
-                    span { class: "field__label", "Reasoning effort" }
-                    select {
-                        class: "input",
-                        value: "{settings.deepseek.reasoning_effort}",
-                        oninput: move |event| {
-                            let mut next = section_props_signal.read().settings.clone();
-                            next.deepseek.reasoning_effort = event.value();
-                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
-                        },
-                        option { value: "low", "low" }
-                        option { value: "medium", "medium" }
-                        option { value: "high", "high" }
-                    }
-                }
-            }
-            label {
-                class: "settings-modal__toggle",
-                input {
-                    r#type: "checkbox",
-                    checked: settings.deepseek.thinking_enabled,
-                    oninput: move |event| {
-                        let mut next = section_props_signal.read().settings.clone();
-                        next.deepseek.thinking_enabled = event.checked();
-                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
-                    },
-                }
-                span { "Enable DeepSeek thinking mode when the selected model supports it" }
-            }
-            if settings.deepseek.api_key.is_empty() {
-                p {
-                    class: "settings-modal__section-hint",
-                    "Enter a DeepSeek API key to enable the embedded DeepSeek agent. Get your key from "
-                    a {
-                        href: "https://platform.deepseek.com/api_keys",
-                        target: "_blank",
-                        "platform.deepseek.com"
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-pub(super) fn WorkspaceSection(props: SettingsSectionProps) -> Element {
-    let settings = props.settings.clone();
-    let on_change = props.on_change;
-    let section_props_signal = use_signal(|| props.clone());
-
-    rsx! {
-        section {
-            class: "settings-modal__section",
-            div {
-                class: "settings-modal__section-header",
-                h3 { class: "settings-modal__section-title", "Workspace" }
-                div {
-                    class: "settings-modal__section-actions",
-                    TooltipTarget {
-                        label: "Reset workspace, panels, and AI settings to their defaults (API keys are preserved)".to_string(),
-                        button {
-                            class: "button button--ghost button--small",
-                            onclick: move |_| {
-                                // Reset to defaults, but preserve the user's
-                                // API keys (they live in the OS keyring and
-                                // are not part of the JSON-serialized
-                                // AppUiSettings payload).
-                                let mut next = AppUiSettings::default();
-                                next.deepseek.api_key = section_props_signal.read().settings.deepseek.api_key.clone();
-                                next.codestral.api_key = section_props_signal.read().settings.codestral.api_key.clone();
-                                on_change.call((next, section_props_signal.read().sql_settings.clone()));
-                            },
-                            "Reset UI"
-                        }
-                    }
-                }
+                h3 { class: "settings-modal__section-title", "Database" }
             }
             div {
                 class: "settings-modal__group",
@@ -338,6 +272,207 @@ pub(super) fn WorkspaceSection(props: SettingsSectionProps) -> Element {
                     }
                     span { "Read-only mode (block write SQL, imports, and table edits)" }
                 }
+                label {
+                    class: "settings-modal__toggle",
+                    input {
+                        r#type: "checkbox",
+                        checked: settings.behavior.confirm_before_drop,
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.behavior.confirm_before_drop = event.checked();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                    span { "Confirm before drop" }
+                }
+                label {
+                    class: "settings-modal__toggle",
+                    input {
+                        r#type: "checkbox",
+                        checked: settings.behavior.confirm_before_truncate,
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.behavior.confirm_before_truncate = event.checked();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                    span { "Confirm before truncate" }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+pub(super) fn EditorBehaviorSection(props: SettingsSectionProps) -> Element {
+    let settings = props.settings.clone();
+    let on_change = props.on_change;
+    let section_props_signal = use_signal(|| props.clone());
+
+    rsx! {
+        section {
+            class: "settings-modal__section",
+            div {
+                class: "settings-modal__section-header",
+                h3 { class: "settings-modal__section-title", "Editor" }
+            }
+            SliderField {
+                label: "Font size".to_string(),
+                value: settings.editor.font_size,
+                min: 10,
+                max: 22,
+                on_change: move |n| {
+                    let mut next = section_props_signal.read().settings.clone();
+                    next.editor.font_size = n;
+                    on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                },
+            }
+            SliderField {
+                label: "Tab size".to_string(),
+                value: settings.editor.tab_size,
+                min: 1,
+                max: 8,
+                on_change: move |n| {
+                    let mut next = section_props_signal.read().settings.clone();
+                    next.editor.tab_size = n;
+                    on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                },
+            }
+            label {
+                class: "settings-modal__toggle",
+                input {
+                    r#type: "checkbox",
+                    checked: settings.editor.word_wrap,
+                    oninput: move |event| {
+                        let mut next = section_props_signal.read().settings.clone();
+                        next.editor.word_wrap = event.checked();
+                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                    },
+                }
+                span { "Word wrap" }
+            }
+            label {
+                class: "settings-modal__toggle",
+                input {
+                    r#type: "checkbox",
+                    checked: settings.editor.show_line_numbers,
+                    oninput: move |event| {
+                        let mut next = section_props_signal.read().settings.clone();
+                        next.editor.show_line_numbers = event.checked();
+                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                    },
+                }
+                span { "Show line numbers" }
+            }
+            label {
+                class: "settings-modal__toggle",
+                input {
+                    r#type: "checkbox",
+                    checked: settings.editor.auto_format_on_run,
+                    oninput: move |event| {
+                        let mut next = section_props_signal.read().settings.clone();
+                        next.editor.auto_format_on_run = event.checked();
+                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                    },
+                }
+                span { "Auto-format SQL on run" }
+            }
+        }
+    }
+}
+
+#[component]
+pub(super) fn GridSection(props: SettingsSectionProps) -> Element {
+    let settings = props.settings.clone();
+    let on_change = props.on_change;
+    let section_props_signal = use_signal(|| props.clone());
+
+    rsx! {
+        section {
+            class: "settings-modal__section",
+            div {
+                class: "settings-modal__section-header",
+                h3 { class: "settings-modal__section-title", "Grid" }
+            }
+            SliderField {
+                label: "Row height".to_string(),
+                value: settings.grid.row_height,
+                min: 18,
+                max: 48,
+                on_change: move |n| {
+                    let mut next = section_props_signal.read().settings.clone();
+                    next.grid.row_height = n;
+                    on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                },
+            }
+            label {
+                class: "settings-modal__toggle",
+                input {
+                    r#type: "checkbox",
+                    checked: settings.grid.zebra,
+                    oninput: move |event| {
+                        let mut next = section_props_signal.read().settings.clone();
+                        next.grid.zebra = event.checked();
+                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                    },
+                }
+                span { "Zebra stripes" }
+            }
+            label {
+                class: "settings-modal__toggle",
+                input {
+                    r#type: "checkbox",
+                    checked: settings.grid.wrap_cells,
+                    oninput: move |event| {
+                        let mut next = section_props_signal.read().settings.clone();
+                        next.grid.wrap_cells = event.checked();
+                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                    },
+                }
+                span { "Wrap cells" }
+            }
+            div {
+                class: "field",
+                span { class: "field__label", "Null display" }
+                div {
+                    class: "settings-modal__segmented settings-modal__segmented--density",
+                    role: "group",
+                    aria_label: "Null display",
+                    for variant in NullDisplay::ALL {
+                        button {
+                            key: "{variant.label()}",
+                            class: if settings.grid.null_display == variant {
+                                "button button--ghost button--small button--active"
+                            } else {
+                                "button button--ghost button--small"
+                            },
+                            aria_pressed: settings.grid.null_display == variant,
+                            onclick: move |_| {
+                                let mut next = section_props_signal.read().settings.clone();
+                                next.grid.null_display = variant;
+                                on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                            },
+                            "{variant.label()}"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+pub(super) fn NavigationSection(props: SettingsSectionProps) -> Element {
+    let settings = props.settings.clone();
+    let on_change = props.on_change;
+    let section_props_signal = use_signal(|| props.clone());
+
+    rsx! {
+        section {
+            class: "settings-modal__section",
+            div {
+                class: "settings-modal__section-header",
+                h3 { class: "settings-modal__section-title", "Navigation" }
             }
             div {
                 class: "settings-modal__group",
@@ -579,66 +714,299 @@ pub(super) fn WorkspaceSection(props: SettingsSectionProps) -> Element {
                     span { "Show bottom dock (Output / Messages / Query Log / Transactions / Problems) by default" }
                 }
             }
+        }
+    }
+}
+
+#[component]
+pub(super) fn DeepSeekAgentSection(props: SettingsSectionProps) -> Element {
+    let settings = props.settings.clone();
+    let on_change = props.on_change;
+    let section_props_signal = use_signal(|| props.clone());
+
+    rsx! {
+        section {
+            class: "settings-modal__section",
             div {
-                class: "settings-modal__group",
-                span {
-                    class: "settings-modal__group-title",
-                    "AI features"
+                class: "settings-modal__section-header",
+                h3 { class: "settings-modal__section-title", "DeepSeek Agent" }
+                p {
+                    class: "settings-modal__section-hint",
+                    "Primary API-key agent for database chat, SQL generation and SQL fixes."
                 }
-                label {
-                    class: "settings-modal__toggle",
+            }
+            label {
+                class: "settings-modal__toggle",
+                input {
+                    r#type: "checkbox",
+                    checked: settings.deepseek.enabled,
+                    disabled: settings.deepseek.api_key.is_empty(),
+                    oninput: move |event| {
+                        let mut next = section_props_signal.read().settings.clone();
+                        next.deepseek.enabled = event.checked();
+                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                    },
+                }
+                span { "Use DeepSeek as the default embedded SQL agent" }
+            }
+            div {
+                class: "settings-modal__grid",
+                div {
+                    class: "field",
+                    span { class: "field__label", "API Key" }
                     input {
-                        r#type: "checkbox",
-                        checked: settings.ai_features_enabled,
+                        class: "input",
+                        r#type: "password",
+                        placeholder: "sk-...",
+                        value: "{settings.deepseek.api_key}",
                         oninput: move |event| {
                             let mut next = section_props_signal.read().settings.clone();
-                            next.ai_features_enabled = event.checked();
-                            if !event.checked() {
-                                next.show_agent_panel = false;
+                            let value = event.value();
+                            next.deepseek.api_key = value.clone();
+                            if value.trim().is_empty() {
+                                next.deepseek.enabled = false;
                             }
                             on_change.call((next, section_props_signal.read().sql_settings.clone()));
                         },
                     }
-                    span { "Enable AI features (ACP panel, prompts, and SQL actions)" }
                 }
                 div {
                     class: "field",
-                    label {
-                        class: "field__label",
-                        "AI response language"
-                    }
+                    span { class: "field__label", "Base URL" }
                     input {
                         class: "input",
-                        r#type: "text",
-                        placeholder: "English",
-                        value: "{settings.ai_response_language}",
-                        disabled: !settings.ai_features_enabled,
+                        placeholder: "https://api.deepseek.com",
+                        value: "{settings.deepseek.base_url}",
                         oninput: move |event| {
                             let mut next = section_props_signal.read().settings.clone();
-                            next.ai_response_language = event.value();
+                            next.deepseek.base_url = event.value();
                             on_change.call((next, section_props_signal.read().sql_settings.clone()));
                         },
                     }
                 }
-                label {
-                    class: if !settings.ai_features_enabled {
-                        "settings-modal__toggle settings-modal__toggle--disabled"
-                    } else {
-                        "settings-modal__toggle"
+                div {
+                    class: "field",
+                    span { class: "field__label", "Model" }
+                    select {
+                        class: "input",
+                        value: "{settings.deepseek.model}",
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.deepseek.model = event.value();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                        option { value: "deepseek-chat", "deepseek-chat (fast, recommended)" }
+                        option { value: "deepseek-v4-pro", "deepseek-v4-pro (reasoning)" }
+                        option { value: "deepseek-v4-flash", "deepseek-v4-flash (reasoning, fast)" }
+                    }
+                }
+                div {
+                    class: "field",
+                    span { class: "field__label", "Reasoning effort" }
+                    select {
+                        class: "input",
+                        value: "{settings.deepseek.reasoning_effort}",
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.deepseek.reasoning_effort = event.value();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                        option { value: "low", "low" }
+                        option { value: "medium", "medium" }
+                        option { value: "high", "high" }
+                    }
+                }
+            }
+            label {
+                class: "settings-modal__toggle",
+                input {
+                    r#type: "checkbox",
+                    checked: settings.deepseek.thinking_enabled,
+                    oninput: move |event| {
+                        let mut next = section_props_signal.read().settings.clone();
+                        next.deepseek.thinking_enabled = event.checked();
+                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
                     },
-                    aria_disabled: !settings.ai_features_enabled,
+                }
+                span { "Enable DeepSeek thinking mode when the selected model supports it" }
+            }
+            if settings.deepseek.api_key.is_empty() {
+                p {
+                    class: "settings-modal__section-hint",
+                    "Enter a DeepSeek API key to enable the embedded DeepSeek agent. Get your key from "
+                    a {
+                        href: "https://platform.deepseek.com/api_keys",
+                        target: "_blank",
+                        "platform.deepseek.com"
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+pub(super) fn OllamaSection(props: SettingsSectionProps) -> Element {
+    let settings = props.settings.clone();
+    let on_change = props.on_change;
+    let section_props_signal = use_signal(|| props.clone());
+
+    rsx! {
+        section {
+            class: "settings-modal__section",
+            div {
+                class: "settings-modal__section-header",
+                h3 { class: "settings-modal__section-title", "Ollama" }
+                p {
+                    class: "settings-modal__section-hint",
+                    "Local or remote Ollama endpoint for the embedded SQL agent. API key is optional for local servers."
+                }
+            }
+            label {
+                class: "settings-modal__toggle",
+                input {
+                    r#type: "checkbox",
+                    checked: settings.ollama.enabled,
+                    oninput: move |event| {
+                        let mut next = section_props_signal.read().settings.clone();
+                        next.ollama.enabled = event.checked();
+                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                    },
+                }
+                span { "Use Ollama as an embedded SQL agent" }
+            }
+            div {
+                class: "settings-modal__grid",
+                div {
+                    class: "field",
+                    span { class: "field__label", "API Key" }
                     input {
-                        r#type: "checkbox",
-                        checked: settings.ai_auto_apply_completions,
-                        disabled: !settings.ai_features_enabled,
+                        class: "input",
+                        r#type: "password",
+                        placeholder: "optional",
+                        value: "{settings.ollama.api_key}",
                         oninput: move |event| {
                             let mut next = section_props_signal.read().settings.clone();
-                            next.ai_auto_apply_completions = event.checked();
+                            next.ollama.api_key = event.value();
                             on_change.call((next, section_props_signal.read().sql_settings.clone()));
                         },
                     }
-                    span { "Auto-apply inline AI completions (insert after a short idle pause; otherwise press Tab to accept)" }
                 }
+                div {
+                    class: "field",
+                    span { class: "field__label", "Base URL" }
+                    input {
+                        class: "input",
+                        placeholder: "http://localhost:11434/api",
+                        value: "{settings.ollama.base_url}",
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.ollama.base_url = event.value();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                }
+                div {
+                    class: "field",
+                    span { class: "field__label", "Model" }
+                    input {
+                        class: "input",
+                        placeholder: "llama3.2",
+                        value: "{settings.ollama.model}",
+                        oninput: move |event| {
+                            let mut next = section_props_signal.read().settings.clone();
+                            next.ollama.model = event.value();
+                            on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                        },
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+pub(super) fn AdvancedSection(props: SettingsSectionProps) -> Element {
+    let settings = props.settings.clone();
+    let on_change = props.on_change;
+    let section_props_signal = use_signal(|| props.clone());
+
+    rsx! {
+        section {
+            class: "settings-modal__section",
+            div {
+                class: "settings-modal__section-header",
+                h3 { class: "settings-modal__section-title", "AI features" }
+                div {
+                    class: "settings-modal__section-actions",
+                    TooltipTarget {
+                        label: "Reset workspace, panels, and AI settings to their defaults (API keys and keyboard shortcuts are preserved)".to_string(),
+                        button {
+                            class: "button button--ghost button--small",
+                            onclick: move |_| {
+                                let next = reset_ui_preserving_secrets(
+                                    &section_props_signal.read().settings,
+                                );
+                                on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                            },
+                            "Reset UI"
+                        }
+                    }
+                }
+            }
+            label {
+                class: "settings-modal__toggle",
+                input {
+                    r#type: "checkbox",
+                    checked: settings.ai_features_enabled,
+                    oninput: move |event| {
+                        let mut next = section_props_signal.read().settings.clone();
+                        next.ai_features_enabled = event.checked();
+                        if !event.checked() {
+                            next.show_agent_panel = false;
+                        }
+                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                    },
+                }
+                span { "Enable AI features (ACP panel, prompts, and SQL actions)" }
+            }
+            div {
+                class: "field",
+                label {
+                    class: "field__label",
+                    "AI response language"
+                }
+                input {
+                    class: "input",
+                    r#type: "text",
+                    placeholder: "English",
+                    value: "{settings.ai_response_language}",
+                    disabled: !settings.ai_features_enabled,
+                    oninput: move |event| {
+                        let mut next = section_props_signal.read().settings.clone();
+                        next.ai_response_language = event.value();
+                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                    },
+                }
+            }
+            label {
+                class: if !settings.ai_features_enabled {
+                    "settings-modal__toggle settings-modal__toggle--disabled"
+                } else {
+                    "settings-modal__toggle"
+                },
+                aria_disabled: !settings.ai_features_enabled,
+                input {
+                    r#type: "checkbox",
+                    checked: settings.ai_auto_apply_completions,
+                    disabled: !settings.ai_features_enabled,
+                    oninput: move |event| {
+                        let mut next = section_props_signal.read().settings.clone();
+                        next.ai_auto_apply_completions = event.checked();
+                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
+                    },
+                }
+                span { "Auto-apply inline AI completions (insert after a short idle pause; otherwise press Tab to accept)" }
             }
         }
     }

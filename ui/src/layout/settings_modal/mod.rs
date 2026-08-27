@@ -23,13 +23,17 @@ use models::{AppUiSettings, SqlFormatSettings};
 
 use keyboard::KeyboardSection;
 use sections::{
+    AdvancedSection,
     AppearanceSection,
-    CategoryEmptyState,
     CodeStralCompletionSection,
     ConfigSection,
+    DatabaseSection,
     DeepSeekAgentSection,
+    EditorBehaviorSection,
+    GridSection,
+    NavigationSection,
+    OllamaSection,
     SqlFormattingSection,
-    WorkspaceSection,
 };
 
 /// Top-level categories shown in the left navigation sidebar.
@@ -220,33 +224,26 @@ pub fn SettingsModal(props: SettingsModalProps) -> Element {
                                 AppearanceSection { ..section_props }
                             },
                             SettingsCategory::Database => rsx! {
-                                CategoryEmptyState {
-                                    category: *active_category.read(),
-                                    hint: "Per-database connection preferences will live here. Today, connection defaults are managed per-connection in the connect screen.",
-                                }
+                                DatabaseSection { ..section_props }
                             },
                             SettingsCategory::Editor => rsx! {
                                 SqlFormattingSection { ..section_props.clone() }
+                                EditorBehaviorSection { ..section_props.clone() }
                                 CodeStralCompletionSection { ..section_props }
                             },
                             SettingsCategory::Grid => rsx! {
-                                CategoryEmptyState {
-                                    category: *active_category.read(),
-                                    hint: "Result-grid options (row height, virtualization buffer, column defaults) will live here.",
-                                }
+                                GridSection { ..section_props }
                             },
                             SettingsCategory::Navigation => rsx! {
-                                CategoryEmptyState {
-                                    category: *active_category.read(),
-                                    hint: "Explorer, sidebar, and keybinding defaults will live here. The explorer section underneath has the controls today.",
-                                }
+                                NavigationSection { ..section_props }
                             },
                             SettingsCategory::Keyboard => rsx! {
                                 KeyboardSection { ..section_props }
                             },
                             SettingsCategory::Advanced => rsx! {
                                 DeepSeekAgentSection { ..section_props.clone() }
-                                WorkspaceSection { ..section_props }
+                                OllamaSection { ..section_props.clone() }
+                                AdvancedSection { ..section_props }
                             },
                             SettingsCategory::Config => rsx! {
                                 ConfigSection {}
@@ -259,10 +256,21 @@ pub fn SettingsModal(props: SettingsModalProps) -> Element {
     }
 }
 
+/// Restore [`AppUiSettings`] defaults while keeping API keys and keybinding
+/// overrides. Keyboard has its own Reset all; Reset UI must not clear shortcuts.
+pub(super) fn reset_ui_preserving_secrets(current: &AppUiSettings) -> AppUiSettings {
+    let mut next = AppUiSettings::default();
+    next.deepseek.api_key = current.deepseek.api_key.clone();
+    next.codestral.api_key = current.codestral.api_key.clone();
+    next.ollama.api_key = current.ollama.api_key.clone();
+    next.keybindings = current.keybindings.clone();
+    next
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use models::AppUiSettings;
+    use models::{AppUiSettings, UiDensity};
 
     /// Pure toggle helper: returns a clone of `ui` with `flag` set to `value`.
     /// Mirrors the `set_show_*` helpers in `crate::app_state` but is exposed
@@ -369,5 +377,25 @@ mod tests {
             assert!(!category.description().is_empty());
             assert!(!category.id().is_empty());
         }
+    }
+
+    #[test]
+    fn reset_ui_preserves_api_keys_and_keybindings() {
+        let mut ui = AppUiSettings::default();
+        ui.deepseek.api_key = "keep-me".into();
+        ui.codestral.api_key = "codestral-key".into();
+        ui.ollama.api_key = "ollama-key".into();
+        ui.keybindings
+            .insert("format_sql".into(), "Ctrl+Alt+F".into());
+        ui.density = UiDensity::Comfortable;
+        let next = reset_ui_preserving_secrets(&ui);
+        assert_eq!(next.deepseek.api_key, "keep-me");
+        assert_eq!(next.codestral.api_key, "codestral-key");
+        assert_eq!(next.ollama.api_key, "ollama-key");
+        assert_eq!(
+            next.keybindings.get("format_sql").map(String::as_str),
+            Some("Ctrl+Alt+F")
+        );
+        assert_eq!(next.density, UiDensity::Compact);
     }
 }

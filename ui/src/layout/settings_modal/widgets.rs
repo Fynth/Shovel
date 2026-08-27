@@ -9,7 +9,6 @@ pub fn clamp_u32(value: u32, min: u32, max: u32) -> u32 {
 }
 
 #[component]
-#[allow(dead_code)] // Appearance/Grid sections (Task 8) consume this widget
 pub fn ColorField(label: String, value: String, on_change: EventHandler<String>) -> Element {
     rsx! {
         div { class: "field",
@@ -37,7 +36,6 @@ pub fn ColorField(label: String, value: String, on_change: EventHandler<String>)
 }
 
 #[component]
-#[allow(dead_code)] // Appearance section (Task 8) consumes this widget
 pub fn FontSelect(
     label: String,
     value: String,
@@ -68,7 +66,6 @@ pub fn FontSelect(
 }
 
 #[component]
-#[allow(dead_code)] // Appearance/Editor/Grid sections (Task 8) consume this widget
 pub fn SliderField(
     label: String,
     value: u32,
