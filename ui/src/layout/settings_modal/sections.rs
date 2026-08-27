@@ -2,6 +2,7 @@ use crate::{components::tooltip_target::TooltipTarget, screens::SqlFormatSetting
 use dioxus::prelude::*;
 use models::{
     ActiveModel,
+    AiBackendId,
     AiModelEntry,
     AiProviderKind,
     AppThemePreference,
@@ -1039,6 +1040,7 @@ pub(super) fn LanguageModelsSection(props: SettingsSectionProps) -> Element {
                                     name,
                                     base_url,
                                     models: Vec::new(),
+                                    backend: AiBackendId::OpenAiCompat,
                                 });
                             });
                             custom_name.set(String::new());

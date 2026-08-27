@@ -48,18 +48,25 @@ impl Default for AiProviderOverride {
     }
 }
 
+fn default_custom_backend() -> AiBackendId {
+    AiBackendId::OpenAiCompat
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CustomNativeProvider {
     pub id: String,
     pub name: String,
     pub base_url: String,
     pub models: Vec<AiModelEntry>,
+    #[serde(default = "default_custom_backend")]
+    pub backend: AiBackendId,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AiCatalogSettings {
     pub active: Option<ActiveModel>,
+    pub active_completion: Option<ActiveModel>,
     pub overrides: BTreeMap<String, AiProviderOverride>,
     pub custom_native: Vec<CustomNativeProvider>,
 }
@@ -799,7 +806,35 @@ pub fn needs_acp_reconnect(from: &str, to: &str) -> bool {
             && from != to)
 }
 
-/// Remove a custom native provider. If it was the active model, clear `active`.
+pub fn provider_backend(provider: &str, catalog: &AiCatalogSettings) -> Option<AiBackendId> {
+    if let Some(spec) = builtin_providers()
+        .iter()
+        .find(|spec| spec.slug == provider)
+    {
+        return spec.backend;
+    }
+    if let Some(custom) = catalog
+        .custom_native
+        .iter()
+        .find(|custom| custom.id == provider)
+    {
+        return Some(custom.backend);
+    }
+    if provider.starts_with("custom:") {
+        return Some(AiBackendId::OpenAiCompat);
+    }
+    None
+}
+
+pub fn provider_offers_chat(provider: &str, catalog: &AiCatalogSettings) -> bool {
+    provider_backend(provider, catalog).is_some_and(|id| backend_capabilities(id).chat)
+}
+
+pub fn provider_offers_complete(provider: &str, catalog: &AiCatalogSettings) -> bool {
+    provider_backend(provider, catalog).is_some_and(|id| backend_capabilities(id).complete)
+}
+
+/// Remove a custom native provider. Clears `active` / `active_completion` when they point at it.
 pub fn delete_custom_provider(cat: &mut AiCatalogSettings, id: &str) {
     cat.custom_native.retain(|provider| provider.id != id);
     if cat
@@ -808,6 +843,13 @@ pub fn delete_custom_provider(cat: &mut AiCatalogSettings, id: &str) {
         .is_some_and(|active| active.provider == id)
     {
         cat.active = None;
+    }
+    if cat
+        .active_completion
+        .as_ref()
+        .is_some_and(|active| active.provider == id)
+    {
+        cat.active_completion = None;
     }
 }
 
@@ -834,6 +876,7 @@ mod tests {
                 provider: "custom:1".into(),
                 model: "m".into(),
             }),
+            active_completion: None,
             overrides: BTreeMap::new(),
             custom_native: vec![CustomNativeProvider {
                 id: "custom:1".into(),
@@ -843,11 +886,75 @@ mod tests {
                     id: "m".into(),
                     label: String::new(),
                 }],
+                backend: AiBackendId::OpenAiCompat,
             }],
         };
         delete_custom_provider(&mut cat, "custom:1");
         assert!(cat.custom_native.is_empty());
         assert!(cat.active.is_none());
+    }
+
+    #[test]
+    fn default_custom_backend_is_openai_compat() {
+        let json = r#"{"id":"custom:1","name":"Mine","base_url":"http://localhost","models":[]}"#;
+        let custom: CustomNativeProvider = serde_json::from_str(json).unwrap();
+        assert_eq!(custom.backend, AiBackendId::OpenAiCompat);
+    }
+
+    #[test]
+    fn provider_backend_reads_spec_and_custom() {
+        let mut cat = AiCatalogSettings::default();
+        cat.custom_native.push(CustomNativeProvider {
+            id: "custom:1".into(),
+            name: "Mine".into(),
+            base_url: "http://localhost".into(),
+            models: vec![],
+            backend: AiBackendId::OpenAiCompat,
+        });
+        assert_eq!(
+            provider_backend("deepseek", &cat),
+            Some(AiBackendId::OpenAiCompat)
+        );
+        assert_eq!(provider_backend("ollama", &cat), Some(AiBackendId::Ollama));
+        assert_eq!(
+            provider_backend("codestral", &cat),
+            Some(AiBackendId::MistralFim)
+        );
+        assert_eq!(
+            provider_backend("custom:1", &cat),
+            Some(AiBackendId::OpenAiCompat)
+        );
+        assert_eq!(provider_backend("acp:codex", &cat), None);
+        assert!(provider_offers_chat("openai", &cat));
+        assert!(!provider_offers_chat("codestral", &cat));
+        assert!(provider_offers_complete("codestral", &cat));
+        assert!(!provider_offers_complete("acp:codex", &cat));
+    }
+
+    #[test]
+    fn delete_custom_clears_completion_slot() {
+        let mut cat = AiCatalogSettings {
+            active: Some(ActiveModel {
+                provider: "openai".into(),
+                model: "m".into(),
+            }),
+            active_completion: Some(ActiveModel {
+                provider: "custom:1".into(),
+                model: "m".into(),
+            }),
+            overrides: BTreeMap::new(),
+            custom_native: vec![CustomNativeProvider {
+                id: "custom:1".into(),
+                name: "Mine".into(),
+                base_url: "http://localhost".into(),
+                models: vec![],
+                backend: AiBackendId::OpenAiCompat,
+            }],
+        };
+        delete_custom_provider(&mut cat, "custom:1");
+        assert!(cat.custom_native.is_empty());
+        assert_eq!(cat.active.as_ref().unwrap().provider, "openai");
+        assert!(cat.active_completion.is_none());
     }
 
     #[test]

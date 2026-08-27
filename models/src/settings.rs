@@ -1725,6 +1725,7 @@ mod tests {
                 name: "Mine".into(),
                 base_url: "http://localhost:8080".into(),
                 models: Vec::new(),
+                backend: crate::AiBackendId::OpenAiCompat,
             });
         settings.set_lm_api_key("custom:1", "sk-custom".into());
         settings.ai_catalog.active = Some(crate::ActiveModel {

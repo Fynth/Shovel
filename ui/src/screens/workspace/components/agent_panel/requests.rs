@@ -1309,7 +1309,7 @@ mod tests {
         native_base_url,
         read_only_agent_sql_blocked,
     };
-    use models::{AiProviderOverride, AppUiSettings, CustomNativeProvider};
+    use models::{AiBackendId, AiProviderOverride, AppUiSettings, CustomNativeProvider};
 
     #[test]
     fn native_base_url_prefers_custom_then_override() {
@@ -1322,6 +1322,7 @@ mod tests {
                 name: "Mine".into(),
                 base_url: "http://localhost:8080/".into(),
                 models: Vec::new(),
+                backend: AiBackendId::OpenAiCompat,
             });
         assert_eq!(
             native_base_url(&settings, "custom:1"),
