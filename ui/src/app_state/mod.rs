@@ -339,6 +339,23 @@ pub fn set_active_model(provider: String, model: String) {
     });
 }
 
+// Settings-window edits go through the `SettingsSnapshot` bridge (globals do
+// not cross VirtualDoms), so these main-window helpers are API for a future
+// in-editor completion picker.
+#[allow(dead_code)]
+pub fn set_sql_completion_provider(provider: String) {
+    update_ui_settings(|current| {
+        current.sql_completion.provider = provider;
+    });
+}
+
+#[allow(dead_code)]
+pub fn set_sql_completion_model(model: String) {
+    update_ui_settings(|current| {
+        current.sql_completion.model = model;
+    });
+}
+
 pub fn set_show_saved_queries(visible: bool) {
     update_ui_settings(|current| {
         current.show_saved_queries = visible;

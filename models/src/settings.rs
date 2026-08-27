@@ -427,6 +427,12 @@ pub struct SqlCompletionSettings {
     pub model: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SqlCompletionChoice {
+    pub id: String,
+    pub label: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppBehaviorSettings {
@@ -715,6 +721,46 @@ impl AppUiSettings {
                 &self.lm_api_key(&self.sql_completion.provider),
                 &self.ai_catalog,
             )
+    }
+
+    /// Native HTTP providers that can drive SQL ghost text (no ACP).
+    ///
+    /// Ollama may have an empty key; other builtins and `custom:*` need a key
+    /// and builtins must be enabled in the catalog.
+    pub fn sql_completion_choices(&self) -> Vec<SqlCompletionChoice> {
+        let mut choices = Vec::new();
+        for spec in crate::builtin_providers() {
+            if !crate::is_native_http_ready(
+                spec.slug,
+                &self.lm_api_key(spec.slug),
+                &self.ai_catalog,
+            ) {
+                continue;
+            }
+            choices.push(SqlCompletionChoice {
+                id: spec.slug.to_string(),
+                label: spec.label.to_string(),
+            });
+        }
+        for custom in &self.ai_catalog.custom_native {
+            if !crate::is_native_http_ready(
+                &custom.id,
+                &self.lm_api_key(&custom.id),
+                &self.ai_catalog,
+            ) {
+                continue;
+            }
+            let label = if custom.name.trim().is_empty() {
+                custom.id.clone()
+            } else {
+                custom.name.clone()
+            };
+            choices.push(SqlCompletionChoice {
+                id: custom.id.clone(),
+                label,
+            });
+        }
+        choices
     }
 
     pub fn openai_compat(&self, provider: OpenAiCompatProvider) -> &OpenAiCompatSettings {
@@ -1116,6 +1162,70 @@ mod tests {
             ..AppUiSettings::default()
         };
         assert!(!settings.sql_ghost_ready());
+    }
+
+    #[test]
+    fn sql_completion_choices_exclude_acp_and_disabled() {
+        let mut settings = AppUiSettings::default();
+        settings.ai_catalog.overrides.insert(
+            "deepseek".into(),
+            crate::AiProviderOverride {
+                enabled: true,
+                ..crate::AiProviderOverride::default()
+            },
+        );
+        settings.set_lm_api_key("deepseek", "sk-test".into());
+        let choices = settings.sql_completion_choices();
+        assert!(choices.iter().any(|c| c.id == "deepseek"));
+        assert!(choices.iter().all(|c| !c.id.starts_with("acp:")));
+    }
+
+    #[test]
+    fn sql_completion_choices_include_ollama_without_key_and_custom_with_key() {
+        let mut settings = AppUiSettings::default();
+        settings.ai_catalog.overrides.insert(
+            "ollama".into(),
+            crate::AiProviderOverride {
+                enabled: true,
+                ..crate::AiProviderOverride::default()
+            },
+        );
+        settings.ai_catalog.overrides.insert(
+            "openai".into(),
+            crate::AiProviderOverride {
+                enabled: false,
+                ..crate::AiProviderOverride::default()
+            },
+        );
+        settings.set_lm_api_key("openai", "sk-openai".into());
+        settings
+            .ai_catalog
+            .custom_native
+            .push(crate::CustomNativeProvider {
+                id: "custom:1".into(),
+                name: "Mine".into(),
+                base_url: "http://localhost:8080".into(),
+                models: Vec::new(),
+            });
+        settings.set_lm_api_key("custom:1", "sk-custom".into());
+        settings.ai_catalog.overrides.insert(
+            "acp:opencode".into(),
+            crate::AiProviderOverride {
+                enabled: true,
+                ..crate::AiProviderOverride::default()
+            },
+        );
+        settings.set_lm_api_key("acp:opencode", "sk-acp".into());
+
+        let choices = settings.sql_completion_choices();
+        assert!(choices.iter().any(|c| c.id == "ollama"));
+        assert!(
+            choices
+                .iter()
+                .any(|c| c.id == "custom:1" && c.label == "Mine")
+        );
+        assert!(choices.iter().all(|c| c.id != "openai"));
+        assert!(choices.iter().all(|c| !c.id.starts_with("acp:")));
     }
 
     #[test]

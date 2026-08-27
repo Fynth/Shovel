@@ -347,13 +347,17 @@ inline-завершениями.
 
 ### 7.3 Автодополнение
 
-- `CompletionService` (из `APP_UI_SETTINGS`) — CodeStral/DeepSeek inline
-  completion.
-- Дебаунс `COMPLETION_DEBOUNCE_MS = 180`.
-- Inline-завершение показывается как ghost-текст; принимается по **Tab** или
-  авто-вставкой после `AUTO_APPLY_IDLE_MS = 400` (если
-  `ai_auto_apply_completions`).
-- `apply_inline_completion` вставляет текст, обновляет DOM и `tabs`.
+Меню (без AI): ключевые слова диалекта + схема (схемы, таблицы, представления,
+колонки). Всплывает у каретки. **Tab** / **Enter** вставляют выбранный пункт,
+**Ctrl-Space** открывает меню, **Escape** закрывает.
+
+Ghost-текст: провайдер и модель из `sql_completion`. Стрим токенов у каретки;
+текст после каретки не затирается. **Tab** принимает ghost, только если меню
+закрыто. **Escape** отклоняет. **Alt+]** / **Alt+[** переключают варианты.
+Авто-вставки нет.
+
+Дебаунс `COMPLETION_DEBOUNCE_MS = 180`.
+`apply_inline_completion` вставляет ghost, обновляет DOM и `tabs`.
 
 ### 7.4 Контекстное меню редактора
 
@@ -369,7 +373,11 @@ query, Explain with AI (если AI включён), Save as saved query.
 - `Ctrl+/` — Toggle comment
 - `Ctrl+S` — Save as saved query
 - `Ctrl+L` — Clear editor
-- `Tab` — принять inline-завершение
+- `Tab` — принять пункт меню или ghost (если меню закрыто)
+- `Enter` — принять пункт меню (если меню открыто)
+- `Ctrl-Space` — открыть меню
+- `Escape` — закрыть меню или отклонить ghost
+- `Alt+]` / `Alt+[` — следующий / предыдущий ghost-вариант
 
 ---
 
@@ -568,7 +576,7 @@ query, Explain with AI (если AI включён), Save as saved query.
 |-----------|-----------|
 | Appearance | Тема (Dark/Light), плотность (Compact/Comfortable) |
 | Database | Плейсхолдер |
-| Editor | SQL Formatting, CodeStral Completion |
+| Editor | SQL Formatting, SQL Completion |
 | Grid | Плейсхолдер |
 | Navigation | Плейсхолдер |
 | Advanced | DeepSeek Agent, Workspace |
@@ -583,7 +591,7 @@ query, Explain with AI (если AI включён), Save as saved query.
 - Visible panels by default (saved_queries/connections/explorer/history/
   sql_editor/agent_panel/bottom_panel).
 - Editor/result split mode.
-- AI features (enable, response language, auto-apply completions).
+- AI features (enable, response language).
 
 ---
 

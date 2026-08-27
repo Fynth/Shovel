@@ -14,6 +14,7 @@ use models::{
     WorkspaceSplitMode,
     builtin_providers,
     normalize_native_chat_url,
+    resolve_picker_models,
 };
 use std::collections::BTreeMap;
 
@@ -1118,25 +1119,6 @@ pub(super) fn AdvancedSection(props: SettingsSectionProps) -> Element {
                     },
                 }
             }
-            label {
-                class: if !settings.ai_features_enabled {
-                    "settings-modal__toggle settings-modal__toggle--disabled"
-                } else {
-                    "settings-modal__toggle"
-                },
-                aria_disabled: !settings.ai_features_enabled,
-                input {
-                    r#type: "checkbox",
-                    checked: settings.ai_auto_apply_completions,
-                    disabled: !settings.ai_features_enabled,
-                    oninput: move |event| {
-                        let mut next = section_props_signal.read().settings.clone();
-                        next.ai_auto_apply_completions = event.checked();
-                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
-                    },
-                }
-                span { "Auto-apply inline AI completions (insert after a short idle pause; otherwise press Tab to accept)" }
-            }
         }
     }
 }
@@ -1189,79 +1171,116 @@ pub(super) fn SqlFormattingSection(props: SettingsSectionProps) -> Element {
     }
 }
 
+fn sql_completion_picker_models(settings: &AppUiSettings, provider: &str) -> Vec<AiModelEntry> {
+    if provider.trim().is_empty() {
+        return Vec::new();
+    }
+    if let Some(spec) = builtin_providers()
+        .iter()
+        .find(|spec| spec.slug == provider)
+    {
+        let builtin: Vec<AiModelEntry> = spec
+            .builtin_models
+            .iter()
+            .map(|(id, label)| AiModelEntry {
+                id: (*id).to_string(),
+                label: (*label).to_string(),
+            })
+            .collect();
+        let extra = settings
+            .ai_catalog
+            .overrides
+            .get(provider)
+            .map(|over| over.extra_models.as_slice())
+            .unwrap_or(&[]);
+        let hidden = settings
+            .ai_catalog
+            .overrides
+            .get(provider)
+            .map(|over| over.hidden_builtin_ids.as_slice())
+            .unwrap_or(&[]);
+        return resolve_picker_models(&builtin, extra, hidden);
+    }
+    if let Some(custom) = settings
+        .ai_catalog
+        .custom_native
+        .iter()
+        .find(|custom| custom.id == provider)
+    {
+        return resolve_picker_models(&custom.models, &[], &[]);
+    }
+    Vec::new()
+}
+
 #[component]
-pub(super) fn CodeStralCompletionSection(props: SettingsSectionProps) -> Element {
+pub(super) fn SqlCompletionSection(props: SettingsSectionProps) -> Element {
     let settings = props.settings.clone();
     let on_change = props.on_change;
     let section_props_signal = use_signal(|| props.clone());
     sync_section_props(section_props_signal, &props);
+    let choices = settings.sql_completion_choices();
+    let selected_provider = settings.sql_completion.provider.clone();
+    let picker_models = sql_completion_picker_models(&settings, &selected_provider);
+    let provider_off = selected_provider.trim().is_empty();
 
     rsx! {
         section {
             class: "settings-modal__section",
             div {
                 class: "settings-modal__section-header",
-                h3 { class: "settings-modal__section-title", "CodeStral Completion" }
+                h3 { class: "settings-modal__section-title", "SQL Completion" }
                 p {
                     class: "settings-modal__section-hint",
-                    "AI-powered SQL code completion via CodeStral API."
+                    "Tab accepts, Escape dismisses, Alt+] / Alt+[ cycle variants. Menu works without AI."
                 }
-            }
-            label {
-                class: "settings-modal__toggle",
-                input {
-                    r#type: "checkbox",
-                    checked: settings.codestral.enabled,
-                    disabled: settings.codestral.api_key.is_empty(),
-                    oninput: move |event| {
-                        let mut next = section_props_signal.read().settings.clone();
-                        next.codestral.enabled = event.checked();
-                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
-                    },
-                }
-                span { "Enable CodeStral inline completion" }
             }
             div {
                 class: "field",
-                span { class: "field__label", "API Key" }
-                input {
+                span { class: "field__label", "Provider" }
+                select {
                     class: "input",
-                    r#type: "password",
-                    placeholder: "sk-...",
-                    value: "{settings.codestral.api_key}",
-                    oninput: move |event| {
+                    value: "{settings.sql_completion.provider}",
+                    onchange: move |event| {
+                        let provider = event.value();
                         let mut next = section_props_signal.read().settings.clone();
-                        let value = event.value();
-                        next.codestral.api_key = value.clone();
-                        if value.trim().is_empty() {
-                            next.codestral.enabled = false;
+                        let models = sql_completion_picker_models(&next, &provider);
+                        next.sql_completion.provider = provider;
+                        if !models.iter().any(|model| model.id == next.sql_completion.model) {
+                            next.sql_completion.model = models
+                                .first()
+                                .map(|model| model.id.clone())
+                                .unwrap_or_default();
                         }
                         on_change.call((next, section_props_signal.read().sql_settings.clone()));
                     },
+                    option { value: "", "Off" }
+                    for choice in choices {
+                        option {
+                            key: "{choice.id}",
+                            value: "{choice.id}",
+                            "{choice.label}"
+                        }
+                    }
                 }
             }
             div {
                 class: "field",
                 span { class: "field__label", "Model" }
-                input {
+                select {
                     class: "input",
-                    placeholder: "codestral-latest",
-                    value: "{settings.codestral.model}",
-                    oninput: move |event| {
+                    value: "{settings.sql_completion.model}",
+                    disabled: provider_off,
+                    onchange: move |event| {
                         let mut next = section_props_signal.read().settings.clone();
-                        next.codestral.model = event.value();
+                        next.sql_completion.model = event.value();
                         on_change.call((next, section_props_signal.read().sql_settings.clone()));
                     },
-                }
-            }
-            if settings.codestral.api_key.is_empty() {
-                p {
-                    class: "settings-modal__section-hint",
-                    "Enter an API key to enable CodeStral completion. Get your key from "
-                    a {
-                        href: "https://codestral.mistral.ai/",
-                        target: "_blank",
-                        "codestral.mistral.ai"
+                    for model in picker_models {
+                        option {
+                            key: "{model.id}",
+                            value: "{model.id}",
+                            "{model.display_label()}"
+                        }
                     }
                 }
             }
