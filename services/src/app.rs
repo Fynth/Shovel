@@ -169,7 +169,7 @@ pub async fn save_app_ui_settings_with_secrets(settings: AppUiSettings) -> Resul
 async fn hydrate_lm_keys(settings: &mut AppUiSettings) -> Result<(), String> {
     let mut ids: Vec<String> = builtin_providers()
         .iter()
-        .filter(|spec| spec.kind == AiProviderKind::NativeHttp)
+        .filter(|spec| spec.kind() == AiProviderKind::NativeHttp)
         .map(|spec| spec.slug.to_string())
         .collect();
     for custom in &settings.ai_catalog.custom_native {

@@ -953,7 +953,7 @@ pub(super) fn LanguageModelsSection(props: SettingsSectionProps) -> Element {
     let native_specs: Vec<BuiltinProviderSpec> = builtin_providers()
         .iter()
         .copied()
-        .filter(|spec| spec.kind == AiProviderKind::NativeHttp)
+        .filter(|spec| spec.kind() == AiProviderKind::NativeHttp)
         .collect();
     let active_label = match settings.ai_catalog.active.as_ref() {
         Some(active) if !active.model.trim().is_empty() => {
@@ -1733,7 +1733,7 @@ fn native_http_provider_card(
                     },
                     "Add extra model"
                 }
-                if spec.supports_model_refresh {
+                if spec.supports_model_refresh() {
                     button {
                         class: "button button--ghost button--small",
                         onclick: move |_| {

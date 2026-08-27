@@ -10,7 +10,6 @@ use models::{
     is_native_http_ready,
     native_http_provider_enabled,
     needs_acp_reconnect,
-    provider_group,
     provider_kind,
     resolve_picker_models,
 };
@@ -545,7 +544,7 @@ fn model_display_label(settings: &AppUiSettings, active: &ActiveModel) -> String
 fn native_picker_sections(settings: &AppUiSettings) -> Vec<NativePickerSection> {
     let mut sections = Vec::new();
     for spec in builtin_providers() {
-        if spec.kind != AiProviderKind::NativeHttp {
+        if spec.kind() != AiProviderKind::NativeHttp {
             continue;
         }
         if !native_http_provider_enabled(&settings.ai_catalog, spec.slug) {
@@ -574,7 +573,7 @@ fn native_picker_sections(settings: &AppUiSettings) -> Vec<NativePickerSection> 
         sections.push(NativePickerSection {
             slug: spec.slug.to_string(),
             label: spec.label.to_string(),
-            supports_refresh: spec.supports_model_refresh,
+            supports_refresh: spec.supports_model_refresh(),
             models: resolve_picker_models(&builtin, extra, hidden),
         });
     }
@@ -618,7 +617,7 @@ fn provider_switch_rows(settings: &AppUiSettings) -> Vec<ProviderSwitchRowData> 
                 label: (*label).to_string(),
             })
             .collect();
-        let models = if spec.kind == AiProviderKind::NativeHttp {
+        let models = if spec.kind() == AiProviderKind::NativeHttp {
             resolve_picker_models(&builtin, extra, hidden)
         } else {
             Vec::new()
@@ -632,11 +631,11 @@ fn provider_switch_rows(settings: &AppUiSettings) -> Vec<ProviderSwitchRowData> 
         rows.push(ProviderSwitchRowData {
             slug: spec.slug.to_string(),
             label: spec.label.to_string(),
-            group: provider_group(spec.slug),
-            kind: spec.kind,
+            group: spec.group,
+            kind: spec.kind(),
             enabled: native_http_provider_enabled(&settings.ai_catalog, spec.slug),
             api_key: settings.lm_api_key(spec.slug),
-            supports_refresh: spec.supports_model_refresh,
+            supports_refresh: spec.supports_model_refresh(),
             models,
             active_model,
         });
@@ -671,7 +670,7 @@ fn provider_switch_rows(settings: &AppUiSettings) -> Vec<ProviderSwitchRowData> 
 fn acp_picker_agents() -> Vec<(String, String)> {
     builtin_providers()
         .iter()
-        .filter(|spec| spec.kind == AiProviderKind::Acp)
+        .filter(|spec| spec.kind() == AiProviderKind::Acp)
         .map(|spec| (spec.slug.to_string(), spec.label.to_string()))
         .collect()
 }
