@@ -8,91 +8,148 @@ For the product surface, install instructions, and supported databases, see
 
 ## Bird's-eye view
 
+Live work goes through a capability session, not a pool enum. `ui` talks to
+`services` with `session_id`. Drivers own catalog SQL, execute, decode,
+mutations, explain, and ACP introspection. `query` keeps pagination, batch,
+format, and import/export, and calls `handle.dialect()` plus `QueryExec`.
+
+`DatabaseKind` is a label and connect-form selector only: display name, default
+port, and which of the four connect forms to show. After connect, behavior is
+`Capabilities` plus the exec traits on `SessionHandle`.
+
 ```mermaid
 graph TD
-    A[app<br/>desktop entrypoint + crash reporter<br/>+ embedded ACP agent]
-    U[ui<br/>Dioxus 0.7 desktop UI]
-    S[services<br/>re-export facade]
-    M[models<br/>domain types & settings]
-    ST[storage<br/>JSON, SQLite, keyring]
-    C[connection<br/>DB connect orchestrator]
-    CS[connection-ssh<br/>SSH tunnel lifecycle]
-    E[explorer<br/>schema tree loader]
-    Q[query / query-core<br/>execute, paginate, edit,<br/>format, import/export]
-    AC[acp / acp-core<br/>agent runtime,<br/>multi-agent orchestration]
-    AR[acp-registry<br/>registry fetch + install]
-    D1[driver-sqlite]
-    D2[driver-postgres]
-    D3[driver-mysql]
-    D4[driver-clickhouse]
-    DB[database<br/>DatabaseDriver trait]
-
-    A --> U
-    A --> AC
-    U --> S
-    U --> M
-    S --> C
-    S --> E
-    S --> Q
-    S --> ST
-    S --> AC
-    C --> DB
-    C --> CS
-    C --> D1
-    C --> D2
-    C --> D3
-    C --> D4
-    Q --> D1
-    Q --> D2
-    Q --> D3
-    Q --> D4
-    AC --> D1
-    AC --> D2
-    AC --> D3
-    AC --> D4
-    AC --> AR
-    D1 --> DB
-    D2 --> DB
-    D3 --> DB
-    D4 --> DB
+    UI[ui] --> S[services]
+    UI --> M[models]
+    S --> C[connection]
+    S --> Q[query]
+    S --> E[explorer]
+    S --> ST[storage]
+    S --> AC[acp]
+    C --> DB[database]
+    C --> D[driver crates]
+    Q --> DB
+    Q --> M
+    E --> DB
+    E --> M
+    D --> DB
+    D --> M
+    AC --> DB
+    DB --> M
 ```
+
+`app` launches `ui` (desktop) or the embedded ACP agent. `connection` uses
+`connection-ssh` for tunnels. `acp` uses `acp-core` and `acp-registry`. Those
+edges are unchanged; they are omitted from the diagram so the session boundary
+stays visible.
+
+`database` depends on `models` (DTOs). `models` does not depend on `database`.
+There is no cycle.
+
+The only list of built-in drivers lives in `connection` (registration at
+`connect_to_db`). A later first-party backend is a driver crate, one factory
+arm, and a new connect form in `ui`.
+
+## Crate ownership
+
+From the driver-session spec:
+
+| Crate | Owns | Does not own |
+| --- | --- | --- |
+| `models` | `DatabaseKind`, `Capabilities`, `ConnectionRequest`, connect forms, `QueryOutput`, `DatabaseError` without sqlx | pools, sqlx, driver traits |
+| `database` | `SessionHandle`, private erasure, `Dialect`, traits `QueryExec` / `SchemaExec` / `MutateExec` / `ExplainExec` / `IntrospectExec` | concrete SQL, the pool, SSH |
+| `driver-*` | pool, catalog SQL, execute, row decode, mutations, explain, ACP introspection | pagination as a product, UI, SSH |
+| `connection` | SSH, built-in driver factory, `session_id → SessionHandle` registry | query SQL |
+| `query` | pagination, batch, format, import/export, work via `Dialect` + `QueryExec` | `driver-*`, sqlx |
+| `explorer` | proxy to `SchemaExec` | `sqlite.rs` / `postgres.rs` / `mysql.rs` modules |
+| `acp` | agent orchestration; DB context via `IntrospectExec` and `QueryExec` | match on the pool |
+| `services` | public functions that take `session_id` | |
+| `ui` | four connect forms, capabilities snapshot on `ConnectionSession` | `SessionHandle`, the pool |
 
 ## Layer rules
 
 The workspace is organized into four layers. New code should respect them.
 
 1. **Drivers** (`driver-*`, `database`)
-   - Implement the `DatabaseDriver` trait from `database`.
-   - Translate `sqlx`/HTTP errors into a `String` so higher layers do not need
-     to know about `sqlx::Error`.
-   - Never depend on `ui`, `app`, `services`, `models`, or any ACP code.
+   - `DatabaseDriver` is only the pool factory: `async fn connect(info) -> Result<Pool, Error>`.
+     `connection` uses it when constructing `SqliteSession` / `PostgresSession` /
+     `MysqlSession` / `ClickHouseSession`. It is not the query/schema/mutate API.
+   - Live work is `database::SessionHandle` (`Clone` via `Arc<dyn DriverSession>`).
+     Erasure is private. Callers use `kind()`, `capabilities()`, `dialect()`,
+     `query()`, `schema()`, `mutate()`, `explain()`, and `introspect()`.
+   - Drivers own catalog SQL, execute, row decode, mutations, explain, and ACP
+     introspection. They map `sqlx`/HTTP errors to `DatabaseError::Driver(String)`
+     so higher layers do not take a `sqlx::Error`.
+   - `database` also ships `FakeDriver` behind `feature = "fake"` for in-memory
+     tests (`query` / `services` / registry) with no sqlx.
+   - Driver crates must not depend on `ui`, `app`, `services`, or ACP code.
 
 2. **Domain & persistence** (`models`, `storage`, `explorer`, `query`,
    `connection`, `connection-ssh`)
-   - Pure Rust on top of drivers and `sqlx`/`reqwest`.
-   - `models` holds serializable types and settings. It is the only crate
-     imported by `ui` for types — never reach into driver crates from `ui`.
-   - `storage` owns local persistence: JSON files, the `shovel.db` SQLite
-     database, and the system keyring. Secrets must use `keyring`; there is
-     intentionally no plaintext fallback.
+   - `models` holds serializable types, settings, `Capabilities`, connect forms,
+     `QueryOutput`, and `DatabaseError` (`Driver`, `Tunnel`, `Unsupported`,
+     `SessionNotFound`). It does not depend on sqlx and does not store a pool.
+     `ConnectionSession` is `id`, `name`, `kind`, `request`, `capabilities`.
+   - `storage` owns local persistence: JSON files, `shovel.db`, and the system
+     keyring. Secrets must use `keyring`; there is intentionally no plaintext
+     fallback. Live pools are not serialized.
+   - `connection` opens SSH tunnels, constructs the built-in `*Session` types,
+     and holds `RwLock<HashMap<u64, SessionHandle>>`. `connect_to_db` returns a
+     handle; it does not register it. `app_state` allocates `session_id` and
+     calls `register_session`. Lookup for `query` / `explorer` / `acp` is only
+     through `services`.
+   - `query` builds paginated SQL with `handle.dialect()` and runs it with
+     `handle.query()`. Format, batch, and import/export stay here. Production
+     `query` does not depend on `driver-*` or sqlx.
+   - `explorer` is a thin proxy to `handle.schema()`.
 
 3. **AI runtime** (`acp-core`, `acp`, `acp-registry`)
    - `acp-core` is a DB-independent ACP runtime: DeepSeek/Ollama bridges,
      specialist agents, JSON-RPC transport.
-   - `acp` adds DB context, schema introspection, and the optional embedding
-     cache (`feature = "embedding"`).
+   - `acp` adds DB context through `handle.introspect()` when present, and can
+     always send SQL through `handle.query()`. Missing introspect means a
+     context without locks / active queries, not a connect error.
    - `acp-registry` is a separate crate so the registry format can evolve
      independently of the runtime.
 
 4. **Facade & UI** (`services`, `ui`, `app`)
-   - `services` is a thin re-export facade. It is the only crate the UI is
-     expected to import operation calls from. New operational functions belong
-     in their domain crate first, then get re-exported here.
+   - `services` is the session_id API. Operational calls look up the handle or
+     return `DatabaseError::SessionNotFound`. New functions belong in their
+     domain crate first (`query`, `explorer`, `connection`, `storage`, `acp`),
+     then get a `session_id` wrapper here.
    - `ui` may import `models` and `services` freely. It must not import
-     `connection`, `explorer`, `query`, `storage`, or `acp` directly.
+     `connection`, `explorer`, `query`, `storage`, `database`, or `acp`
+     directly, and must not hold a pool or `SessionHandle` on
+     `ConnectionSession`. Workspace edit / explain / import buttons read the
+     capabilities snapshot, not `DatabaseKind`.
    - `app` is the desktop binary. It owns the launch sequence, the window
      configuration, the crash reporter, and the embedded ACP agent mode
      (`shovel acp-agent deepseek|ollama ...`).
+
+## SessionHandle and capabilities
+
+```text
+SessionHandle { Arc<dyn DriverSession> }
+  kind() / capabilities() / dialect()
+  query() -> &dyn QueryExec
+  schema() -> &dyn SchemaExec
+  mutate() -> Option<&dyn MutateExec>
+  explain() -> Option<&dyn ExplainExec>
+  introspect() -> Option<&dyn IntrospectExec>
+```
+
+Invariants on every built-in driver:
+
+- `capabilities.row_editing == mutate().is_some()`
+- `capabilities.explain == explain().is_some()`
+
+`import_csv` is independent of `row_editing`. ClickHouse can import CSV and
+does not implement `MutateExec`; there is no stub `update_cell`. If a call
+reaches an absent capability, the handle returns `DatabaseError::Unsupported`.
+
+`Dialect` is a `Copy` struct of function pointers (`quote_identifier`,
+`filter_expression`) plus `format_flavor` (`Postgres` | `Generic`) so
+`format_sql` does not match `DatabaseKind`.
 
 ## Runtime flow
 
@@ -129,7 +186,7 @@ instead of the workspace.
 ### Connection lifecycle
 
 `connection::connect_to_db` is the single entry point for opening a live
-connection.
+connection. It returns `SessionHandle`. It does not insert into the registry.
 
 - SQLite connects directly.
 - PostgreSQL, MySQL, and ClickHouse can be routed through an SSH tunnel.
@@ -138,25 +195,54 @@ connection.
 - Each tunnel is registered by session identity key and released via
   `services::release_ssh_tunnel` when the session is removed.
 
-When a session is removed, both the SSH tunnel and the saved connection
-metadata are cleaned up. UI code should go through
-`app_state::remove_session` rather than calling `release_ssh_tunnel` directly.
+Connect path:
+
+1. UI collects one of the four forms → `ConnectionRequest`.
+2. `services::connect_and_save_request` calls `connection::connect_to_db`
+   (SSH if needed, then the driver factory on `request.kind()`).
+3. `app_state` allocates `session_id`, copies `handle.capabilities()` onto
+   `ConnectionSession`, and calls `register_session`.
+4. Passwords stay in the keyring. The pool is not stored in `models` or UI.
+
+Restore on launch replays saved `ConnectionRequest`s through `connect_to_db`.
+The pool is not serializable.
+
+Remove a session only through `app_state::remove_session`: unregister the
+handle, `release_ssh_tunnel`, drop the pool. UI must not call the driver
+directly. Clone the handle (Arc) from the registry before any `.await`; do
+not hold the registry lock across await.
+
+### services session_id API
+
+`query`, `explorer`, and `acp` take `&SessionHandle`. `ui` and windows pass
+`session_id`. `services` looks up the handle:
+
+```text
+execute_query_page(session_id, sql, page_size, offset, filter, sort)
+load_connection_tree(session_id)
+build_acp_database_context(session_id)
+```
+
+Missing id → `DatabaseError::SessionNotFound`. Import requires
+`capabilities.import_csv`; otherwise `Unsupported`, not a ClickHouse branch.
 
 ### Query execution and table editing
 
-`query` re-exports three sub-crates:
+`query` is one crate with modules `core`, `format`, and `io`:
 
-- `query-core` — `execute_query`, `execute_query_page`, `load_table_preview_page`,
+- `core` — `execute_query`, `execute_query_page`, `load_table_preview_page`,
   `insert_table_row`, `update_table_cell`, `delete_table_row`,
   `create_table`, `drop_table`, `duplicate_table`, `truncate_table`,
   `next_table_primary_key_id`, `execute_explain`,
   `preview_source_for_sql`, `is_read_only_sql`.
-- `query-format` — `format_sql`.
-- `query-io` — `export_query_page_csv/json/xlsx/xml/html/sql_dump` and
+- `format` — `format_sql` (flavor from `handle.dialect()`).
+- `io` — `export_query_page_csv/json/xlsx/xml/html/sql_dump` and
   `import_csv_into_table`.
 
-Editable table workflows are only supported for SQLite, PostgreSQL, and MySQL
-today. ClickHouse supports connect/explore/query/export but not row editing.
+Pagination SQL is built in `query`. Drivers execute the built SQL and decode
+rows. Editable table workflows follow `capabilities.row_editing` (SQLite,
+PostgreSQL, MySQL today). ClickHouse supports connect/explore/query/export
+and CSV import, but not row editing.
 
 ### ACP runtime
 
@@ -181,6 +267,11 @@ directly.
 ## Persistence model
 
 All local app data lives under `dirs::data_local_dir()/shovel/`.
+
+Live connections are **not** persisted. The in-memory registry in `connection`
+holds `session_id → SessionHandle` for the process lifetime. `session_state.json`
+stores open `ConnectionRequest`s and the active connection key; restore
+reconnects.
 
 | Path | Owner | Contents |
 | --- | --- | --- |
@@ -229,7 +320,7 @@ Rust build steps in CI.
   `ui/src/screens/workspace/mod.rs`, and one or more files under
   `ui/src/screens/workspace/components/`.
 - **Connection or driver work** belongs in `connection`, `connection-ssh`,
-  or the relevant `driver-*` crate. UI callers should not change.
+  or the relevant `driver-*` crate. UI callers keep passing `session_id`.
 - **ACP work** belongs in `acp-core` for transport/agents and `acp` for
   DB-aware features. Update `services` re-exports if the new public function
   needs to be reachable from `ui`.
