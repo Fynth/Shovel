@@ -1,5 +1,3 @@
-#![cfg_attr(not(test), allow(dead_code))]
-
 use std::ops::Range;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,6 +18,7 @@ pub struct CompletionQuery {
     pub dotted: Vec<String>,
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn parse_completion_query(sql: &str, cursor: usize) -> CompletionQuery {
     let cursor = clamp_to_char_boundary(sql, cursor);
     let (token, token_range) = scan_token(sql, cursor);

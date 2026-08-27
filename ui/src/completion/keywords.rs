@@ -1,12 +1,9 @@
-#![cfg_attr(not(test), allow(dead_code))]
-
 use std::ops::Range;
 
 use models::DatabaseKind;
 
 use super::query::CompletionQuery;
 
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CompletionKind {
     Keyword,
