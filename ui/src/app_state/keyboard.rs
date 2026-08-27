@@ -210,7 +210,6 @@ pub fn parse_combo(combo: &str) -> Option<(Key, Modifiers)> {
 
 /// Build a `"Ctrl+Shift+F"`-style combo string from a key event.
 /// Returns `None` for lone modifier keys so the recorder can ignore them.
-#[allow(dead_code)] // consumed by KeyCapture in a later settings task
 pub fn combo_from_event(key: &Key, modifiers: Modifiers) -> Option<String> {
     if matches!(key, Key::Control | Key::Shift | Key::Alt | Key::Meta) {
         return None;

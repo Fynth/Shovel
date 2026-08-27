@@ -199,6 +199,23 @@
   );
 }
 
+.settings-modal__slider {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: $spacing-sm;
+
+  input[type="range"] {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  input[type="number"] {
+    width: 64px;
+    flex: 0 0 64px;
+  }
+}
+
 // Toggle rows: clickable card with hover, focus, and disabled feedback.
 .settings-modal__toggle {
   display: grid;
