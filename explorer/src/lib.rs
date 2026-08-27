@@ -1,11 +1,9 @@
-use database::{DatabaseDriver, LiveConnection};
+use database::{DatabaseDriver, LiveConnection, SessionHandle};
 use driver_clickhouse::ClickHouseDriver;
 use models::{DatabaseError, ExplorerNode, ExplorerNodeKind, QueryOutput};
-use sqlx::Row;
 
 mod mysql;
 mod postgres;
-mod sqlite;
 
 pub use mysql::{
     describe_table_mysql,
@@ -21,24 +19,24 @@ pub use postgres::{
     load_object_ddl_postgres,
     load_table_columns_postgres,
 };
-pub use sqlite::{
-    describe_table_sqlite,
-    load_connection_tree_sqlite,
-    load_foreign_keys_sqlite,
-    load_object_ddl_sqlite,
-    load_table_columns_sqlite,
-};
 
 pub async fn describe_table(
-    connection: LiveConnection,
+    handle: &SessionHandle,
     schema: Option<String>,
     table: String,
 ) -> Result<QueryOutput, DatabaseError> {
-    match connection {
-        LiveConnection::Sqlite(pool) => describe_table_sqlite(&pool, schema, table).await,
-        LiveConnection::Postgres(pool) => describe_table_postgres(&pool, schema, table).await,
-        LiveConnection::MySql(pool) => describe_table_mysql(&pool, schema, table).await,
-        LiveConnection::ClickHouse(config) => {
+    match handle
+        .schema()
+        .describe_table(schema.clone(), table.clone())
+        .await
+    {
+        Err(DatabaseError::Unsupported(_)) => {}
+        result => return result,
+    }
+    match handle.legacy() {
+        Some(LiveConnection::Postgres(pool)) => describe_table_postgres(&pool, schema, table).await,
+        Some(LiveConnection::MySql(pool)) => describe_table_mysql(&pool, schema, table).await,
+        Some(LiveConnection::ClickHouse(config)) => {
             let schema_name = schema.unwrap_or_else(|| config.database.clone());
             let mut rows = Vec::new();
 
@@ -155,19 +153,28 @@ pub async fn describe_table(
 
             Ok(QueryOutput::Table(structure_page(rows)))
         }
+        _ => schema_unsupported(),
     }
 }
 
 pub async fn load_table_columns(
-    connection: LiveConnection,
+    handle: &SessionHandle,
     schema: Option<String>,
     table: String,
 ) -> Result<Vec<String>, DatabaseError> {
-    match connection {
-        LiveConnection::Sqlite(pool) => load_table_columns_sqlite(&pool, schema, table).await,
-        LiveConnection::Postgres(pool) => load_table_columns_postgres(&pool, schema, table).await,
-        LiveConnection::MySql(pool) => load_table_columns_mysql(&pool, schema, table).await,
-        LiveConnection::ClickHouse(config) => {
+    match handle
+        .schema()
+        .load_table_columns(schema.clone(), table.clone())
+        .await
+    {
+        Err(DatabaseError::Unsupported(_)) => {}
+        result => return result,
+    }
+    match handle.legacy() {
+        Some(LiveConnection::Postgres(pool)) =>
+            load_table_columns_postgres(&pool, schema, table).await,
+        Some(LiveConnection::MySql(pool)) => load_table_columns_mysql(&pool, schema, table).await,
+        Some(LiveConnection::ClickHouse(config)) => {
             let schema_name = schema.unwrap_or_else(|| config.database.clone());
             let sql = format!(
                 "select name from system.columns where database = {} and table = {} order by position",
@@ -182,17 +189,21 @@ pub async fn load_table_columns(
                 .filter_map(|row| row.first().map(clickhouse_json_value_to_string))
                 .collect())
         }
+        _ => schema_unsupported(),
     }
 }
 
 pub async fn load_connection_tree(
-    connection: LiveConnection,
+    handle: &SessionHandle,
 ) -> Result<Vec<ExplorerNode>, DatabaseError> {
-    match connection {
-        LiveConnection::Sqlite(pool) => load_connection_tree_sqlite(&pool).await,
-        LiveConnection::Postgres(pool) => load_connection_tree_postgres(&pool).await,
-        LiveConnection::MySql(pool) => load_connection_tree_mysql(&pool).await,
-        LiveConnection::ClickHouse(config) => {
+    match handle.schema().load_connection_tree().await {
+        Err(DatabaseError::Unsupported(_)) => {}
+        result => return result,
+    }
+    match handle.legacy() {
+        Some(LiveConnection::Postgres(pool)) => load_connection_tree_postgres(&pool).await,
+        Some(LiveConnection::MySql(pool)) => load_connection_tree_mysql(&pool).await,
+        Some(LiveConnection::ClickHouse(config)) => {
             let response = ClickHouseDriver
                 .execute_json_query(
                     &config,
@@ -256,19 +267,24 @@ pub async fn load_connection_tree(
                 })
                 .collect())
         }
+        _ => schema_unsupported(),
     }
 }
 
 /// Загружает внешние ключи подключения для ER-диаграммы.
 /// ClickHouse не поддерживает FK — возвращаем пустой список.
 pub async fn load_foreign_keys(
-    connection: LiveConnection,
+    handle: &SessionHandle,
 ) -> Result<Vec<models::TableForeignKey>, DatabaseError> {
-    match connection {
-        LiveConnection::Sqlite(pool) => load_foreign_keys_sqlite(&pool).await,
-        LiveConnection::Postgres(pool) => load_foreign_keys_postgres(&pool).await,
-        LiveConnection::MySql(pool) => load_foreign_keys_mysql(&pool).await,
-        LiveConnection::ClickHouse(_) => Ok(Vec::new()),
+    match handle.schema().load_foreign_keys().await {
+        Err(DatabaseError::Unsupported(_)) => {}
+        result => return result,
+    }
+    match handle.legacy() {
+        Some(LiveConnection::Postgres(pool)) => load_foreign_keys_postgres(&pool).await,
+        Some(LiveConnection::MySql(pool)) => load_foreign_keys_mysql(&pool).await,
+        Some(LiveConnection::ClickHouse(_)) => Ok(Vec::new()),
+        _ => schema_unsupported(),
     }
 }
 
@@ -276,17 +292,25 @@ pub async fn load_foreign_keys(
 /// не найден. Для PG таблиц DDL реконструируется, для остальных — точный
 /// текст из системного каталога.
 pub async fn load_object_ddl(
-    connection: LiveConnection,
+    handle: &SessionHandle,
     schema: Option<String>,
     object: String,
     kind: models::ExplorerNodeKind,
 ) -> Result<Option<String>, DatabaseError> {
-    match connection {
-        LiveConnection::Sqlite(pool) => load_object_ddl_sqlite(&pool, schema, object, kind).await,
-        LiveConnection::Postgres(pool) =>
+    match handle
+        .schema()
+        .load_object_ddl(schema.clone(), object.clone(), kind)
+        .await
+    {
+        Err(DatabaseError::Unsupported(_)) => {}
+        result => return result,
+    }
+    match handle.legacy() {
+        Some(LiveConnection::Postgres(pool)) =>
             load_object_ddl_postgres(&pool, schema, object, kind).await,
-        LiveConnection::MySql(pool) => load_object_ddl_mysql(&pool, schema, object, kind).await,
-        LiveConnection::ClickHouse(config) => {
+        Some(LiveConnection::MySql(pool)) =>
+            load_object_ddl_mysql(&pool, schema, object, kind).await,
+        Some(LiveConnection::ClickHouse(config)) => {
             let schema_name = schema.unwrap_or_else(|| config.database.clone());
             let sql = format!(
                 "select create_table_query from system.tables where database = {} and name = {}",
@@ -301,27 +325,14 @@ pub async fn load_object_ddl(
                 .and_then(|row| row.first().map(clickhouse_json_value_to_string))
                 .filter(|s| !s.trim().is_empty()))
         }
+        _ => schema_unsupported(),
     }
 }
 
-async fn load_sqlite_index_columns(
-    pool: &sqlx::SqlitePool,
-    schema_name: &str,
-    index_name: &str,
-) -> Result<Vec<String>, DatabaseError> {
-    let sql = format!(
-        "PRAGMA {}.index_info({})",
-        quote_identifier(schema_name),
-        quote_identifier(index_name)
-    );
-    let rows = sqlx::query(&sql)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-    Ok(rows
-        .into_iter()
-        .filter_map(|row| row.try_get::<String, _>("name").ok())
-        .collect())
+fn schema_unsupported<T>() -> Result<T, DatabaseError> {
+    Err(DatabaseError::Unsupported(
+        "schema exec is not implemented for this session".into(),
+    ))
 }
 
 fn structure_page(rows: Vec<Vec<String>>) -> models::QueryPage {

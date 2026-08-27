@@ -1,6 +1,7 @@
 mod explain;
 mod mutate;
 mod rows;
+mod schema;
 mod session;
 
 pub use session::SqliteSession;
@@ -65,5 +66,26 @@ mod tests {
             QueryOutput::Table(page) => assert_eq!(page.rows.len(), 1),
             other => panic!("{other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn sqlite_session_lists_created_table() {
+        let pool = SqliteDriver::connect(":memory:".into()).await.unwrap();
+        sqlx::query("create table items (id integer)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let handle = SessionHandle::wrap(Arc::new(SqliteSession { pool }));
+        let tree = handle.schema().load_connection_tree().await.unwrap();
+        assert!(
+            tree_contains_name(&tree, "items"),
+            "expected items in {tree:?}"
+        );
+    }
+
+    fn tree_contains_name(nodes: &[models::ExplorerNode], needle: &str) -> bool {
+        nodes
+            .iter()
+            .any(|n| n.name.contains(needle) || tree_contains_name(&n.children, needle))
     }
 }

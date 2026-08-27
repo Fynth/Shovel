@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use database::{LiveConnection, SessionHandle};
+use database::SessionHandle;
 use models::{
     DatabaseError,
     ExplorerNode,
@@ -143,7 +143,7 @@ async fn append_execution_history(lines: &mut Vec<String>) {
 
 /// Append performance metrics placeholder.
 /// For full introspection metrics, use `build_full_ai_context` with introspection data.
-async fn append_performance_metrics(_lines: &mut Vec<String>, _connection: &LiveConnection) {
+async fn append_performance_metrics(_lines: &mut Vec<String>, _handle: &SessionHandle) {
     // This is a placeholder - actual introspection metrics are added via
     // `append_introspection_metrics` when calling `build_full_ai_context`
 }
@@ -238,11 +238,11 @@ pub fn append_introspection_metrics(
 }
 
 pub async fn build_acp_database_context(
-    connection: LiveConnection,
+    handle: &SessionHandle,
     connection_label: String,
     focus_source: Option<TablePreviewSource>,
 ) -> Result<String, DatabaseError> {
-    let tree = load_connection_tree(connection.clone()).await?;
+    let tree = load_connection_tree(handle).await?;
     let all_sources = collect_table_sources(&tree);
     let prioritized_sources = prioritize_table_sources(all_sources, focus_source.clone());
     let preview_sources = prioritized_sources
@@ -260,13 +260,9 @@ pub async fn build_acp_database_context(
         ));
     }
 
-    let schema_lines = load_or_build_schema_context_lines(
-        connection.clone(),
-        &connection_label,
-        &tree,
-        &prioritized_sources,
-    )
-    .await?;
+    let schema_lines =
+        load_or_build_schema_context_lines(handle, &connection_label, &tree, &prioritized_sources)
+            .await?;
     if !schema_lines.is_empty() {
         lines.push(String::new());
         lines.extend(schema_lines);
@@ -284,15 +280,14 @@ pub async fn build_acp_database_context(
         let is_active_focus = focus_source
             .as_ref()
             .is_some_and(|focus| same_source(focus, &source));
-        append_relation_preview_profile(&mut lines, connection.clone(), source, is_active_focus)
-            .await;
+        append_relation_preview_profile(&mut lines, handle, source, is_active_focus).await;
     }
 
     // Add execution history
     append_execution_history(&mut lines).await;
 
     // Add performance metrics placeholder
-    append_performance_metrics(&mut lines, &connection).await;
+    append_performance_metrics(&mut lines, handle).await;
 
     let context = lines.join("\n");
     check_token_budget(&context, "build_acp_database_context");
@@ -303,7 +298,7 @@ pub async fn build_acp_database_context(
 /// Build full AI context combining schema, history, metrics, and introspection data.
 /// This function includes caching with 90s TTL.
 pub async fn build_full_ai_context(
-    connection: LiveConnection,
+    handle: &SessionHandle,
     connection_label: String,
     focus_source: Option<TablePreviewSource>,
     introspection: Option<&crate::introspection::IntrospectionResult>,
@@ -323,7 +318,7 @@ pub async fn build_full_ai_context(
     // Build base context
     let mut lines = vec![format!("Active database connection: {connection_label}")];
 
-    let tree = load_connection_tree(connection.clone()).await?;
+    let tree = load_connection_tree(handle).await?;
     append_catalog_summary(&mut lines, &tree);
 
     if let Some(focus_source) = focus_source.as_ref() {
@@ -336,13 +331,9 @@ pub async fn build_full_ai_context(
     // Add schema
     let all_sources = collect_table_sources(&tree);
     let prioritized_sources = prioritize_table_sources(all_sources, focus_source.clone());
-    let schema_lines = load_or_build_schema_context_lines(
-        connection.clone(),
-        &connection_label,
-        &tree,
-        &prioritized_sources,
-    )
-    .await?;
+    let schema_lines =
+        load_or_build_schema_context_lines(handle, &connection_label, &tree, &prioritized_sources)
+            .await?;
     if !schema_lines.is_empty() {
         lines.push(String::new());
         lines.extend(schema_lines);
@@ -366,8 +357,7 @@ pub async fn build_full_ai_context(
         let is_active_focus = focus_source
             .as_ref()
             .is_some_and(|focus| same_source(focus, &source));
-        append_relation_preview_profile(&mut lines, connection.clone(), source, is_active_focus)
-            .await;
+        append_relation_preview_profile(&mut lines, handle, source, is_active_focus).await;
     }
 
     // Add execution history
@@ -397,18 +387,17 @@ pub async fn build_full_ai_context(
 }
 
 pub async fn warm_acp_database_schema_context(
-    connection: LiveConnection,
+    handle: &SessionHandle,
     connection_label: String,
 ) -> Result<(), DatabaseError> {
-    let tree = load_connection_tree(connection.clone()).await?;
+    let tree = load_connection_tree(handle).await?;
     let sources = collect_table_sources(&tree);
-    let _ =
-        load_or_build_schema_context_lines(connection, &connection_label, &tree, &sources).await?;
+    let _ = load_or_build_schema_context_lines(handle, &connection_label, &tree, &sources).await?;
     Ok(())
 }
 
 async fn load_or_build_schema_context_lines(
-    connection: LiveConnection,
+    handle: &SessionHandle,
     connection_label: &str,
     tree: &[ExplorerNode],
     sources: &[TablePreviewSource],
@@ -432,7 +421,7 @@ async fn load_or_build_schema_context_lines(
     }
 
     for source in sources {
-        append_relation_schema_profile(&mut lines, connection.clone(), source.clone()).await;
+        append_relation_schema_profile(&mut lines, handle, source.clone()).await;
     }
 
     if let Ok(mut cache) = schema_context_cache().lock() {
@@ -451,18 +440,12 @@ async fn load_or_build_schema_context_lines(
 
 async fn append_relation_schema_profile(
     lines: &mut Vec<String>,
-    connection: LiveConnection,
+    handle: &SessionHandle,
     source: TablePreviewSource,
 ) {
     lines.push(format!("- {}", source.qualified_name));
 
-    match describe_table(
-        connection.clone(),
-        source.schema.clone(),
-        source.table_name.clone(),
-    )
-    .await
-    {
+    match describe_table(handle, source.schema.clone(), source.table_name.clone()).await {
         Ok(QueryOutput::Table(page)) => append_structure_profile(lines, &page, true),
         Ok(QueryOutput::AffectedRows(_)) => {
             lines.push("  structure: <non-tabular response>".to_string());
@@ -475,22 +458,13 @@ async fn append_relation_schema_profile(
 
 async fn append_relation_preview_profile(
     lines: &mut Vec<String>,
-    connection: LiveConnection,
+    handle: &SessionHandle,
     source: TablePreviewSource,
     is_active_focus: bool,
 ) {
     lines.push(relation_heading(&source, is_active_focus));
 
-    match load_table_preview_page(
-        &SessionHandle::from_legacy(connection),
-        source,
-        MAX_CONTEXT_ROWS as u32,
-        0,
-        None,
-        None,
-    )
-    .await
-    {
+    match load_table_preview_page(handle, source, MAX_CONTEXT_ROWS as u32, 0, None, None).await {
         Ok(QueryOutput::Table(page)) => {
             append_page_preview(lines, &page);
             append_observed_values(lines, &page);

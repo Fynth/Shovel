@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use database::{LiveConnection, SessionHandle};
+use database::SessionHandle;
 use models::{
     DatabaseError,
     ExecutionPlan,
@@ -16,12 +16,6 @@ use models::{
 
 fn session_handle(session_id: u64) -> Result<SessionHandle, DatabaseError> {
     connection::session(session_id).ok_or(DatabaseError::SessionNotFound(session_id))
-}
-
-fn live_connection(session_id: u64) -> Result<LiveConnection, DatabaseError> {
-    session_handle(session_id)?
-        .legacy()
-        .ok_or_else(|| DatabaseError::Unsupported("session has no live connection".into()))
 }
 
 pub fn format_sql_for_session(
@@ -203,7 +197,7 @@ pub async fn describe_table(
     schema: Option<String>,
     table: String,
 ) -> Result<QueryOutput, DatabaseError> {
-    explorer::describe_table(live_connection(session_id)?, schema, table).await
+    explorer::describe_table(&session_handle(session_id)?, schema, table).await
 }
 
 pub async fn load_table_columns(
@@ -211,15 +205,15 @@ pub async fn load_table_columns(
     schema: Option<String>,
     table: String,
 ) -> Result<Vec<String>, DatabaseError> {
-    explorer::load_table_columns(live_connection(session_id)?, schema, table).await
+    explorer::load_table_columns(&session_handle(session_id)?, schema, table).await
 }
 
 pub async fn load_connection_tree(session_id: u64) -> Result<Vec<ExplorerNode>, DatabaseError> {
-    explorer::load_connection_tree(live_connection(session_id)?).await
+    explorer::load_connection_tree(&session_handle(session_id)?).await
 }
 
 pub async fn load_foreign_keys(session_id: u64) -> Result<Vec<TableForeignKey>, DatabaseError> {
-    explorer::load_foreign_keys(live_connection(session_id)?).await
+    explorer::load_foreign_keys(&session_handle(session_id)?).await
 }
 
 pub async fn load_object_ddl(
@@ -228,7 +222,7 @@ pub async fn load_object_ddl(
     object: String,
     kind: ExplorerNodeKind,
 ) -> Result<Option<String>, DatabaseError> {
-    explorer::load_object_ddl(live_connection(session_id)?, schema, object, kind).await
+    explorer::load_object_ddl(&session_handle(session_id)?, schema, object, kind).await
 }
 
 pub async fn build_acp_database_context(
@@ -236,7 +230,7 @@ pub async fn build_acp_database_context(
     connection_label: String,
     focus_source: Option<TablePreviewSource>,
 ) -> Result<String, DatabaseError> {
-    acp::build_acp_database_context(live_connection(session_id)?, connection_label, focus_source)
+    acp::build_acp_database_context(&session_handle(session_id)?, connection_label, focus_source)
         .await
 }
 
@@ -244,5 +238,5 @@ pub async fn warm_acp_database_schema_context(
     session_id: u64,
     connection_label: String,
 ) -> Result<(), DatabaseError> {
-    acp::warm_acp_database_schema_context(live_connection(session_id)?, connection_label).await
+    acp::warm_acp_database_schema_context(&session_handle(session_id)?, connection_label).await
 }
