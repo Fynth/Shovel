@@ -2172,6 +2172,21 @@ select.input:focus-visible {
   background: color-mix(in srgb, var(--color-surface-contrast, var(--color-panel-2)) 56%, transparent);
 }
 
+.settings-modal__slider {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+.settings-modal__slider input[type=range] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.settings-modal__slider input[type=number] {
+  width: 64px;
+  flex: 0 0 64px;
+}
+
 .settings-modal__toggle {
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr);
@@ -4595,6 +4610,8 @@ select.input:focus-visible {
 
 .sql-editor {
   position: relative;
+  display: flex;
+  line-height: 1.64;
   min-height: 0;
   height: 100%;
   border: 1px solid color-mix(in srgb, var(--glass-border) 70%, var(--color-border));
@@ -4616,7 +4633,26 @@ select.input:focus-visible {
   mask-image: linear-gradient(180deg, black, transparent 82%);
 }
 
-.sql-editor__viewport,
+.sql-editor__gutter {
+  flex: 0 0 36px;
+  z-index: 1;
+  overflow: hidden;
+  text-align: right;
+  padding: 0 6px 0 0;
+  color: var(--color-text-dim);
+  font-family: var(--font-mono, monospace);
+  font-size: inherit;
+  line-height: inherit;
+  user-select: none;
+}
+.sql-editor__gutter span {
+  display: block;
+}
+
+.sql-editor__gutter-inner {
+  padding-top: 18px;
+}
+
 .sql-editor__input {
   width: 100%;
   height: 100%;
@@ -4624,8 +4660,12 @@ select.input:focus-visible {
 }
 
 .sql-editor__viewport {
-  position: absolute;
-  inset: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  position: relative;
+  z-index: 1;
   overflow: hidden;
   pointer-events: none;
   contain: paint;
@@ -4646,6 +4686,10 @@ select.input:focus-visible {
 }
 
 .sql-editor__highlight {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
   min-height: 100%;
   color: var(--editor-token-plain);
   will-change: transform;
@@ -4664,6 +4708,12 @@ select.input:focus-visible {
   .editor {
     min-height: 96px;
   }
+  .sql-editor {
+    line-height: 1.5;
+  }
+  .sql-editor__gutter-inner {
+    padding-top: 12px;
+  }
   .sql-editor__highlight,
 .sql-editor__input {
     padding: 12px 14px;
@@ -4674,6 +4724,12 @@ select.input:focus-visible {
 @media (max-height: 720px) {
   .editor {
     min-height: 80px;
+  }
+  .sql-editor {
+    line-height: 1.45;
+  }
+  .sql-editor__gutter-inner {
+    padding-top: 8px;
   }
   .sql-editor__highlight,
 .sql-editor__input {
@@ -4697,6 +4753,7 @@ select.input:focus-visible {
 .sql-editor__input {
   position: relative;
   z-index: 2;
+  pointer-events: auto;
   resize: none;
   border: none;
   background: transparent;
@@ -6578,8 +6635,8 @@ select.input:focus-visible {
   background: var(--grid-row-hover);
 }
 
-.results__row:nth-child(even) {
-  background: color-mix(in srgb, var(--color-surface-contrast, var(--color-panel-2)) 22%, transparent);
+.results__row--stripe td {
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
 }
 
 .results__row--selected {
@@ -6609,6 +6666,16 @@ select.input:focus-visible {
 
 .results__cell:last-child {
   border-right: 0;
+}
+
+.results__cell--wrap {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.results__cell--wrap .results__cell-content {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .results__cell-content {
