@@ -118,6 +118,7 @@ impl CompletionRuntime {
         self.pending_snapshot = Some(snapshot);
         self.active = None;
         self.variants.clear_if_changed(snapshot);
+        self.cycle_in_flight = false;
         self.request_id
     }
 
@@ -189,6 +190,19 @@ impl CompletionRuntime {
     fn abort_cycle_fetch(&mut self, request_id: u64) {
         if self.request_id == request_id {
             self.cycle_in_flight = false;
+        }
+    }
+
+    /// Returns whether this cycle spawn still owns the runtime. A stale
+    /// `request_id` (new ghost request, dismiss) aborts the cycle. When the
+    /// id already moved, `begin_request` / dismiss have cleared the flag;
+    /// `abort_cycle_fetch` is still invoked so this path never skips abort.
+    fn cycle_still_current(&mut self, request_id: u64) -> bool {
+        if self.request_id != request_id || self.discarded {
+            self.abort_cycle_fetch(request_id);
+            false
+        } else {
+            true
         }
     }
 
@@ -443,9 +457,7 @@ fn cycle_ghost_next(
         let mut token_rx = stream_sql_ghost(&settings, prefix, suffix, schema_ctx, &avoid);
         let mut accumulated = String::new();
         while let Some(token) = token_rx.recv().await {
-            if completion_runtime.peek().request_id != request_id
-                || completion_runtime.peek().discarded
-            {
+            if !completion_runtime.with_mut(|state| state.cycle_still_current(request_id)) {
                 return;
             }
             match token {
@@ -862,6 +874,26 @@ mod tests {
             Some("from orders")
         );
         assert!(runtime.begin_cycle_fetch().is_some());
+    }
+
+    #[test]
+    fn abandoned_cycle_path_clears_in_flight_and_allows_later_fetch() {
+        let mut runtime = CompletionRuntime::default();
+        let original_id = runtime.begin_request(1);
+        runtime.set_active(original_id, 1, 7, "select ".into(), "from users".into());
+        let cycle_id = runtime.begin_cycle_fetch().expect("cycle fetch starts");
+        assert!(runtime.begin_cycle_fetch().is_none());
+
+        // Caret move / click / Ctrl-Space starts a new ghost request without typing.
+        runtime.begin_request(2);
+        assert!(
+            !runtime.cycle_still_current(cycle_id),
+            "abandoned cycle spawn must take the stale-id abort path"
+        );
+        assert!(
+            runtime.begin_cycle_fetch().is_some(),
+            "cycle_in_flight must be clear so Alt+] can fetch again"
+        );
     }
 }
 
