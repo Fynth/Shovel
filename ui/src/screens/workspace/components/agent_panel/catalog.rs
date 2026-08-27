@@ -605,6 +605,11 @@ fn provider_switch_rows(settings: &AppUiSettings) -> Vec<ProviderSwitchRowData> 
     let active = settings.ai_catalog.active.as_ref();
     let mut rows = Vec::new();
     for spec in builtin_providers() {
+        if spec.kind() == AiProviderKind::NativeHttp
+            && !provider_offers_chat(spec.slug, &settings.ai_catalog)
+        {
+            continue;
+        }
         let extra = settings
             .ai_catalog
             .overrides
@@ -649,6 +654,9 @@ fn provider_switch_rows(settings: &AppUiSettings) -> Vec<ProviderSwitchRowData> 
         });
     }
     for custom in &settings.ai_catalog.custom_native {
+        if !provider_offers_chat(&custom.id, &settings.ai_catalog) {
+            continue;
+        }
         let label = if custom.name.trim().is_empty() {
             custom.id.clone()
         } else {
@@ -855,8 +863,8 @@ async fn connect_acp_provider(
 
 #[cfg(test)]
 mod tests {
-    use super::{native_picker_sections, picker_trigger_label};
-    use models::{ActiveModel, AiProviderOverride, AppUiSettings};
+    use super::{native_picker_sections, picker_trigger_label, provider_switch_rows};
+    use models::{ActiveModel, AiProviderKind, AiProviderOverride, AppUiSettings};
 
     #[test]
     fn native_picker_skips_disabled_builtins() {
@@ -894,6 +902,13 @@ mod tests {
             .collect();
         assert!(slugs.iter().any(|slug| slug == "openai"));
         assert!(!slugs.iter().any(|slug| slug == "codestral"));
+        let switch_slugs: Vec<_> = provider_switch_rows(&settings)
+            .into_iter()
+            .filter(|row| row.kind == AiProviderKind::NativeHttp)
+            .map(|row| row.slug)
+            .collect();
+        assert!(switch_slugs.iter().any(|slug| slug == "openai"));
+        assert!(!switch_slugs.iter().any(|slug| slug == "codestral"));
     }
 
     #[test]
