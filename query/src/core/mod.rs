@@ -53,8 +53,6 @@ use self::{
         mysql_preview_rows_to_paginated_page,
         mysql_rows_to_page,
         mysql_rows_to_paginated_page,
-        postgres_preview_rows_to_paginated_page,
-        postgres_rows_to_paginated_page,
     },
 };
 
@@ -79,8 +77,6 @@ const CLICKHOUSE_DIALECT: Dialect = Dialect {
     filter_expression: clickhouse_filter_expression,
     format_flavor: FormatFlavor::Generic,
 };
-
-pub(crate) use self::rows::postgres_rows_to_page;
 
 pub(crate) fn require_live(handle: &SessionHandle) -> Result<LiveConnection, DatabaseError> {
     handle
@@ -151,12 +147,23 @@ fn sql_for_query_exec(
     }
 
     let dialect = handle.dialect();
-    if handle.kind() == DatabaseKind::Sqlite
+    let locator_expr = match handle.kind() {
+        DatabaseKind::Sqlite => Some("rowid"),
+        DatabaseKind::Postgres => Some("ctid::text"),
+        _ => None,
+    };
+    if let Some(locator_expr) = locator_expr
         && let Some(plan) = editable_select_plan(sql)
     {
         return (
             build_editable_paginated_query(
-                &plan, page_size, offset, "rowid", filter, sort, dialect,
+                &plan,
+                page_size,
+                offset,
+                locator_expr,
+                filter,
+                sort,
+                dialect,
             ),
             true,
         );
@@ -201,77 +208,14 @@ pub(crate) async fn execute_query_page_live(
         LiveConnection::Sqlite(_) => Err(DatabaseError::Unsupported(
             "SQLite queries go through SqliteSession".into(),
         )),
-        LiveConnection::Postgres(pool) =>
-            execute_postgres_query_page(&sql, &pool, page_size, offset, filter, sort).await,
+        LiveConnection::Postgres(_) => Err(DatabaseError::Unsupported(
+            "PostgreSQL queries go through PostgresSession".into(),
+        )),
         LiveConnection::MySql(pool) =>
             execute_mysql_query_page(&sql, &pool, page_size, offset, filter, sort).await,
         LiveConnection::ClickHouse(config) =>
             execute_clickhouse_query_page(&sql, &config, page_size, offset, filter, sort).await,
     }
-}
-
-async fn execute_postgres_query_page(
-    sql: &str,
-    pool: &sqlx::PgPool,
-    page_size: u32,
-    offset: u64,
-    filter: Option<QueryFilter>,
-    sort: Option<QuerySort>,
-) -> Result<QueryOutput, DatabaseError> {
-    let normalized = sql.trim().to_lowercase();
-
-    if let Some(plan) = editable_select_plan(sql) {
-        let query = build_editable_paginated_query(
-            &plan,
-            page_size,
-            offset,
-            "ctid::text",
-            filter.as_ref(),
-            sort.as_ref(),
-            POSTGRES_DIALECT,
-        );
-        let rows = sqlx::query(&query)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-        return Ok(QueryOutput::Table(postgres_preview_rows_to_paginated_page(
-            rows,
-            plan.source,
-            page_size,
-            offset,
-        )));
-    }
-
-    if is_paginated_query(&normalized) {
-        let rows = sqlx::query(&build_paginated_query(
-            sql,
-            page_size,
-            offset,
-            filter.as_ref(),
-            sort.as_ref(),
-            POSTGRES_DIALECT,
-        ))
-        .fetch_all(pool)
-        .await
-        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-        return Ok(QueryOutput::Table(postgres_rows_to_paginated_page(
-            rows, page_size, offset,
-        )));
-    }
-
-    if is_tabular_query(&normalized) {
-        let rows = sqlx::query(sql)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-        return Ok(QueryOutput::Table(postgres_rows_to_page(rows)));
-    }
-
-    let result = sqlx::query(sql)
-        .execute(pool)
-        .await
-        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-    Ok(QueryOutput::AffectedRows(result.rows_affected()))
 }
 
 async fn execute_mysql_query_page(

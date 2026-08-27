@@ -1,3 +1,8 @@
+mod rows;
+mod session;
+
+pub use session::PostgresSession;
+
 use sqlx::postgres::{PgConnectOptions, PgSslMode};
 use std::str::FromStr;
 
@@ -102,6 +107,12 @@ fn parse_pg_ssl_mode(mode: &str) -> PgSslMode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn postgres_session_is_a_driver_session() {
+        fn assert_session<T: database::DriverSession>() {}
+        assert_session::<crate::PostgresSession>();
+    }
 
     // ── looks_like_dsn ───────────────────────────────────────────────
 

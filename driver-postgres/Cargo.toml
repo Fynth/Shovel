@@ -7,5 +7,11 @@ license = "MIT"
 publish = false
 
 [dependencies]
+async-trait = "0.1.89"
+bigdecimal = "0.4.7"
 database.workspace = true
-sqlx = { workspace = true, features = ["postgres"] }
+models.workspace = true
+serde_json.workspace = true
+sqlx = { workspace = true, features = ["postgres", "uuid", "time", "json", "bigdecimal"] }
+time = "0.3.41"
+uuid = "1.17.0"
