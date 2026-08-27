@@ -10,6 +10,7 @@ use models::{
     is_native_http_ready,
     native_http_provider_enabled,
     needs_acp_reconnect,
+    provider_backend,
     provider_kind,
     resolve_picker_models,
 };
@@ -718,8 +719,12 @@ fn refresh_picker_models(slug: String) {
     let settings = crate::app_state::APP_UI_SETTINGS();
     let base_url = native_base_url(&settings, &slug);
     let api_key = settings.lm_api_key(&slug);
+    let Some(backend) = provider_backend(&slug, &settings.ai_catalog) else {
+        crate::app_state::toast_error("This provider cannot refresh models.");
+        return;
+    };
     spawn(async move {
-        match services::refresh_provider_models(&slug, &base_url, &api_key).await {
+        match services::refresh_provider_models(backend, &base_url, &api_key).await {
             Ok(models) => merge_refreshed_models(&slug, models),
             Err(err) => crate::app_state::toast_error(err),
         }

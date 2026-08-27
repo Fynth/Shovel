@@ -15,6 +15,7 @@ use models::{
     WorkspaceSplitMode,
     builtin_providers,
     normalize_native_chat_url,
+    provider_backend,
 };
 use std::collections::BTreeMap;
 
@@ -1530,8 +1531,12 @@ fn refresh_catalog_models(
     let settings = section.peek().settings.clone();
     let api_key = settings.lm_api_key(&slug);
     let base_url = catalog_refresh_base_url(&settings, &slug, &default_base);
+    let Some(backend) = provider_backend(&slug, &settings.ai_catalog) else {
+        crate::app_state::toast_error("This provider cannot refresh models.");
+        return;
+    };
     spawn(async move {
-        match services::refresh_provider_models(&slug, &base_url, &api_key).await {
+        match services::refresh_provider_models(backend, &base_url, &api_key).await {
             Ok(models) => {
                 let sql = section.peek().sql_settings.clone();
                 let mut next = section.peek().settings.clone();

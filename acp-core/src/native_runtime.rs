@@ -1,9 +1,8 @@
 //! Native HTTP chat prompt, model refresh, and shared cancel wiring.
 
 use futures_util::StreamExt;
-use models::{AcpEvent, AcpMessageKind, AiModelEntry, normalize_native_chat_url};
+use models::{AcpEvent, AcpMessageKind, AiModelEntry};
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
-use serde::Deserialize;
 
 use crate::{
     native_chat::{
@@ -15,57 +14,6 @@ use crate::{
     },
     runtime::push_acp_event,
 };
-
-#[derive(Debug, Deserialize)]
-struct OpenAiModelList {
-    #[serde(default)]
-    data: Vec<OpenAiModelEntry>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OpenAiModelEntry {
-    id: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct OllamaTagList {
-    #[serde(default)]
-    models: Vec<OllamaTagEntry>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OllamaTagEntry {
-    name: String,
-}
-
-/// Parse OpenAI-compatible `GET /v1/models` JSON into model ids.
-pub fn parse_openai_model_list(json: &str) -> Result<Vec<String>, String> {
-    let list: OpenAiModelList = serde_json::from_str(json)
-        .map_err(|err| format!("Failed to parse OpenAI model list: {err}"))?;
-    Ok(list.data.into_iter().map(|entry| entry.id).collect())
-}
-
-/// Parse Ollama `GET /api/tags` JSON into model names.
-pub fn parse_ollama_tag_list(json: &str) -> Result<Vec<String>, String> {
-    let list: OllamaTagList = serde_json::from_str(json)
-        .map_err(|err| format!("Failed to parse Ollama tag list: {err}"))?;
-    Ok(list.models.into_iter().map(|entry| entry.name).collect())
-}
-
-fn models_url(slug: &str, base_url: &str) -> String {
-    let normalized = normalize_native_chat_url(base_url, base_url);
-    if slug == "ollama" {
-        if normalized.ends_with("/api") {
-            format!("{normalized}/tags")
-        } else {
-            format!("{normalized}/api/tags")
-        }
-    } else if normalized.ends_with("/v1") {
-        format!("{normalized}/models")
-    } else {
-        format!("{normalized}/v1/models")
-    }
-}
 
 fn auth_headers(api_key: &str) -> Result<HeaderMap, String> {
     let mut headers = HeaderMap::new();
@@ -81,15 +29,16 @@ fn auth_headers(api_key: &str) -> Result<HeaderMap, String> {
 
 /// Refresh the model list for a native provider (OpenAI-compat or Ollama).
 pub async fn refresh_provider_models(
-    slug: &str,
+    backend_id: models::AiBackendId,
     base_url: &str,
     api_key: &str,
 ) -> Result<Vec<AiModelEntry>, String> {
+    let backend = crate::backends::backend(backend_id);
+    let url = backend.models_url(base_url)?;
     let client = reqwest::Client::builder()
         .build()
         .map_err(|err| format!("Failed to build HTTP client: {err}"))?;
 
-    let url = models_url(slug, base_url);
     let response = client
         .get(&url)
         .headers(auth_headers(api_key)?)
@@ -111,19 +60,7 @@ pub async fn refresh_provider_models(
         .await
         .map_err(|err| format!("Model refresh body failed: {err}"))?;
 
-    let ids = if slug == "ollama" {
-        parse_ollama_tag_list(&body)?
-    } else {
-        parse_openai_model_list(&body)?
-    };
-
-    Ok(ids
-        .into_iter()
-        .map(|id| AiModelEntry {
-            id,
-            label: String::new(),
-        })
-        .collect())
+    backend.parse_models(&body)
 }
 
 fn map_native_event(event: NativeChatEvent) -> AcpEvent {
@@ -181,16 +118,39 @@ pub async fn native_chat_prompt(req: NativeChatRequest) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn parse_openai_model_list() {
-        let json = r#"{"data":[{"id":"gpt-4o"},{"id":"gpt-4o-mini"}]}"#;
-        let ids = super::parse_openai_model_list(json).unwrap();
-        assert_eq!(ids, ["gpt-4o", "gpt-4o-mini"]);
+    fn models_url_comes_from_backend() {
+        use crate::backends::backend;
+        use models::AiBackendId;
+        assert_eq!(
+            backend(AiBackendId::OpenAiCompat)
+                .models_url("https://api.openai.com")
+                .unwrap(),
+            "https://api.openai.com/v1/models"
+        );
+        assert_eq!(
+            backend(AiBackendId::Ollama)
+                .models_url("http://localhost:11434")
+                .unwrap(),
+            "http://localhost:11434/api/tags"
+        );
+        assert!(
+            backend(AiBackendId::MistralFim)
+                .models_url("https://codestral.mistral.ai")
+                .is_err()
+        );
     }
 
     #[test]
-    fn parse_ollama_tag_list() {
-        let json = r#"{"models":[{"name":"qwen3:latest"}]}"#;
-        let ids = super::parse_ollama_tag_list(json).unwrap();
-        assert_eq!(ids, ["qwen3:latest"]);
+    fn parse_models_openai_and_ollama() {
+        use crate::backends::backend;
+        use models::AiBackendId;
+        let openai = backend(AiBackendId::OpenAiCompat)
+            .parse_models(r#"{"data":[{"id":"gpt-4o"}]}"#)
+            .unwrap();
+        assert_eq!(openai[0].id, "gpt-4o");
+        let ollama = backend(AiBackendId::Ollama)
+            .parse_models(r#"{"models":[{"name":"llama3"}]}"#)
+            .unwrap();
+        assert_eq!(ollama[0].id, "llama3");
     }
 }
