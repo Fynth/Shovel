@@ -2098,7 +2098,7 @@ mod tests {
             "openai",
             vec![
                 AiModelEntry {
-                    id: "gpt-4o".into(),
+                    id: "gpt-5.6-sol".into(),
                     label: String::new(),
                 },
                 AiModelEntry {

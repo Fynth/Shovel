@@ -486,33 +486,27 @@ impl OpenAiCompatProvider {
     }
 
     pub fn default_model(self) -> &'static str {
-        self.models().first().copied().unwrap_or("gpt-4o-mini")
+        self.models().first().copied().unwrap_or("gpt-5.6-luna")
     }
 
     pub fn models(self) -> &'static [&'static str] {
         match self {
-            Self::OpenAi => &[
-                "gpt-4.1",
-                "gpt-4.1-mini",
-                "gpt-4o",
-                "gpt-4o-mini",
-                "o4-mini",
-            ],
+            Self::OpenAi => &["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
             Self::Groq => &[
                 "llama-3.3-70b-versatile",
                 "openai/gpt-oss-120b",
                 "qwen/qwen3-32b",
             ],
             Self::OpenRouter => &[
-                "openai/gpt-4o",
-                "anthropic/claude-sonnet-4",
-                "google/gemini-2.5-pro",
+                "openai/gpt-5.6-sol",
+                "anthropic/claude-opus-5",
+                "google/gemini-3.7-flash",
             ],
-            Self::XAi => &["grok-4", "grok-3", "grok-3-mini"],
+            Self::XAi => &["grok-4.6", "grok-4.5", "grok-4.3"],
             Self::Mistral => &[
+                "mistral-medium-latest",
                 "mistral-large-latest",
                 "codestral-latest",
-                "mistral-small-latest",
             ],
         }
     }

@@ -82,66 +82,103 @@ pub struct BuiltinProviderSpec {
 
 pub fn builtin_providers() -> &'static [BuiltinProviderSpec] {
     const DEEPSEEK_MODELS: &[(&str, &str)] = &[
-        ("deepseek-chat", ""),
-        ("deepseek-v4-pro", ""),
-        ("deepseek-v4-flash", ""),
+        ("deepseek-v4-pro", "DeepSeek V4 Pro"),
+        ("deepseek-v4-flash", "DeepSeek V4 Flash"),
+        ("deepseek-chat", "DeepSeek Chat"),
     ];
     const OPENAI_MODELS: &[(&str, &str)] = &[
-        ("gpt-4.1", ""),
-        ("gpt-4.1-mini", ""),
-        ("gpt-4o", ""),
-        ("gpt-4o-mini", ""),
-        ("o4-mini", ""),
+        ("gpt-5.6-sol", "GPT-5.6 Sol"),
+        ("gpt-5.6-terra", "GPT-5.6 Terra"),
+        ("gpt-5.6-luna", "GPT-5.6 Luna"),
     ];
     const GROQ_MODELS: &[(&str, &str)] = &[
-        ("llama-3.3-70b-versatile", ""),
-        ("openai/gpt-oss-120b", ""),
-        ("qwen/qwen3-32b", ""),
+        ("llama-3.3-70b-versatile", "Llama 3.3 70B"),
+        ("openai/gpt-oss-120b", "GPT-OSS 120B"),
+        ("qwen/qwen3-32b", "Qwen3 32B"),
     ];
     const OPENROUTER_MODELS: &[(&str, &str)] = &[
-        ("openai/gpt-4o", ""),
-        ("anthropic/claude-sonnet-4", ""),
-        ("google/gemini-2.5-pro", ""),
+        ("openai/gpt-5.6-sol", "GPT-5.6 Sol"),
+        ("anthropic/claude-opus-5", "Claude Opus 5"),
+        ("google/gemini-3.7-flash", "Gemini 3.7 Flash"),
+        ("x-ai/grok-4.6", "Grok 4.6"),
+        ("deepseek/deepseek-v4-pro", "DeepSeek V4 Pro"),
     ];
-    const XAI_MODELS: &[(&str, &str)] = &[("grok-4", ""), ("grok-3", ""), ("grok-3-mini", "")];
+    const XAI_MODELS: &[(&str, &str)] = &[
+        ("grok-4.6", "Grok 4.6"),
+        ("grok-4.5", "Grok 4.5"),
+        ("grok-4.3", "Grok 4.3"),
+    ];
     const MISTRAL_MODELS: &[(&str, &str)] = &[
-        ("mistral-large-latest", ""),
-        ("codestral-latest", ""),
-        ("mistral-small-latest", ""),
+        ("mistral-medium-latest", "Mistral Medium"),
+        ("mistral-large-latest", "Mistral Large"),
+        ("codestral-latest", "Codestral"),
+    ];
+    const GOOGLE_MODELS: &[(&str, &str)] = &[
+        ("gemini-3.7-flash", "Gemini 3.7 Flash"),
+        ("gemini-3.6-flash", "Gemini 3.6 Flash"),
+        ("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite"),
     ];
     const MOONSHOT_MODELS: &[(&str, &str)] = &[
-        ("kimi-k2-turbo-preview", ""),
-        ("moonshot-v1-auto", ""),
-        ("moonshot-v1-128k", ""),
+        ("kimi-k3", "Kimi K3"),
+        ("kimi-k2-turbo-preview", "Kimi K2 Turbo"),
+        ("kimi-k2.6", "Kimi K2.6"),
     ];
-    const ZHIPU_MODELS: &[(&str, &str)] =
-        &[("glm-4.5", ""), ("glm-4-flash", ""), ("glm-4-plus", "")];
-    const QWEN_MODELS: &[(&str, &str)] = &[("qwen-max", ""), ("qwen-plus", ""), ("qwen-turbo", "")];
+    const ZHIPU_MODELS: &[(&str, &str)] = &[
+        ("glm-5.3", "GLM-5.3"),
+        ("glm-5.3-flash", "GLM-5.3 Flash"),
+        ("glm-4.5", "GLM-4.5"),
+    ];
+    const QWEN_MODELS: &[(&str, &str)] = &[
+        ("qwen3.8-max", "Qwen3.8 Max"),
+        ("qwen-plus", "Qwen Plus"),
+        ("qwen-flash", "Qwen Flash"),
+    ];
     const SILICONFLOW_MODELS: &[(&str, &str)] = &[
-        ("deepseek-ai/DeepSeek-V3", ""),
-        ("Qwen/Qwen2.5-72B-Instruct", ""),
-        ("moonshotai/Kimi-K2-Instruct", ""),
+        ("deepseek-ai/DeepSeek-V4-Pro", "DeepSeek V4 Pro"),
+        ("Qwen/Qwen3.8-27B", "Qwen3.8 27B"),
+        ("moonshotai/Kimi-K2-Instruct", "Kimi K2"),
     ];
-    const MINIMAX_MODELS: &[(&str, &str)] = &[("MiniMax-Text-01", ""), ("MiniMax-M1", "")];
-    const YI_MODELS: &[(&str, &str)] = &[("yi-lightning", ""), ("yi-large", "")];
+    const MINIMAX_MODELS: &[(&str, &str)] = &[
+        ("MiniMax-M3", "MiniMax M3"),
+        ("MiniMax-M2.7", "MiniMax M2.7"),
+    ];
+    const YI_MODELS: &[(&str, &str)] =
+        &[("yi-lightning", "Yi Lightning"), ("yi-large", "Yi Large")];
+    const BYTEDANCE_MODELS: &[(&str, &str)] = &[
+        ("doubao-seed-1.6", "Doubao Seed 1.6"),
+        ("doubao-1.5-pro-32k", "Doubao 1.5 Pro"),
+    ];
     const TOGETHER_MODELS: &[(&str, &str)] = &[
-        ("meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo", ""),
-        ("Qwen/Qwen2.5-72B-Instruct-Turbo", ""),
-        ("deepseek-ai/DeepSeek-V3", ""),
+        ("deepseek-ai/DeepSeek-V4-Pro", "DeepSeek V4 Pro"),
+        ("Qwen/Qwen3.8-27B-Instruct", "Qwen3.8 27B"),
+        ("meta-llama/Llama-3.3-70B-Instruct-Turbo", "Llama 3.3 70B"),
     ];
     const FIREWORKS_MODELS: &[(&str, &str)] = &[
-        ("accounts/fireworks/models/llama-v3p1-70b-instruct", ""),
-        ("accounts/fireworks/models/deepseek-v3", ""),
+        (
+            "accounts/fireworks/models/deepseek-v4-pro",
+            "DeepSeek V4 Pro",
+        ),
+        (
+            "accounts/fireworks/models/deepseek-v4-flash",
+            "DeepSeek V4 Flash",
+        ),
     ];
     const PERPLEXITY_MODELS: &[(&str, &str)] = &[
-        ("sonar-pro", ""),
-        ("sonar", ""),
-        ("sonar-reasoning-pro", ""),
+        ("sonar-pro", "Sonar Pro"),
+        ("sonar-reasoning-pro", "Sonar Reasoning Pro"),
+        ("sonar", "Sonar"),
     ];
-    const CEREBRAS_MODELS: &[(&str, &str)] = &[("llama-3.3-70b", ""), ("qwen-3-32b", "")];
+    const CEREBRAS_MODELS: &[(&str, &str)] = &[
+        ("llama-3.3-70b", "Llama 3.3 70B"),
+        ("qwen-3-32b", "Qwen3 32B"),
+    ];
     const DEEPINFRA_MODELS: &[(&str, &str)] = &[
-        ("meta-llama/Meta-Llama-3.1-70B-Instruct", ""),
-        ("deepseek-ai/DeepSeek-V3", ""),
+        ("deepseek-ai/DeepSeek-V4-Pro", "DeepSeek V4 Pro"),
+        ("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3 70B"),
+    ];
+    const NVIDIA_MODELS: &[(&str, &str)] = &[
+        ("nvidia/nemotron-3.5-lightning", "Nemotron 3.5 Lightning"),
+        ("meta/llama-3.3-70b-instruct", "Llama 3.3 70B"),
     ];
     const EMPTY_MODELS: &[(&str, &str)] = &[];
 
@@ -192,6 +229,22 @@ pub fn builtin_providers() -> &'static [BuiltinProviderSpec] {
             kind: AiProviderKind::NativeHttp,
             default_base_url: "https://api.mistral.ai",
             builtin_models: MISTRAL_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "google",
+            label: "Google Gemini",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
+            builtin_models: GOOGLE_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "nvidia",
+            label: "NVIDIA NIM",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://integrate.api.nvidia.com/v1",
+            builtin_models: NVIDIA_MODELS,
             supports_model_refresh: true,
         },
         BuiltinProviderSpec {
@@ -251,7 +304,15 @@ pub fn builtin_providers() -> &'static [BuiltinProviderSpec] {
             builtin_models: YI_MODELS,
             supports_model_refresh: true,
         },
-        // Other world OpenAI-compatible providers (no Anthropic/Google/Bedrock APIs)
+        BuiltinProviderSpec {
+            slug: "bytedance",
+            label: "ByteDance (Doubao)",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://ark.cn-beijing.volces.com/api/v3",
+            builtin_models: BYTEDANCE_MODELS,
+            supports_model_refresh: true,
+        },
+        // Gateways and OpenAI-compatible hosts (Claude/Gemini via OpenRouter)
         BuiltinProviderSpec {
             slug: "together",
             label: "Together",
@@ -535,6 +596,50 @@ mod tests {
         assert!(is_native_http_ready("custom:abc", "sk", &cat));
         assert!(!is_native_http_ready("custom:abc", "", &cat));
         assert!(!is_native_http_ready("unknown", "sk", &cat));
+    }
+
+    #[test]
+    fn builtin_catalog_has_current_us_and_cn_models() {
+        let slugs: Vec<_> = builtin_providers().iter().map(|p| p.slug).collect();
+        for slug in [
+            "openai",
+            "xai",
+            "google",
+            "deepseek",
+            "qwen",
+            "moonshot",
+            "zhipu",
+            "minimax",
+            "bytedance",
+        ] {
+            assert!(slugs.contains(&slug), "missing provider {slug}");
+        }
+        let openai = builtin_providers()
+            .iter()
+            .find(|p| p.slug == "openai")
+            .unwrap();
+        assert!(
+            openai
+                .builtin_models
+                .iter()
+                .any(|(id, _)| *id == "gpt-5.6-sol")
+        );
+        assert!(!openai.builtin_models.iter().any(|(id, _)| *id == "gpt-4o"));
+        let xai = builtin_providers()
+            .iter()
+            .find(|p| p.slug == "xai")
+            .unwrap();
+        assert!(xai.builtin_models.iter().any(|(id, _)| *id == "grok-4.6"));
+        let openrouter = builtin_providers()
+            .iter()
+            .find(|p| p.slug == "openrouter")
+            .unwrap();
+        assert!(
+            openrouter
+                .builtin_models
+                .iter()
+                .any(|(id, _)| *id == "anthropic/claude-opus-5")
+        );
     }
 
     #[test]

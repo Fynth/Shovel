@@ -201,6 +201,12 @@
   pointer-events: none;
 }
 
+.er-diagram__edge-label {
+  font-size: 10px;
+  fill: var(--color-text-muted);
+  pointer-events: none;
+}
+
 .er-diagram__tables {
   position: absolute;
   inset: 0;
@@ -308,8 +314,8 @@
   flex-direction: column;
   // Long column lists scroll inside the card instead of overflowing the
   // canvas — keeps relationship lines from being covered by oversized cards.
-  max-height: 200px;
-  overflow-y: auto;
+  max-height: none;
+  overflow-y: visible;
   padding: $spacing-2xs 0;
 }
 

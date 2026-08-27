@@ -82,13 +82,22 @@ pub fn build_er_diagram(
         return None;
     }
 
-    let mut seen_pairs: std::collections::HashSet<(String, String)> =
+    let mut seen_edges: std::collections::HashSet<(String, String, String, String)> =
         std::collections::HashSet::new();
     let mut relationships = Vec::new();
     for fk in foreign_keys {
         let from = (fk.from_schema.clone(), fk.from_table.clone());
         let to = (fk.to_schema.clone(), fk.to_table.clone());
         if !known.contains(&from) || !known.contains(&to) {
+            continue;
+        }
+        let edge = (
+            fk.from_table.clone(),
+            fk.from_column.clone(),
+            fk.to_table.clone(),
+            fk.to_column.clone(),
+        );
+        if !seen_edges.insert(edge) {
             continue;
         }
         if let Some(table) = tables.iter_mut().find(|table| {
@@ -102,9 +111,6 @@ pub fn build_er_diagram(
                 to_table: fk.to_table.clone(),
                 to_column: fk.to_column.clone(),
             });
-        }
-        if !seen_pairs.insert((fk.from_table.clone(), fk.to_table.clone())) {
-            continue;
         }
         relationships.push(ErRelationship {
             from_table: fk.from_table.clone(),
@@ -862,9 +868,8 @@ mod tests {
     }
 
     #[test]
-    fn er_diagram_dedupes_composite_fk_to_one_line() {
+    fn er_diagram_keeps_composite_fk_as_per_column_edges() {
         let sections = sample_schema_sections();
-        // Составной FK из двух колонок между одной парой таблиц — одна линия.
         let fks = vec![
             models::TableForeignKey {
                 name: "fk_order_owner".to_string(),
@@ -886,7 +891,17 @@ mod tests {
             },
         ];
         let diagram = build_er_diagram(&sections, &fks).expect("diagram should be built");
-        assert_eq!(diagram.relationships.len(), 1);
+        assert_eq!(diagram.relationships.len(), 2);
+        assert_eq!(
+            diagram
+                .tables
+                .iter()
+                .find(|t| t.name == "orders")
+                .unwrap()
+                .foreign_keys
+                .len(),
+            2
+        );
     }
 
     #[test]

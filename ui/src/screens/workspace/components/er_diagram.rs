@@ -53,6 +53,9 @@ struct ErCardPos {
 #[derive(Clone)]
 struct ErLine {
     d: String,
+    label: String,
+    label_x: f64,
+    label_y: f64,
 }
 
 /// Prop-driven ER diagram viewer.
@@ -76,10 +79,28 @@ pub fn ErDiagramViewer(
         .relationships
         .iter()
         .filter_map(|rel| {
+            let from_table = diagram
+                .tables
+                .iter()
+                .find(|table| table.name == rel.from_table)?;
+            let to_table = diagram
+                .tables
+                .iter()
+                .find(|table| table.name == rel.to_table)?;
             let from = table_positions.get(&rel.from_table)?;
             let to = table_positions.get(&rel.to_table)?;
             Some(ErLine {
-                d: relationship_path(from, to),
+                d: relationship_path(
+                    from,
+                    to,
+                    column_anchor_y(from_table, from, &rel.from_column),
+                    column_anchor_y(to_table, to, &rel.to_column),
+                ),
+                label: format!("{} → {}.{}", rel.from_column, rel.to_table, rel.to_column),
+                label_x: (from.x + from.w + to.x) / 2.0,
+                label_y: (column_anchor_y(from_table, from, &rel.from_column)
+                    + column_anchor_y(to_table, to, &rel.to_column))
+                    / 2.0,
             })
         })
         .collect();
@@ -181,6 +202,14 @@ pub fn ErDiagramViewer(
                                 stroke_width: "1.75",
                                 marker_end: "url(#arrowhead)",
                             }
+                            text {
+                                x: "{line.label_x}",
+                                y: "{line.label_y - 6.0}",
+                                fill: "currentColor",
+                                font_size: "10",
+                                text_anchor: "middle",
+                                "{line.label}"
+                            }
                         }
                     }
                     div {
@@ -279,7 +308,11 @@ fn ErTableCard(table: ErTable, position: Option<ErCardPos>, on_click: Callback<S
                         }
                         span {
                             class: "er-table-card__column-type",
-                            "{column.data_type}"
+                            if let Some(fk) = table.foreign_keys.iter().find(|fk| fk.from_column == column.name) {
+                                "→ {fk.to_table}.{fk.to_column}"
+                            } else {
+                                "{column.data_type}"
+                            }
                         }
                     }
                 }
@@ -298,7 +331,16 @@ const ORIGIN: f64 = 40.0;
 
 fn card_height(table: &ErTable) -> f64 {
     let rows = table.columns.len().max(1) as f64;
-    (CARD_HEADER + CARD_PAD + rows * CARD_ROW).min(280.0)
+    CARD_HEADER + CARD_PAD + rows * CARD_ROW
+}
+
+fn column_anchor_y(table: &ErTable, pos: &ErCardPos, column: &str) -> f64 {
+    let idx = table
+        .columns
+        .iter()
+        .position(|col| col.name.eq_ignore_ascii_case(column))
+        .unwrap_or(0);
+    pos.y + CARD_HEADER + CARD_PAD / 2.0 + (idx as f64 + 0.5) * CARD_ROW
 }
 
 fn calculate_table_positions(
@@ -365,7 +407,7 @@ fn calculate_table_positions(
     positions
 }
 
-fn relationship_path(from: &ErCardPos, to: &ErCardPos) -> String {
+fn relationship_path(from: &ErCardPos, to: &ErCardPos, y1: f64, y2: f64) -> String {
     let from_right = from.x + from.w;
     let to_left = to.x;
     let (x1, x2) = if from_right <= to_left {
@@ -375,8 +417,6 @@ fn relationship_path(from: &ErCardPos, to: &ErCardPos) -> String {
     } else {
         (from_right, to_left)
     };
-    let y1 = from.y + from.h / 2.0;
-    let y2 = to.y + to.h / 2.0;
     let mid = (x1 + x2) / 2.0;
     format!("M {x1:.1} {y1:.1} C {mid:.1} {y1:.1}, {mid:.1} {y2:.1}, {x2:.1} {y2:.1}")
 }
@@ -418,6 +458,27 @@ mod tests {
             to_table: to.to_string(),
             to_column: to_col.to_string(),
         }
+    }
+
+    #[test]
+    fn column_anchor_y_uses_column_index() {
+        let mut table = make_table("orders");
+        table.columns.push(ErColumn {
+            name: "user_id".to_string(),
+            data_type: "INTEGER".to_string(),
+            is_nullable: false,
+            is_primary_key: false,
+            is_foreign_key: true,
+        });
+        let pos = ErCardPos {
+            x: 40.0,
+            y: 40.0,
+            w: CARD_WIDTH,
+            h: card_height(&table),
+        };
+        let y_id = column_anchor_y(&table, &pos, "id");
+        let y_fk = column_anchor_y(&table, &pos, "user_id");
+        assert!(y_fk > y_id);
     }
 
     #[test]
