@@ -7,6 +7,7 @@ use models::{
     AppUiSettings,
     builtin_providers,
     is_native_http_ready,
+    native_http_provider_enabled,
     needs_acp_reconnect,
     provider_kind,
     resolve_picker_models,
@@ -431,6 +432,9 @@ fn native_picker_sections(settings: &AppUiSettings) -> Vec<NativePickerSection> 
         if spec.kind != AiProviderKind::NativeHttp {
             continue;
         }
+        if !native_http_provider_enabled(&settings.ai_catalog, spec.slug) {
+            continue;
+        }
         let builtin: Vec<AiModelEntry> = spec
             .builtin_models
             .iter()
@@ -603,7 +607,11 @@ fn apply_native_http_session(mut panel_state: Signal<AcpPanelState>, provider: &
     let key = settings.lm_api_key(provider);
     let label = native_provider_label(&settings, provider);
     apply_native_connected_signal(panel_state, label.clone());
-    if !is_native_http_ready(provider, &key) {
+    if !native_http_provider_enabled(&settings.ai_catalog, provider) {
+        panel_state.with_mut(|state| {
+            state.status = format!("{label} is disabled.");
+        });
+    } else if !is_native_http_ready(provider, &key, &settings.ai_catalog) {
         panel_state.with_mut(|state| {
             state.status = format!("Add an API key for {label}.");
         });
@@ -646,8 +654,26 @@ async fn connect_acp_provider(
 
 #[cfg(test)]
 mod tests {
-    use super::picker_trigger_label;
-    use models::{ActiveModel, AppUiSettings};
+    use super::{native_picker_sections, picker_trigger_label};
+    use models::{ActiveModel, AiProviderOverride, AppUiSettings};
+
+    #[test]
+    fn native_picker_skips_disabled_builtins() {
+        let mut settings = AppUiSettings::default();
+        settings.ai_catalog.overrides.insert(
+            "openai".into(),
+            AiProviderOverride {
+                enabled: true,
+                ..Default::default()
+            },
+        );
+        let slugs: Vec<_> = native_picker_sections(&settings)
+            .into_iter()
+            .map(|section| section.slug)
+            .collect();
+        assert!(slugs.iter().any(|slug| slug == "openai"));
+        assert!(!slugs.iter().any(|slug| slug == "deepseek"));
+    }
 
     #[test]
     fn picker_trigger_label_omits_slash_when_model_empty() {

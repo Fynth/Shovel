@@ -28,7 +28,6 @@ use models::{
     UiDensity,
     WorkspaceSplitMode,
     builtin_providers,
-    delete_custom_provider,
     normalize_native_chat_url,
 };
 use std::collections::BTreeMap;
@@ -1790,8 +1789,7 @@ fn custom_native_provider_card(
                     onclick: move |_| {
                         let id = delete_id.clone();
                         emit_ui_update(section, on_change, move |next| {
-                            delete_custom_provider(&mut next.ai_catalog, &id);
-                            next.lm_keys.remove(&id);
+                            next.delete_custom_native_provider(&id);
                         });
                     },
                     "Delete"

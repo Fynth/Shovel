@@ -348,4 +348,12 @@ mod tests {
         let keys = collect_lm_keys_for_save(&settings);
         assert_eq!(keys.get("openai").map(String::as_str), Some("sk-vendor"));
     }
+
+    #[test]
+    fn collect_lm_keys_keeps_empty_custom_so_delete_clears_secret() {
+        let mut settings = AppUiSettings::default();
+        settings.delete_custom_native_provider("custom:1");
+        let keys = collect_lm_keys_for_save(&settings);
+        assert_eq!(keys.get("custom:1").map(String::as_str), Some(""));
+    }
 }

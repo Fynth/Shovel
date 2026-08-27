@@ -352,13 +352,37 @@ pub fn provider_kind(provider: &str) -> Option<AiProviderKind> {
     None
 }
 
-/// Native HTTP is ready without an ACP child. Ollama allows an empty key;
-/// other NativeHttp providers need a key; Acp is never ready this way.
-pub fn is_native_http_ready(provider: &str, api_key: &str) -> bool {
+/// Credential check without the catalog `enabled` flag.
+///
+/// Ollama allows an empty key; other NativeHttp providers need a key.
+/// Acp is never ready this way. Used by the leftover Connect form, which
+/// enables the provider as it connects.
+pub fn native_http_has_credentials(provider: &str, api_key: &str) -> bool {
     match provider_kind(provider) {
         Some(AiProviderKind::NativeHttp) => provider == "ollama" || !api_key.trim().is_empty(),
         Some(AiProviderKind::Acp) | None => false,
     }
+}
+
+/// Whether a NativeHttp provider is selectable / auto-connectable.
+///
+/// Builtins require `overrides[slug].enabled`. Custom `custom:*` ids have no
+/// enabled flag and are treated as enabled. Acp ids are never enabled here.
+pub fn native_http_provider_enabled(catalog: &AiCatalogSettings, provider: &str) -> bool {
+    if provider.starts_with("custom:") {
+        return provider_kind(provider) == Some(AiProviderKind::NativeHttp);
+    }
+    catalog
+        .overrides
+        .get(provider)
+        .is_some_and(|over| over.enabled)
+}
+
+/// Native HTTP is ready without an ACP child: enabled in the catalog and
+/// credentials present. Disabled builtins are not selectable or auto-connected.
+pub fn is_native_http_ready(provider: &str, api_key: &str, catalog: &AiCatalogSettings) -> bool {
+    native_http_provider_enabled(catalog, provider)
+        && native_http_has_credentials(provider, api_key)
 }
 
 /// True when switching `from` → `to` must tear down or launch an ACP child.
@@ -480,26 +504,61 @@ mod tests {
         );
     }
 
+    fn catalog_with_enabled(slugs: &[&str]) -> AiCatalogSettings {
+        let mut cat = AiCatalogSettings::default();
+        for slug in slugs {
+            cat.overrides.insert(
+                (*slug).to_string(),
+                AiProviderOverride {
+                    enabled: true,
+                    ..Default::default()
+                },
+            );
+        }
+        cat
+    }
+
     #[test]
     fn native_http_is_ready_without_acp_child() {
-        assert!(is_native_http_ready("openai", "sk-test"));
-        assert!(is_native_http_ready("ollama", ""));
-        assert!(!is_native_http_ready("openai", ""));
-        assert!(!is_native_http_ready("acp:opencode", "sk"));
+        let cat = catalog_with_enabled(&["openai", "ollama"]);
+        assert!(is_native_http_ready("openai", "sk-test", &cat));
+        assert!(is_native_http_ready("ollama", "", &cat));
+        assert!(!is_native_http_ready("openai", "", &cat));
+        assert!(!is_native_http_ready("acp:opencode", "sk", &cat));
+        assert!(native_http_has_credentials("openai", "sk-test"));
+        assert!(!native_http_has_credentials("openai", ""));
     }
 
     #[test]
     fn custom_native_http_requires_non_empty_key() {
-        assert!(is_native_http_ready("custom:abc", "sk"));
-        assert!(!is_native_http_ready("custom:abc", ""));
-        assert!(!is_native_http_ready("unknown", "sk"));
+        let cat = AiCatalogSettings::default();
+        assert!(is_native_http_ready("custom:abc", "sk", &cat));
+        assert!(!is_native_http_ready("custom:abc", "", &cat));
+        assert!(!is_native_http_ready("unknown", "sk", &cat));
     }
 
     #[test]
     fn acp_prefixed_ids_are_acp_kind() {
+        let cat = AiCatalogSettings::default();
         assert_eq!(provider_kind("acp:custom"), Some(AiProviderKind::Acp));
         assert_eq!(provider_kind("acp:opencode"), Some(AiProviderKind::Acp));
-        assert!(!is_native_http_ready("acp:custom", "sk"));
+        assert!(!is_native_http_ready("acp:custom", "sk", &cat));
+    }
+
+    #[test]
+    fn disabled_native_http_is_not_ready() {
+        let cat = AiCatalogSettings::default();
+        assert!(!native_http_provider_enabled(&cat, "openai"));
+        assert!(!is_native_http_ready("openai", "sk-test", &cat));
+
+        let cat = catalog_with_enabled(&["openai"]);
+        assert!(native_http_provider_enabled(&cat, "openai"));
+        assert!(is_native_http_ready("openai", "sk-test", &cat));
+
+        let mut cat = catalog_with_enabled(&["openai"]);
+        cat.overrides.get_mut("openai").expect("openai").enabled = false;
+        assert!(!is_native_http_ready("openai", "sk-test", &cat));
+        assert!(native_http_has_credentials("openai", "sk-test"));
     }
 
     #[test]

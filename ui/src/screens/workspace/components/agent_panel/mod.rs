@@ -697,7 +697,7 @@ pub fn AcpAgentPanel(
                             div { class: "agent-panel__section",
                                 div { class: "agent-panel__section-header",
                                     div { class: "agent-panel__section-copy",
-                                        h4 { class: "agent-panel__section-title", "Built-in DeepSeek ACP" }
+                                        h4 { class: "agent-panel__section-title", "DeepSeek" }
                                         p { class: "agent-panel__hint", "Cloud model via DeepSeek API key. Uses Shovel database context and SQL workflows." }
                                     }
                                     span { class: "agent-panel__badge", "API key" }

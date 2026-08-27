@@ -10,6 +10,7 @@ use models::{
     OllamaSettings,
     builtin_providers,
     is_native_http_ready,
+    native_http_has_credentials,
     provider_kind,
 };
 
@@ -128,7 +129,11 @@ pub(crate) async fn ensure_default_sql_agent_connected(
         .as_ref()
         .map(|active| active.provider.as_str());
     let native_ready = settings.ai_catalog.active.as_ref().is_some_and(|active| {
-        is_native_http_ready(&active.provider, &settings.lm_api_key(&active.provider))
+        is_native_http_ready(
+            &active.provider,
+            &settings.lm_api_key(&active.provider),
+            &settings.ai_catalog,
+        )
     });
     let deepseek_key = settings.lm_api_key("deepseek");
     let deepseek_key = if deepseek_key.trim().is_empty() {
@@ -145,9 +150,9 @@ pub(crate) async fn ensure_default_sql_agent_connected(
     let action = default_connect_action(
         active_provider,
         native_ready,
-        deepseek.enabled && is_native_http_ready("deepseek", &deepseek_key),
+        deepseek.enabled && is_native_http_ready("deepseek", &deepseek_key, &settings.ai_catalog),
         ollama.enabled
-            && is_native_http_ready("ollama", &ollama_key)
+            && is_native_http_ready("ollama", &ollama_key, &settings.ai_catalog)
             && !ollama.model.trim().is_empty(),
     );
 
@@ -257,7 +262,7 @@ fn connect_native_http(
             from_lm
         }
     };
-    if !is_native_http_ready(provider, &key) {
+    if !native_http_has_credentials(provider, &key) {
         let err = format!("Add an API key to connect {label}.");
         panel_state.with_mut(|state| {
             state.busy = false;
@@ -278,8 +283,10 @@ fn connect_native_http(
         return Err(err);
     }
 
+    super::disconnect_acp_runtime_if_needed(&panel_state());
+
     crate::app_state::update_ui_settings(|current| {
-        current.lm_keys.insert(provider.to_string(), key.clone());
+        current.set_lm_api_key(provider, key.clone());
         current.ai_catalog.active = Some(ActiveModel {
             provider: provider.to_string(),
             model: model.to_string(),
@@ -295,6 +302,29 @@ fn connect_native_http(
         over.thinking_enabled = thinking_enabled;
         over.reasoning_effort = reasoning_effort.to_string();
         over.enabled = true;
+        match provider {
+            "deepseek" => {
+                current.deepseek.enabled = true;
+                if !base_url.trim().is_empty() {
+                    current.deepseek.base_url = base_url.to_string();
+                }
+                if !model.trim().is_empty() {
+                    current.deepseek.model = model.to_string();
+                }
+                current.deepseek.thinking_enabled = thinking_enabled;
+                current.deepseek.reasoning_effort = reasoning_effort.to_string();
+            }
+            "ollama" => {
+                current.ollama.enabled = true;
+                if !base_url.trim().is_empty() {
+                    current.ollama.base_url = base_url.to_string();
+                }
+                if !model.trim().is_empty() {
+                    current.ollama.model = model.to_string();
+                }
+            }
+            _ => {}
+        }
     });
 
     apply_native_connected_signal(panel_state, label.to_string());

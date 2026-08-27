@@ -1,12 +1,24 @@
 //! In-process OpenAI-compatible and Ollama native chat streaming.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{
+    collections::VecDeque,
+    sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
+};
 
-use futures_util::stream::{self, Stream};
+use futures_util::{
+    StreamExt,
+    future::Either,
+    stream::{self, Stream},
+};
 use models::normalize_native_chat_url;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde::Deserialize;
 use serde_json::{Value, json};
+
+const NATIVE_CHAT_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const NATIVE_CHAT_TIMEOUT: Duration = Duration::from_secs(120);
+const NATIVE_CHAT_CANCEL_POLL: Duration = Duration::from_millis(50);
 
 static NATIVE_CHAT_CANCEL: AtomicBool = AtomicBool::new(false);
 
@@ -184,21 +196,6 @@ pub fn parse_openai_sse(body: &str) -> Vec<NativeChatEvent> {
     events
 }
 
-/// Parse an Ollama NDJSON stream body into chat events.
-fn parse_ollama_ndjson(body: &str) -> Vec<NativeChatEvent> {
-    let mut events = Vec::new();
-    for line in body.lines() {
-        events.extend(parse_ollama_ndjson_line(line));
-    }
-    if !events
-        .iter()
-        .any(|e| matches!(e, NativeChatEvent::Finished | NativeChatEvent::Error(_)))
-    {
-        events.push(NativeChatEvent::Finished);
-    }
-    events
-}
-
 fn parse_ollama_ndjson_line(line: &str) -> Vec<NativeChatEvent> {
     let line = line.trim();
     if line.is_empty() {
@@ -237,11 +234,151 @@ fn auth_headers(api_key: &str) -> Result<HeaderMap, String> {
     Ok(headers)
 }
 
+fn is_terminal_event(event: &NativeChatEvent) -> bool {
+    matches!(event, NativeChatEvent::Finished | NativeChatEvent::Error(_))
+}
+
+/// Split complete newline-delimited frames out of `buffer` and parse them.
+fn take_complete_line_events(buffer: &mut String, is_ollama: bool) -> Vec<NativeChatEvent> {
+    let mut events = Vec::new();
+    while let Some(idx) = buffer.find('\n') {
+        let mut line = buffer[..idx].to_string();
+        buffer.drain(..=idx);
+        if line.ends_with('\r') {
+            line.pop();
+        }
+        if is_ollama {
+            events.extend(parse_ollama_ndjson_line(&line));
+        } else {
+            events.extend(parse_openai_sse(&line));
+        }
+        if events.iter().any(is_terminal_event) {
+            break;
+        }
+    }
+    events
+}
+
+fn flush_remaining_buffer(buffer: &mut String, is_ollama: bool) -> Vec<NativeChatEvent> {
+    if buffer.trim().is_empty() {
+        return Vec::new();
+    }
+    let rest = std::mem::take(buffer);
+    if is_ollama {
+        parse_ollama_ndjson_line(&rest)
+    } else {
+        parse_openai_sse(&rest)
+    }
+}
+
+async fn wait_for_native_cancel() {
+    while !native_chat_cancel_requested() {
+        tokio::time::sleep(NATIVE_CHAT_CANCEL_POLL).await;
+    }
+}
+
+struct NativeBodyState<S> {
+    byte_stream: S,
+    buffer: String,
+    is_ollama: bool,
+    pending: VecDeque<NativeChatEvent>,
+    finished: bool,
+}
+
+/// Yield parsed chat events as HTTP body chunks arrive. Dropping the stream
+/// aborts the request. Cancel is polled between chunks so Cancel does not wait
+/// for the full body.
+fn live_native_event_stream<S, B, E>(
+    byte_stream: S,
+    is_ollama: bool,
+) -> impl Stream<Item = NativeChatEvent>
+where
+    S: Stream<Item = Result<B, E>> + Unpin,
+    B: AsRef<[u8]>,
+    E: std::fmt::Display,
+{
+    let state = NativeBodyState {
+        byte_stream,
+        buffer: String::new(),
+        is_ollama,
+        pending: VecDeque::new(),
+        finished: false,
+    };
+
+    stream::unfold(state, |mut state| async move {
+        if let Some(event) = state.pending.pop_front() {
+            return Some((event, state));
+        }
+        if state.finished {
+            return None;
+        }
+
+        loop {
+            if native_chat_cancel_requested() {
+                state.finished = true;
+                return Some((NativeChatEvent::Error("Cancelled".into()), state));
+            }
+
+            tokio::select! {
+                biased;
+                _ = wait_for_native_cancel() => {
+                    state.finished = true;
+                    return Some((NativeChatEvent::Error("Cancelled".into()), state));
+                }
+                chunk = state.byte_stream.next() => {
+                    match chunk {
+                        None => {
+                            let mut events =
+                                flush_remaining_buffer(&mut state.buffer, state.is_ollama);
+                            if !events.iter().any(is_terminal_event) {
+                                events.push(NativeChatEvent::Finished);
+                            }
+                            state.pending.extend(events);
+                            state.finished = true;
+                            return state.pending.pop_front().map(|event| (event, state));
+                        }
+                        Some(Err(err)) => {
+                            state.finished = true;
+                            return Some((
+                                NativeChatEvent::Error(format!(
+                                    "Native chat stream failed: {err}"
+                                )),
+                                state,
+                            ));
+                        }
+                        Some(Ok(bytes)) => {
+                            state
+                                .buffer
+                                .push_str(&String::from_utf8_lossy(bytes.as_ref()));
+                            let events =
+                                take_complete_line_events(&mut state.buffer, state.is_ollama);
+                            if events.is_empty() {
+                                continue;
+                            }
+                            for event in events {
+                                let terminal = is_terminal_event(&event);
+                                state.pending.push_back(event);
+                                if terminal {
+                                    state.finished = true;
+                                    break;
+                                }
+                            }
+                            return state.pending.pop_front().map(|event| (event, state));
+                        }
+                    }
+                }
+            }
+        }
+    })
+}
+
 /// POST to the provider chat endpoint and yield parsed events.
 pub async fn stream_native_chat(
     req: NativeChatRequest,
 ) -> Result<impl Stream<Item = NativeChatEvent>, String> {
     let client = reqwest::Client::builder()
+        .connect_timeout(NATIVE_CHAT_CONNECT_TIMEOUT)
+        .timeout(NATIVE_CHAT_TIMEOUT)
         .build()
         .map_err(|err| format!("Failed to build HTTP client: {err}"))?;
 
@@ -253,6 +390,12 @@ pub async fn stream_native_chat(
         openai_request_body(&req)
     };
 
+    if native_chat_cancel_requested() {
+        return Ok(Either::Left(stream::iter(vec![NativeChatEvent::Error(
+            "Cancelled".into(),
+        )])));
+    }
+
     let response = client
         .post(&url)
         .headers(auth_headers(&req.api_key)?)
@@ -261,67 +404,34 @@ pub async fn stream_native_chat(
         .await
         .map_err(|err| format!("Native chat request failed: {err}"))?;
 
+    if native_chat_cancel_requested() {
+        drop(response);
+        return Ok(Either::Left(stream::iter(vec![NativeChatEvent::Error(
+            "Cancelled".into(),
+        )])));
+    }
+
     let status = response.status();
     if status.as_u16() == 401 || status.as_u16() == 403 {
-        return Ok(stream::iter(vec![NativeChatEvent::Error(
+        return Ok(Either::Left(stream::iter(vec![NativeChatEvent::Error(
             "Auth failed".into(),
-        )]));
+        )])));
     }
     if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
-        return Ok(stream::iter(vec![NativeChatEvent::Error(format!(
-            "{status}: {}",
-            body.trim()
-        ))]));
+        return Ok(Either::Left(stream::iter(vec![NativeChatEvent::Error(
+            format!("{status}: {}", body.trim()),
+        )])));
     }
 
-    if native_chat_cancel_requested() {
-        return Ok(stream::iter(vec![NativeChatEvent::Error(
-            "Cancelled".into(),
-        )]));
-    }
-
-    let text = response
-        .text()
-        .await
-        .map_err(|err| format!("Native chat stream failed: {err}"))?;
-
-    if native_chat_cancel_requested() {
-        return Ok(stream::iter(vec![NativeChatEvent::Error(
-            "Cancelled".into(),
-        )]));
-    }
-
-    let mut events = if is_ollama {
-        parse_ollama_ndjson(&text)
-    } else {
-        let mut events = parse_openai_sse(&text);
-        if !events
-            .iter()
-            .any(|e| matches!(e, NativeChatEvent::Finished | NativeChatEvent::Error(_)))
-        {
-            events.push(NativeChatEvent::Finished);
-        }
-        events
-    };
-
-    // Honor cancel between parsed chunks before yielding the stream.
-    if native_chat_cancel_requested() {
-        events.clear();
-        events.push(NativeChatEvent::Error("Cancelled".into()));
-    } else {
-        let mut truncated = Vec::with_capacity(events.len());
-        for event in events.drain(..) {
-            if native_chat_cancel_requested() {
-                truncated.push(NativeChatEvent::Error("Cancelled".into()));
-                break;
-            }
-            truncated.push(event);
-        }
-        events = truncated;
-    }
-
-    Ok(stream::iter(events))
+    let byte_stream = response
+        .bytes_stream()
+        .map(|chunk| chunk.map(|b| b.to_vec()))
+        .boxed();
+    Ok(Either::Right(live_native_event_stream(
+        byte_stream,
+        is_ollama,
+    )))
 }
 
 #[cfg(test)]
@@ -331,9 +441,14 @@ mod tests {
         NativeChatMessage,
         NativeChatRequest,
         chat_url,
+        clear_native_chat_cancel,
+        live_native_event_stream,
         openai_request_body,
         parse_ollama_ndjson_line,
         parse_openai_sse,
+        request_native_chat_cancel,
+        stream,
+        take_complete_line_events,
     };
 
     #[test]
@@ -464,5 +579,43 @@ mod tests {
 
         let done = parse_ollama_ndjson_line(r#"{"message":{"content":""},"done":true}"#);
         assert_eq!(done, vec![NativeChatEvent::Finished]);
+    }
+
+    #[test]
+    fn take_complete_line_events_holds_partial_frames() {
+        let mut buffer = String::from("data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n");
+        buffer.push_str("data: {\"choices\":[{\"delta\":{\"content\":\"lo");
+        let events = take_complete_line_events(&mut buffer, false);
+        assert_eq!(events, vec![NativeChatEvent::Delta("Hel".into())]);
+        assert!(buffer.contains("lo"));
+        buffer.push_str("\"}}]}\n");
+        let events = take_complete_line_events(&mut buffer, false);
+        assert_eq!(events, vec![NativeChatEvent::Delta("lo".into())]);
+        assert!(buffer.is_empty());
+    }
+
+    #[tokio::test]
+    async fn live_stream_emits_deltas_then_stops_on_cancel() {
+        use futures_util::StreamExt as _;
+
+        clear_native_chat_cancel();
+        let chunks: Vec<Result<Vec<u8>, String>> = vec![
+            Ok(b"data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n".to_vec()),
+            Ok(b"data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n".to_vec()),
+            Ok(b"data: [DONE]\n".to_vec()),
+        ];
+        let stream = live_native_event_stream(stream::iter(chunks), false);
+        futures_util::pin_mut!(stream);
+        assert_eq!(
+            stream.next().await,
+            Some(NativeChatEvent::Delta("Hel".into()))
+        );
+        request_native_chat_cancel();
+        assert_eq!(
+            stream.next().await,
+            Some(NativeChatEvent::Error("Cancelled".into()))
+        );
+        assert_eq!(stream.next().await, None);
+        clear_native_chat_cancel();
     }
 }

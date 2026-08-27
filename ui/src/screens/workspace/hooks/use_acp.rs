@@ -143,7 +143,11 @@ pub fn use_acp_state(inputs: AcpStateInputs) -> AcpState {
         let deepseek = settings.deepseek.clone();
         let ollama = settings.ollama.clone();
         let native_ready = settings.ai_catalog.active.as_ref().is_some_and(|active| {
-            models::is_native_http_ready(&active.provider, &settings.lm_api_key(&active.provider))
+            models::is_native_http_ready(
+                &active.provider,
+                &settings.lm_api_key(&active.provider),
+                &settings.ai_catalog,
+            )
         });
         if !native_ready && !deepseek.enabled && !ollama.enabled {
             return;

@@ -8,6 +8,7 @@ use models::{
     AppUiSettings,
     builtin_providers,
     is_native_http_ready,
+    native_http_provider_enabled,
     normalize_native_chat_url,
     provider_kind,
 };
@@ -94,7 +95,10 @@ fn resolve_active_chat_backend(settings: &AppUiSettings) -> Result<ActiveChatBac
     let api_key = settings.lm_api_key(&active.provider);
     match provider_kind(&active.provider) {
         Some(AiProviderKind::NativeHttp) => {
-            if !is_native_http_ready(&active.provider, &api_key) {
+            if !native_http_provider_enabled(&settings.ai_catalog, &active.provider) {
+                return Err("Enable this provider in Settings.".to_string());
+            }
+            if !is_native_http_ready(&active.provider, &api_key, &settings.ai_catalog) {
                 return Err("Add an API key for the selected provider.".to_string());
             }
             Ok(ActiveChatBackend::Native(native_chat_parts(

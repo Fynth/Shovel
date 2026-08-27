@@ -637,6 +637,13 @@ impl AppUiSettings {
         }
     }
 
+    /// Remove a custom native provider and queue an empty key so save deletes
+    /// the keyring/fallback secret (`save_lm_api_key(service, "")`).
+    pub fn delete_custom_native_provider(&mut self, id: &str) {
+        crate::delete_custom_provider(&mut self.ai_catalog, id);
+        self.set_lm_api_key(id, String::new());
+    }
+
     /// Copy legacy per-vendor AI settings into `ai_catalog` when the catalog
     /// has no active model yet. Legacy blobs stay in memory for key migration
     /// but are not written back to JSON.
@@ -1501,6 +1508,32 @@ mod tests {
 
         settings.lm_keys.remove("openai");
         assert_eq!(settings.lm_api_key("openai"), "sk-vendor");
+    }
+
+    #[test]
+    fn delete_custom_native_provider_queues_empty_secret() {
+        let mut settings = AppUiSettings::default();
+        settings
+            .ai_catalog
+            .custom_native
+            .push(crate::CustomNativeProvider {
+                id: "custom:1".into(),
+                name: "Mine".into(),
+                base_url: "http://localhost:8080".into(),
+                models: Vec::new(),
+            });
+        settings.set_lm_api_key("custom:1", "sk-custom".into());
+        settings.ai_catalog.active = Some(crate::ActiveModel {
+            provider: "custom:1".into(),
+            model: "m".into(),
+        });
+        settings.delete_custom_native_provider("custom:1");
+        assert!(settings.ai_catalog.custom_native.is_empty());
+        assert!(settings.ai_catalog.active.is_none());
+        assert_eq!(
+            settings.lm_keys.get("custom:1").map(String::as_str),
+            Some("")
+        );
     }
 
     #[test]
