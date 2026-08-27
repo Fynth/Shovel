@@ -516,12 +516,8 @@
   background: var(--grid-row-hover);
 }
 
-.results__row:nth-child(even) {
-  background: color-mix(
-    in srgb,
-    var(--color-surface-contrast, var(--color-panel-2)) 22%,
-    transparent
-  );
+.results__row--stripe td {
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
 }
 
 .results__row--selected {
@@ -551,6 +547,16 @@
 
 .results__cell:last-child {
   border-right: 0;
+}
+
+.results__cell--wrap {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.results__cell--wrap .results__cell-content {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .results__cell-content {

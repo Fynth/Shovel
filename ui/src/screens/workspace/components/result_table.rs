@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     app_state::{
+        APP_GRID_SETTINGS,
         APP_THEME,
         actions::find_action,
         context_menu::{ContextMenuItem, open_context_menu},
@@ -55,6 +56,7 @@ use models::{
     QueryFilterRule,
     QueryOutput,
     QuerySort,
+    format_null_display,
 };
 
 /// Resolve the qualified table name backing the active tab's result, if any.
@@ -394,7 +396,11 @@ pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
                 }
 
                 let display_rows = display_rows_cache();
-                let virtual_row_height: f64 = 28.0;
+                let grid = APP_GRID_SETTINGS();
+                let virtual_row_height = f64::from(grid.row_height.clamp(18, 48));
+                let zebra = grid.zebra;
+                let wrap_cells = grid.wrap_cells;
+                let null_display = grid.null_display;
                 let virtual_buffer: usize = 10;
                 let virtual_first = ((scroll_offset() / virtual_row_height) as usize).saturating_sub(virtual_buffer);
                 let virtual_last = {
@@ -1001,11 +1007,12 @@ pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
                                                                     for (col_index, column_name) in visible_columns.iter().cloned() {
                                                                         {
                                                                             let cell_value = display_row.values.get(col_index).cloned().unwrap_or_default();
+                                                                            let cell_display = format_null_display(&cell_value, null_display);
                                                                             rsx! {
                                                                                 span {
                                                                                     class: "results__records-row-cell",
                                                                                     span { class: "results__records-row-cell-label", {column_name.to_string()} }
-                                                                                    span { class: "results__records-row-cell-value", {cell_value.to_string()} }
+                                                                                    span { class: "results__records-row-cell-value", {cell_display} }
                                                                                 }
                                                                             }
                                                                         }
@@ -1104,11 +1111,12 @@ pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
                                                                         for (col_index, column_name) in visible_columns.iter().cloned() {
                                                                             {
                                                                                 let cell_value = row.values.get(col_index).cloned().unwrap_or_default();
+                                                                                let cell_display = format_null_display(&cell_value, null_display);
                                                                                 rsx! {
                                                                                     div {
                                                                                         class: "results__single-field",
                                                                                         p { class: "results__single-field-label", {column_name.to_string()} }
-                                                                                        p { class: "results__single-field-value", {cell_value.to_string()} }
+                                                                                        p { class: "results__single-field-value", {cell_display} }
                                                                                     }
                                                                                 }
                                                                             }
@@ -1246,7 +1254,18 @@ pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
                                                 for visible_idx in virtual_first..virtual_last {
                                                     if let Some(row) = display_rows.get(visible_idx) {
                                                         tr {
-                                                            class: row_class(selected_row_index() == Some(visible_idx), row),
+                                                            class: {
+                                                                let mut class = row_class(
+                                                                    selected_row_index() == Some(visible_idx),
+                                                                    row,
+                                                                )
+                                                                .to_string();
+                                                                if zebra && visible_idx % 2 == 1 {
+                                                                    class.push_str(" results__row--stripe");
+                                                                }
+                                                                class
+                                                            },
+                                                            style: format!("height: {virtual_row_height}px;"),
                                                             key: "{display_row_key(row)}",
                                                             onclick: move |_| {
                                                                 selected_row_index.set(Some(visible_idx));
@@ -1283,12 +1302,19 @@ pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
                                                             },
                                                             for (col_index, column_name) in visible_columns.iter().cloned() {
                                                                 td {
-                                                                    class: cell_class(
-                                                                        table_cells_editable,
-                                                                        row,
-                                                                        page.columns.get(col_index),
-                                                                        &updated_cells_set,
-                                                                    ),
+                                                                    class: {
+                                                                        let mut class = cell_class(
+                                                                            table_cells_editable,
+                                                                            row,
+                                                                            page.columns.get(col_index),
+                                                                            &updated_cells_set,
+                                                                        )
+                                                                        .to_string();
+                                                                        if wrap_cells {
+                                                                            class.push_str(" results__cell--wrap");
+                                                                        }
+                                                                        class
+                                                                    },
                                                                     style: column_widths_map
                                                                         .get(&column_name)
                                                                         .copied()
@@ -1459,14 +1485,14 @@ pub fn ResultTable(result: Option<QueryOutput>, store: TabStore) -> Element {
                                                                             div {
                                                                                 class: "results__cell-content",
                                                                                 title: "{row.values.get(col_index).cloned().unwrap_or_default()}",
-                                                                                "{row.values.get(col_index).cloned().unwrap_or_default()}"
+                                                                                "{format_null_display(&row.values.get(col_index).cloned().unwrap_or_default(), null_display)}"
                                                                             }
                                                                         }
                                                                     } else {
                                                                         div {
                                                                             class: "results__cell-content",
                                                                             title: "{row.values.get(col_index).cloned().unwrap_or_default()}",
-                                                                            "{row.values.get(col_index).cloned().unwrap_or_default()}"
+                                                                            "{format_null_display(&row.values.get(col_index).cloned().unwrap_or_default(), null_display)}"
                                                                         }
                                                                     }
                                                                     if should_show_cell_filter(&row.values.get(col_index).cloned().unwrap_or_default()) {

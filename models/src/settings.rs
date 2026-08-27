@@ -380,6 +380,18 @@ impl NullDisplay {
     }
 }
 
+pub fn format_null_display(raw: &str, mode: NullDisplay) -> String {
+    let is_null = raw.is_empty() || raw.eq_ignore_ascii_case("null");
+    if !is_null {
+        return raw.to_string();
+    }
+    match mode {
+        NullDisplay::Literal => "NULL".to_string(),
+        NullDisplay::Empty => String::new(),
+        NullDisplay::EmDash => "—".to_string(),
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GridSettings {
@@ -509,6 +521,7 @@ mod tests {
         NullDisplay,
         UiDensity,
         WorkspaceSplitMode,
+        format_null_display,
     };
     use crate::ThemeOverrides;
 
@@ -1207,5 +1220,14 @@ mod tests {
             Some("Ctrl+Alt+F")
         );
         assert_eq!(back.theme_overrides.primary.as_deref(), Some("#ff8800"));
+    }
+
+    #[test]
+    fn format_null_display_modes() {
+        assert_eq!(format_null_display("NULL", NullDisplay::Literal), "NULL");
+        assert_eq!(format_null_display("NULL", NullDisplay::Empty), "");
+        assert_eq!(format_null_display("null", NullDisplay::EmDash), "—");
+        assert_eq!(format_null_display("hello", NullDisplay::EmDash), "hello");
+        assert_eq!(format_null_display("", NullDisplay::Literal), "NULL");
     }
 }
