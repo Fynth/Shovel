@@ -1,6 +1,7 @@
 use crate::completion::{
     keyboard::CompletionKey,
     keywords::{CompletionItem, CompletionKind},
+    rank::apply_menu_item,
 };
 use dioxus::prelude::*;
 use models::{ExplorerNode, ExplorerNodeKind};
@@ -103,21 +104,45 @@ pub fn caret_anchor_script(editor_id: &str) -> String {
     )
 }
 
-pub fn map_completion_key(event: &KeyboardEvent) -> CompletionKey {
-    let mods = event.modifiers();
-    let ctrl = mods.contains(Modifiers::CONTROL) || mods.contains(Modifiers::META);
-    let alt = mods.contains(Modifiers::ALT);
-    let shift = mods.contains(Modifiers::SHIFT);
-    let key = event.key();
-    let code = event.code();
+pub fn should_refresh_menu_caret(menu_len: usize) -> bool {
+    menu_len > 0
+}
 
-    if ctrl && (code == Code::Space || matches!(key, Key::Character(ref ch) if ch == " ")) {
+pub fn apply_menu_item_if_current(
+    sql: &str,
+    source_sql: &str,
+    item: &CompletionItem,
+) -> Option<(String, usize)> {
+    if sql != source_sql {
+        return None;
+    }
+    if item.replace.start > item.replace.end
+        || item.replace.end > sql.len()
+        || !sql.is_char_boundary(item.replace.start)
+        || !sql.is_char_boundary(item.replace.end)
+    {
+        return None;
+    }
+    Some(apply_menu_item(sql, item))
+}
+
+pub fn map_completion_key(event: &KeyboardEvent) -> CompletionKey {
+    map_completion_key_parts(&event.key(), event.code(), event.modifiers())
+}
+
+pub fn map_completion_key_parts(key: &Key, code: Code, modifiers: Modifiers) -> CompletionKey {
+    let control = modifiers.contains(Modifiers::CONTROL);
+    let meta = modifiers.contains(Modifiers::META);
+    let alt = modifiers.contains(Modifiers::ALT);
+    let shift = modifiers.contains(Modifiers::SHIFT);
+
+    if control && !meta && (code == Code::Space || matches!(key, Key::Character(ch) if ch == " ")) {
         return CompletionKey::CtrlSpace;
     }
-    if alt && (code == Code::BracketRight || matches!(key, Key::Character(ref ch) if ch == "]")) {
+    if alt && (code == Code::BracketRight || matches!(key, Key::Character(ch) if ch == "]")) {
         return CompletionKey::AltRBracket;
     }
-    if alt && (code == Code::BracketLeft || matches!(key, Key::Character(ref ch) if ch == "[")) {
+    if alt && (code == Code::BracketLeft || matches!(key, Key::Character(ch) if ch == "[")) {
         return CompletionKey::AltLBracket;
     }
     if matches!(key, Key::Tab) || code == Code::Tab {
@@ -237,7 +262,18 @@ pub fn SqlCompletionMenu(
 
 #[cfg(test)]
 mod tests {
-    use super::autocomplete_offset;
+    use super::{
+        apply_menu_item_if_current,
+        autocomplete_offset,
+        caret_anchor_script,
+        map_completion_key_parts,
+        should_refresh_menu_caret,
+    };
+    use crate::completion::{
+        keyboard::CompletionKey,
+        keywords::{CompletionItem, CompletionKind},
+    };
+    use dioxus::prelude::{Code, Key, Modifiers};
 
     #[test]
     fn autocomplete_offset_flips_above_when_clipped() {
@@ -252,5 +288,57 @@ mod tests {
         let (_, top, flip) = autocomplete_offset(10.0, 20.0, 18.0, 80.0, 400.0, 400.0, 200.0);
         assert!(!flip);
         assert!(top > 20.0);
+    }
+
+    #[test]
+    fn control_space_forces_menu_meta_space_does_not() {
+        let space = Key::Character(" ".into());
+        assert_eq!(
+            map_completion_key_parts(&space, Code::Space, Modifiers::CONTROL),
+            CompletionKey::CtrlSpace
+        );
+        assert_eq!(
+            map_completion_key_parts(&space, Code::Space, Modifiers::META),
+            CompletionKey::Character(' ')
+        );
+        assert_eq!(
+            map_completion_key_parts(&space, Code::Space, Modifiers::CONTROL | Modifiers::META),
+            CompletionKey::Character(' ')
+        );
+    }
+
+    #[test]
+    fn caret_anchor_script_applies_textarea_scroll() {
+        let script = caret_anchor_script("workspace-sql-editor");
+        assert!(script.contains("pre.scrollTop = editor.scrollTop"));
+        assert!(script.contains("pre.scrollLeft = editor.scrollLeft"));
+    }
+
+    #[test]
+    fn should_refresh_menu_caret_only_when_open() {
+        assert!(!should_refresh_menu_caret(0));
+        assert!(should_refresh_menu_caret(1));
+    }
+
+    #[test]
+    fn apply_menu_item_if_current_rejects_stale_sql_and_bad_range() {
+        let sql = "SELECT * FROM us";
+        let item = CompletionItem {
+            label: "users".into(),
+            detail: String::new(),
+            kind: CompletionKind::Table,
+            replace: 14..16,
+        };
+        let (next, cursor) = apply_menu_item_if_current(sql, sql, &item).unwrap();
+        assert_eq!(next, "SELECT * FROM users");
+        assert_eq!(cursor, next.len());
+
+        assert!(apply_menu_item_if_current("SELECT * FROM u", sql, &item).is_none());
+
+        let stale = CompletionItem {
+            replace: 0..80,
+            ..item.clone()
+        };
+        assert!(apply_menu_item_if_current(sql, sql, &stale).is_none());
     }
 }

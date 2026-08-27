@@ -20,7 +20,7 @@ use crate::{
         keyboard::{EditorKeyAction, editor_completion_action},
         keywords::CompletionItem,
         query::parse_completion_query,
-        rank::{apply_menu_item, collect_menu_items},
+        rank::collect_menu_items,
         schema::merge_columns_into_tree,
         trim::trim_completion_for_cursor,
         variants::GhostVariants,
@@ -46,17 +46,23 @@ use crate::{
 use dioxus::prelude::*;
 use models::{DatabaseKind, ExplorerNodeKind, QueryHistoryItem};
 use services::CompletionToken;
-use std::{collections::HashSet, time::Duration};
+use std::{
+    collections::HashSet,
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
+};
 
 use self::{
     completion_menu::{
         CaretAnchor,
         MENU_WIDTH,
         SqlCompletionMenu,
+        apply_menu_item_if_current,
         autocomplete_offset,
         caret_anchor_script,
         map_completion_key,
         menu_height_for_items,
+        should_refresh_menu_caret,
         table_missing_columns,
     },
     highlight::SqlHighlightContent,
@@ -72,6 +78,7 @@ use self::{
 const SQL_EDITOR_TEXTAREA_ID: &str = "workspace-sql-editor";
 const COMPLETION_DEBOUNCE_MS: u64 = 180;
 const HIGHLIGHT_IDLE_MS: u64 = 90;
+static CARET_ANCHOR_REQUEST_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct InlineCompletion {
@@ -88,6 +95,7 @@ struct CompletionRuntime {
     active: Option<InlineCompletion>,
     variants: GhostVariants,
     discarded: bool,
+    cycle_in_flight: bool,
 }
 
 impl CompletionRuntime {
@@ -97,6 +105,7 @@ impl CompletionRuntime {
         self.last_completed_snapshot = None;
         self.active = None;
         self.variants = GhostVariants::default();
+        self.cycle_in_flight = false;
     }
 
     fn reset_to_snapshot(&mut self, snapshot: usize) {
@@ -129,7 +138,7 @@ impl CompletionRuntime {
         source_sql: String,
         text: String,
     ) {
-        if self.discarded {
+        if self.discarded || self.cycle_in_flight {
             return;
         }
         if self.finish_request(request_id, snapshot) {
@@ -144,20 +153,77 @@ impl CompletionRuntime {
         }
     }
 
+    fn begin_cycle_fetch(&mut self) -> Option<u64> {
+        if self.discarded || self.cycle_in_flight {
+            return None;
+        }
+        self.cycle_in_flight = true;
+        self.request_id = self.request_id.wrapping_add(1);
+        Some(self.request_id)
+    }
+
+    fn complete_cycle_fetch(
+        &mut self,
+        request_id: u64,
+        text: String,
+        cursor: usize,
+        source_sql: String,
+    ) -> bool {
+        if self.request_id != request_id || self.discarded {
+            return false;
+        }
+        self.cycle_in_flight = false;
+        self.variants.push(text.clone());
+        if let Some(active) = &mut self.active {
+            active.text = text;
+        } else {
+            self.active = Some(InlineCompletion {
+                cursor,
+                source_sql,
+                text,
+            });
+        }
+        true
+    }
+
+    fn abort_cycle_fetch(&mut self, request_id: u64) {
+        if self.request_id == request_id {
+            self.cycle_in_flight = false;
+        }
+    }
+
     fn dismiss_ghost(&mut self) {
         self.request_id = self.request_id.wrapping_add(1);
         self.pending_snapshot = None;
         self.active = None;
         self.discarded = true;
+        self.cycle_in_flight = false;
     }
 
     fn clear_on_typing(&mut self) {
-        if self.active.is_some() || self.pending_snapshot.is_some() {
+        if self.active.is_some() || self.pending_snapshot.is_some() || self.cycle_in_flight {
             self.invalidate();
         }
         self.variants = GhostVariants::default();
         self.discarded = false;
+        self.cycle_in_flight = false;
     }
+}
+
+fn spawn_caret_anchor_update(mut caret_anchor: Signal<CaretAnchor>) {
+    let request_id = CARET_ANCHOR_REQUEST_ID.fetch_add(1, Ordering::SeqCst) + 1;
+    spawn(async move {
+        let Ok(anchor) = document::eval(&caret_anchor_script(SQL_EDITOR_TEXTAREA_ID))
+            .join::<CaretAnchor>()
+            .await
+        else {
+            return;
+        };
+        if CARET_ANCHOR_REQUEST_ID.load(Ordering::SeqCst) != request_id {
+            return;
+        }
+        caret_anchor.set(anchor);
+    });
 }
 
 fn invalidate_completion(mut completion: Signal<CompletionRuntime>) {
@@ -273,9 +339,13 @@ fn accept_completion_menu_item(
     mut menu_index: Signal<usize>,
     mut menu_force: Signal<bool>,
     mut menu_closed: Signal<bool>,
+    mut menu_source_sql: Signal<String>,
 ) {
     let sql = draft_sql.peek().clone();
-    let (next, cursor) = apply_menu_item(&sql, &item);
+    let source_sql = menu_source_sql.peek().clone();
+    let Some((next, cursor)) = apply_menu_item_if_current(&sql, &source_sql, &item) else {
+        return;
+    };
     draft_sql.set(next.clone());
     editor_selection.set(EditorSelection::collapsed(cursor));
     is_typing.set(false);
@@ -283,6 +353,7 @@ fn accept_completion_menu_item(
     menu_index.set(0);
     menu_force.set(false);
     menu_closed.set(true);
+    menu_source_sql.set(String::new());
     reset_completion_to_snapshot(completion_runtime, hash_completion_snapshot(&next, cursor));
     editor_revision += 1;
     sync_active_tab_sql_draft(store, active_tab_id_value, next.clone());
@@ -304,21 +375,21 @@ fn cycle_ghost_next(
     editor_selection: Signal<EditorSelection>,
     schema_ctx: String,
 ) {
-    let showed_existing = completion_runtime.with_mut(|state| {
+    let fetch_id = completion_runtime.with_mut(|state| {
         if state.variants.show_next_existing() {
             if let Some(text) = state.variants.current().map(str::to_string)
                 && let Some(active) = &mut state.active
             {
                 active.text = text;
             }
-            true
+            None
         } else {
-            false
+            state.begin_cycle_fetch()
         }
     });
-    if showed_existing {
+    let Some(request_id) = fetch_id else {
         return;
-    }
+    };
 
     spawn(async move {
         let (sql_text, start, end) = if let Ok((sql, start, end)) = document::eval(
@@ -334,22 +405,30 @@ fn cycle_ghost_next(
             (sql, selection.start, selection.end)
         };
         if start != end {
+            completion_runtime.with_mut(|state| state.abort_cycle_fetch(request_id));
             return;
         }
         let selection = EditorSelection { start, end };
         let Some((cursor, prefix, suffix)) = completion_request_parts(&sql_text, selection) else {
+            completion_runtime.with_mut(|state| state.abort_cycle_fetch(request_id));
             return;
         };
         let settings = APP_UI_SETTINGS();
         if !settings.sql_ghost_ready() {
+            completion_runtime.with_mut(|state| state.abort_cycle_fetch(request_id));
             return;
         }
-        let (avoid, request_id) = {
+        let avoid = {
             let state = completion_runtime.peek();
-            if state.discarded {
-                return;
+            if state.discarded || state.request_id != request_id {
+                None
+            } else {
+                Some(state.variants.items().to_vec())
             }
-            (state.variants.items().to_vec(), state.request_id)
+        };
+        let Some(avoid) = avoid else {
+            completion_runtime.with_mut(|state| state.abort_cycle_fetch(request_id));
+            return;
         };
         let mut schema_ctx = schema_ctx;
         let surrounding = surrounding_sql_context(&sql_text, cursor);
@@ -371,31 +450,29 @@ fn cycle_ghost_next(
             }
             match token {
                 CompletionToken::Text(t) => accumulated.push_str(&t),
-                CompletionToken::Error(_) => return,
+                CompletionToken::Error(_) => {
+                    completion_runtime.with_mut(|state| state.abort_cycle_fetch(request_id));
+                    return;
+                }
                 CompletionToken::Done => {
                     let trimmed = trim_completion_for_cursor(&sql_text, cursor, &accumulated);
                     if trimmed.is_empty() {
+                        completion_runtime.with_mut(|state| state.abort_cycle_fetch(request_id));
                         return;
                     }
                     completion_runtime.with_mut(|state| {
-                        if state.request_id != request_id || state.discarded {
-                            return;
-                        }
-                        state.variants.push(accumulated.clone());
-                        if let Some(active) = &mut state.active {
-                            active.text = accumulated.clone();
-                        } else {
-                            state.active = Some(InlineCompletion {
-                                cursor,
-                                source_sql: sql_text.clone(),
-                                text: accumulated.clone(),
-                            });
-                        }
+                        state.complete_cycle_fetch(
+                            request_id,
+                            accumulated.clone(),
+                            cursor,
+                            sql_text.clone(),
+                        );
                     });
                     return;
                 }
             }
         }
+        completion_runtime.with_mut(|state| state.abort_cycle_fetch(request_id));
     });
 }
 
@@ -720,7 +797,12 @@ const SQL_EDITOR_SELECT_ALL_SCRIPT: &str = r#"
 
 #[cfg(test)]
 mod tests {
-    use super::{completion_request_parts, line_number_labels, selection::EditorSelection};
+    use super::{
+        CompletionRuntime,
+        completion_request_parts,
+        line_number_labels,
+        selection::EditorSelection,
+    };
 
     #[test]
     fn line_number_labels_count_lines() {
@@ -738,6 +820,48 @@ mod tests {
         assert_eq!(position, cursor);
         assert_eq!(prefix, "select ");
         assert_eq!(suffix.as_deref(), Some(" from users"));
+    }
+
+    #[test]
+    fn cycle_fetch_ignores_late_original_stream_and_rejects_double_push() {
+        let mut runtime = CompletionRuntime::default();
+        let original_id = runtime.begin_request(1);
+        runtime.set_active(original_id, 1, 7, "select ".into(), "from users".into());
+        assert_eq!(runtime.variants.current(), Some("from users"));
+        assert_eq!(
+            runtime.active.as_ref().map(|active| active.text.as_str()),
+            Some("from users")
+        );
+
+        let cycle_id = runtime.begin_cycle_fetch().expect("cycle fetch starts");
+        assert_ne!(cycle_id, original_id);
+        assert_eq!(
+            runtime.active.as_ref().map(|active| active.text.as_str()),
+            Some("from users")
+        );
+        assert!(runtime.begin_cycle_fetch().is_none());
+
+        runtime.set_active(
+            original_id,
+            1,
+            7,
+            "select ".into(),
+            "from users WHERE".into(),
+        );
+        assert_eq!(
+            runtime.active.as_ref().map(|active| active.text.as_str()),
+            Some("from users")
+        );
+        assert_eq!(runtime.variants.items().len(), 1);
+
+        assert!(runtime.complete_cycle_fetch(cycle_id, "from orders".into(), 7, "select ".into()));
+        assert_eq!(runtime.variants.current(), Some("from orders"));
+        assert_eq!(runtime.variants.items().len(), 2);
+        assert_eq!(
+            runtime.active.as_ref().map(|active| active.text.as_str()),
+            Some("from orders")
+        );
+        assert!(runtime.begin_cycle_fetch().is_some());
     }
 }
 
@@ -877,7 +1001,8 @@ pub fn SqlEditor(
     let mut menu_index = use_signal(|| 0_usize);
     let mut menu_force = use_signal(|| false);
     let mut menu_closed = use_signal(|| false);
-    let mut caret_anchor = use_signal(CaretAnchor::default);
+    let mut menu_source_sql = use_signal(String::new);
+    let caret_anchor = use_signal(CaretAnchor::default);
     let mut column_fetches = use_signal(HashSet::<(u64, String, String)>::new);
     let mut explorer_sections = explorer_sections;
 
@@ -936,6 +1061,7 @@ pub fn SqlEditor(
             menu_index.set(0);
             menu_force.set(false);
             menu_closed.set(false);
+            menu_source_sql.set(String::new());
             let cursor = next_sql.len();
             spawn(async move {
                 let _ = document::eval(&set_editor_value_script(
@@ -1048,6 +1174,7 @@ pub fn SqlEditor(
             }
             if start != end {
                 menu_items.set(Vec::new());
+                menu_source_sql.set(String::new());
                 return;
             }
 
@@ -1116,24 +1243,24 @@ pub fn SqlEditor(
 
             if closed && !force {
                 menu_items.set(Vec::new());
+                menu_source_sql.set(String::new());
                 return;
             }
 
             let items = collect_menu_items(kind, &nodes, &query, force);
+            if editor_revision() != revision {
+                return;
+            }
             let len = items.len();
             menu_items.set(items);
+            menu_source_sql.set(sql_text);
             menu_index.set(if len == 0 {
                 0
             } else {
                 menu_index.peek().min(len - 1)
             });
-            if len > 0
-                && let Ok(anchor) = document::eval(&caret_anchor_script(SQL_EDITOR_TEXTAREA_ID))
-                    .join::<CaretAnchor>()
-                    .await
-                && editor_revision() == revision
-            {
-                caret_anchor.set(anchor);
+            if len > 0 {
+                spawn_caret_anchor_update(caret_anchor);
             }
         });
     });
@@ -1534,6 +1661,7 @@ pub fn SqlEditor(
                             menu_index.set(0);
                             menu_force.set(false);
                             menu_closed.set(true);
+                            menu_source_sql.set(String::new());
                         }
                         EditorKeyAction::DismissGhost => {
                             event.prevent_default();
@@ -1588,6 +1716,7 @@ pub fn SqlEditor(
                                     menu_index,
                                     menu_force,
                                     menu_closed,
+                                    menu_source_sql,
                                 );
                             }
                         }
@@ -1672,6 +1801,9 @@ pub fn SqlEditor(
                 onscroll: move |event| {
                     scroll_top.set(event.data().scroll_top());
                     scroll_left.set(event.data().scroll_left());
+                    if should_refresh_menu_caret(menu_items.peek().len()) {
+                        spawn_caret_anchor_update(caret_anchor);
+                    }
                 },
             }
             }
@@ -1699,6 +1831,7 @@ pub fn SqlEditor(
                                 menu_index,
                                 menu_force,
                                 menu_closed,
+                                menu_source_sql,
                             );
                         }
                     },
