@@ -19,7 +19,7 @@
   min-height: 32px;
   padding: 0 11px;
   border: 1px solid color-mix(in srgb, var(--glass-border) 54%, var(--color-border));
-  border-radius: 12px;
+  border-radius: var(--radius-md, #{$radius-md});
   background:
     linear-gradient(
       180deg,

@@ -203,6 +203,11 @@ textarea {
 }
 
 .app {
+  --radius-sm: 7px;
+  --radius-md: 11px;
+  --radius-lg: 18px;
+  --font-sans: SF Pro Text, SF Pro Display, IBM Plex Sans, Segoe UI Variable, Segoe UI, sans-serif;
+  --font-mono: SF Mono, JetBrains Mono, Cascadia Code, monospace;
   position: relative;
   height: 100vh;
   min-height: 100vh;
@@ -1339,7 +1344,7 @@ textarea {
   justify-content: center;
   gap: 5px;
   border: 1px solid color-mix(in srgb, var(--glass-border) 64%, var(--color-border));
-  border-radius: 999px;
+  border-radius: var(--radius-sm, 7px);
   background: linear-gradient(180deg, color-mix(in srgb, var(--color-surface-elevated, var(--color-panel-2)) 82%, var(--glass-tint-strong)), color-mix(in srgb, var(--color-surface-contrast, var(--color-panel-2)) 84%, transparent));
   color: var(--color-text);
   font-size: 11px;
@@ -1464,7 +1469,7 @@ textarea {
   min-height: 32px;
   padding: 0 11px;
   border: 1px solid color-mix(in srgb, var(--glass-border) 54%, var(--color-border));
-  border-radius: 12px;
+  border-radius: var(--radius-md, 11px);
   background: linear-gradient(180deg, color-mix(in srgb, var(--color-surface-elevated, var(--color-panel-2)) 86%, var(--glass-tint-strong)), color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 88%, transparent));
   color: var(--color-text);
   box-shadow: inset 0 1px 0 var(--glass-highlight), 0 10px 24px rgba(2, 8, 20, 0.08);
@@ -2001,18 +2006,17 @@ select.input:focus-visible {
 }
 
 .settings-modal {
-  width: min(920px, 100%);
+  width: min(960px, 100%);
   max-height: min(88vh, 100%);
-  overflow: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: clamp(8px, 2vw, 12px);
-  border: 1px solid var(--glass-border);
-  border-radius: 28px;
-  background: radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--color-primary) 12%, transparent), transparent 30%), linear-gradient(180deg, color-mix(in srgb, var(--color-surface-contrast, var(--color-panel-2)) 54%, transparent), transparent 180px), color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 90%, var(--glass-tint));
-  box-shadow: var(--shadow-panel);
-  backdrop-filter: blur(30px) saturate(160%);
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 11px);
+  background: var(--color-surface-elevated, var(--color-panel-2));
+  box-shadow: 0 22px 58px rgba(3, 9, 20, 0.26);
 }
 
 .settings-modal__header {
@@ -2047,58 +2051,42 @@ select.input:focus-visible {
   flex-direction: row;
   align-items: stretch;
   gap: 8px;
+  flex: 1 1 auto;
   min-height: 0;
 }
 
 .settings-modal__nav {
   flex: 0 0 auto;
-  width: 196px;
+  width: 168px;
   display: flex;
   flex-direction: column;
   gap: 1px;
-  padding: 3px;
-  border: 1px solid color-mix(in srgb, var(--glass-border) 48%, var(--color-border));
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--color-surface-contrast, var(--color-panel-2)) 46%, transparent);
-  box-shadow: inset 0 1px 0 var(--glass-highlight);
-  align-self: flex-start;
+  padding: 1px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 11px);
+  background: var(--color-surface-contrast, var(--color-panel-2));
 }
 
 .settings-modal__nav-item {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: 6px 8px;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 6px;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: var(--radius-sm, 7px);
   background: transparent;
   color: var(--color-text);
-  font-family: inherit;
   font-size: 12px;
   text-align: left;
   cursor: pointer;
   width: 100%;
-  transition: background-color 100ms ease, border-color 100ms ease, box-shadow 100ms ease, transform 100ms ease;
 }
 .settings-modal__nav-item:hover:not(.settings-modal__nav-item--active) {
-  background: color-mix(in srgb, var(--color-surface-contrast, var(--color-panel-2)) 70%, transparent);
-  border-color: color-mix(in srgb, var(--color-primary) 12%, var(--color-border));
-}
-.settings-modal__nav-item:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  background: var(--color-hover);
 }
 .settings-modal__nav-item--active {
-  background: color-mix(in srgb, var(--color-primary) 22%, var(--color-surface-contrast, var(--color-panel-2)) 60%);
-  border-color: color-mix(in srgb, var(--color-primary) 36%, transparent);
-  box-shadow: inset 0 1px 0 var(--glass-highlight), 0 6px 14px rgba(8, 10, 20, 0.06);
-}
-.settings-modal__nav-item--active .settings-modal__nav-label {
-  color: var(--color-text);
-}
-.settings-modal__nav-item--active .settings-modal__nav-description {
-  color: color-mix(in srgb, var(--color-text) 80%, transparent);
+  background: var(--color-active);
+  border-color: color-mix(in srgb, var(--color-primary) 46%, transparent);
 }
 
 .settings-modal__nav-label {
@@ -2108,15 +2096,11 @@ select.input:focus-visible {
   color: var(--color-text);
 }
 
-.settings-modal__nav-description {
-  font-size: 10px;
-  line-height: 1.45;
-  color: var(--color-text-muted);
-}
-
 .settings-modal__content {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
+  overflow: auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2131,10 +2115,9 @@ select.input:focus-visible {
   flex-direction: column;
   gap: 6px;
   padding: 8px;
-  border: 1px solid color-mix(in srgb, var(--glass-border) 72%, var(--color-border));
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--color-surface-elevated, var(--color-panel)) 82%, transparent);
-  box-shadow: inset 0 1px 0 var(--glass-highlight), 0 12px 26px rgba(8, 10, 20, 0.08);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 11px);
+  background: var(--color-surface-elevated, var(--color-panel));
 }
 
 .settings-modal__section-header {
@@ -2159,23 +2142,21 @@ select.input:focus-visible {
 .settings-modal__segmented {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 3px;
+  gap: 1px;
   padding: 1px;
-  border: 1px solid color-mix(in srgb, var(--glass-border) 58%, var(--color-border));
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-surface-contrast, var(--color-panel-2)) 60%, transparent);
-  box-shadow: inset 0 1px 0 var(--glass-highlight);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 7px);
+  background: var(--color-surface-contrast, var(--color-panel-2));
+}
+
+.settings-modal__segmented--density,
+.settings-modal__segmented--split-mode {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .settings-modal__segmented .button {
-  width: 100%;
-  justify-content: center;
-  height: 26px;
-  border-radius: 999px;
-}
-.settings-modal__segmented .button:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  height: 24px;
+  border-radius: var(--radius-sm, 7px);
 }
 
 .settings-modal__grid {
@@ -2265,12 +2246,7 @@ select.input:focus-visible {
   border-top: 1px solid color-mix(in srgb, var(--glass-border) 36%, transparent);
 }
 
-@media (max-width: 760px) {
-  .settings-modal {
-    width: 100%;
-    max-height: 100%;
-    border-radius: 14px;
-  }
+@media (max-width: 560px) {
   .settings-modal__body {
     flex-direction: column;
   }
@@ -2283,20 +2259,26 @@ select.input:focus-visible {
     width: auto;
     flex: 1 1 calc(50% - 1px);
   }
-  .settings-modal__segmented {
-    grid-template-columns: 1fr;
-  }
-  .settings-modal__header,
-.settings-modal__section-header {
-    flex-direction: column;
-    align-items: stretch;
-  }
 }
 .settings-window-shell {
   min-height: 100vh;
+  height: 100vh;
   color: var(--color-text);
-  font-family: var(--font-sans);
-  background: var(--color-backdrop, transparent);
+  font-family: var(--font-sans, SF Pro Text, SF Pro Display, IBM Plex Sans, Segoe UI Variable, Segoe UI, sans-serif);
+  background: var(--color-surface-shell, var(--color-bg));
+}
+.settings-window-shell .settings-modal__backdrop {
+  padding: 0;
+  background: transparent;
+  place-items: stretch;
+}
+.settings-window-shell .settings-modal {
+  width: 100%;
+  max-height: 100%;
+  height: 100%;
+  border-radius: 0;
+  box-shadow: none;
+  border: 0;
 }
 
 .connect-window-shell {

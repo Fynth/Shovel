@@ -167,13 +167,10 @@ pub fn open_settings_window(
 fn settings_window_config() -> Config {
     let window_builder = WindowBuilder::new()
         .with_title("Shovel Settings")
-        // PHASE 9: widened from 560x640 to 760x640 so the new category nav
-        // sidebar (196px) + content pane both fit comfortably without the
-        // modal collapsing into the responsive narrow-window layout.
-        // Height is unchanged so existing screen real-estate positioning
-        // (which assumes "640px tall dialog") still lines up.
-        .with_inner_size(LogicalSize::new(760.0, 640.0))
-        .with_min_inner_size(LogicalSize::new(560.0, 480.0))
+        // 960×720 keeps the 168px category nav beside the content pane.
+        // Min 720×520 stays above the 560px stacked-nav breakpoint.
+        .with_inner_size(LogicalSize::new(960.0, 720.0))
+        .with_min_inner_size(LogicalSize::new(720.0, 520.0))
         .with_resizable(true)
         // Decorations ON on X11 / Windows (native frame + minimize / close),
         // OFF on Wayland (compositor already draws its own chrome — adding

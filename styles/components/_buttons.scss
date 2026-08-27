@@ -10,7 +10,7 @@
   justify-content: center;
   gap: 5px;
   border: 1px solid color-mix(in srgb, var(--glass-border) 64%, var(--color-border));
-  border-radius: 999px;
+  border-radius: var(--radius-sm, #{$radius-sm});
   background:
     linear-gradient(
       180deg,
