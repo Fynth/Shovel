@@ -491,7 +491,12 @@ impl OpenAiCompatProvider {
 
     pub fn models(self) -> &'static [&'static str] {
         match self {
-            Self::OpenAi => &["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
+            Self::OpenAi => &[
+                "gpt-5.6-sol",
+                "gpt-5.6-terra",
+                "gpt-5.6-luna",
+                "gpt-5.3-codex",
+            ],
             Self::Groq => &[
                 "llama-3.3-70b-versatile",
                 "openai/gpt-oss-120b",
@@ -502,7 +507,7 @@ impl OpenAiCompatProvider {
                 "anthropic/claude-opus-5",
                 "google/gemini-3.7-flash",
             ],
-            Self::XAi => &["grok-4.6", "grok-4.5", "grok-4.3"],
+            Self::XAi => &["grok-4.6", "grok-4.5", "grok-4.3", "grok-build-0.1"],
             Self::Mistral => &[
                 "mistral-medium-latest",
                 "mistral-large-latest",

@@ -1,3 +1,4 @@
+mod catalog;
 mod clickhouse;
 mod composer;
 mod messages;
@@ -13,6 +14,7 @@ use models::{AcpMessageKind, AcpPanelState, ChatArtifact, ChatThreadSummary, Wor
 use crate::{
     app_state::{
         APP_UI_SETTINGS,
+        context_menu::open_confirm_dialog,
         is_panel_collapsed,
         set_deepseek_api_key,
         set_deepseek_base_url,
@@ -36,6 +38,7 @@ use crate::{
 use super::{ActionIcon, Chevron, IconButton};
 
 use self::{
+    catalog::AgentProvidersPopover,
     composer::AgentComposer,
     messages::{
         AGENT_MESSAGE_BATCH,
@@ -285,28 +288,6 @@ pub fn AcpAgentPanel(
                             disabled: !state.busy,
                         }
                     }
-                    if state.connected {
-                        IconButton {
-                            icon: ActionIcon::Close,
-                            label: "Disconnect agent".to_string(),
-                            onclick: move |_| {
-                                let native = is_native_http_connection(&panel_state());
-                                disconnect_acp_runtime_if_needed(&panel_state());
-                                panel_state.with_mut(|state| {
-                                    state.connected = false;
-                                    state.busy = false;
-                                    state.pending_sql_insert = false;
-                                    state.connection = None;
-                                    state.status = if native {
-                                        "Language model disconnected.".to_string()
-                                    } else {
-                                        "ACP agent is disconnected.".to_string()
-                                    };
-                                });
-                            },
-                            small: true,
-                        }
-                    }
                 }
             }
             if show_dialogs() {
@@ -358,17 +339,26 @@ pub fn AcpAgentPanel(
                                             }
                                         }
                                     }
-                                    button {
-                                        class: "agent-panel__dialog-delete",
-                                        title: "Delete dialog",
+                                    IconButton {
+                                        icon: ActionIcon::Delete,
+                                        label: "Delete dialog".to_string(),
+                                        small: true,
                                         onclick: {
                                             let thread_id = thread.id;
-                                            move |event| {
+                                            let title = thread.title.clone();
+                                            move |event: MouseEvent| {
                                                 event.stop_propagation();
-                                                on_delete_thread.call(thread_id);
+                                                open_confirm_dialog(
+                                                    "Delete dialog",
+                                                    format!(
+                                                        "Delete \"{title}\"? This cannot be undone."
+                                                    ),
+                                                    "Delete",
+                                                    true,
+                                                    move || on_delete_thread.call(thread_id),
+                                                );
                                             }
                                         },
-                                        "x"
                                     }
                                 }
                             }
@@ -377,8 +367,16 @@ pub fn AcpAgentPanel(
                 }
             }
 
+            if show_providers() {
+                AgentProvidersPopover {
+                    panel_state,
+                    chat_revision,
+                    busy: state.busy,
+                }
+            }
+
             if !collapsed {
-            if state.connected && !show_providers() {
+            if state.connected {
                 div { class: "agent-panel__session",
                     div {
                         id: "agent-panel-messages",

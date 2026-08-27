@@ -53,9 +53,6 @@ struct ErCardPos {
 #[derive(Clone)]
 struct ErLine {
     d: String,
-    label: String,
-    label_x: f64,
-    label_y: f64,
 }
 
 /// Prop-driven ER diagram viewer.
@@ -96,11 +93,6 @@ pub fn ErDiagramViewer(
                     column_anchor_y(from_table, from, &rel.from_column),
                     column_anchor_y(to_table, to, &rel.to_column),
                 ),
-                label: format!("{} → {}.{}", rel.from_column, rel.to_table, rel.to_column),
-                label_x: (from.x + from.w + to.x) / 2.0,
-                label_y: (column_anchor_y(from_table, from, &rel.from_column)
-                    + column_anchor_y(to_table, to, &rel.to_column))
-                    / 2.0,
             })
         })
         .collect();
@@ -176,6 +168,16 @@ pub fn ErDiagramViewer(
                         view_offset().1,
                         zoom()
                     ),
+                    div {
+                        class: "er-diagram__tables",
+                        for table in diagram.tables.iter() {
+                            ErTableCard {
+                                table: table.clone(),
+                                position: table_positions.get(&table.name).cloned(),
+                                on_click: on_table_click,
+                            }
+                        }
+                    }
                     svg {
                         class: "er-diagram__svg",
                         width: "{world_w}",
@@ -183,13 +185,13 @@ pub fn ErDiagramViewer(
                         defs {
                             marker {
                                 id: "arrowhead",
-                                marker_width: "10",
-                                marker_height: "7",
-                                ref_x: "9",
-                                ref_y: "3.5",
+                                marker_width: "8",
+                                marker_height: "8",
+                                ref_x: "7",
+                                ref_y: "4",
                                 orient: "auto",
                                 polygon {
-                                    points: "0 0, 10 3.5, 0 7",
+                                    points: "0 0, 8 4, 0 8",
                                     fill: "var(--color-primary)",
                                 }
                             }
@@ -199,26 +201,8 @@ pub fn ErDiagramViewer(
                                 d: "{line.d}",
                                 fill: "none",
                                 stroke: "var(--color-primary)",
-                                stroke_width: "1.75",
+                                stroke_width: "1.6",
                                 marker_end: "url(#arrowhead)",
-                            }
-                            text {
-                                x: "{line.label_x}",
-                                y: "{line.label_y - 6.0}",
-                                fill: "currentColor",
-                                font_size: "10",
-                                text_anchor: "middle",
-                                "{line.label}"
-                            }
-                        }
-                    }
-                    div {
-                        class: "er-diagram__tables",
-                        for table in diagram.tables.iter() {
-                            ErTableCard {
-                                table: table.clone(),
-                                position: table_positions.get(&table.name).cloned(),
-                                on_click: on_table_click,
                             }
                         }
                     }
@@ -282,7 +266,13 @@ fn ErTableCard(table: ErTable, position: Option<ErCardPos>, on_click: Callback<S
                 }
                 for column in table.columns.iter() {
                     div {
-                        class: "er-table-card__column",
+                        class: if column.is_foreign_key {
+                            "er-table-card__column er-table-card__column--fk"
+                        } else if column.is_primary_key {
+                            "er-table-card__column er-table-card__column--pk"
+                        } else {
+                            "er-table-card__column"
+                        },
                         span {
                             class: if column.is_primary_key {
                                 "er-table-card__pk-badge"
@@ -321,13 +311,14 @@ fn ErTableCard(table: ErTable, position: Option<ErCardPos>, on_click: Callback<S
     }
 }
 
-const CARD_WIDTH: f64 = 220.0;
-const CARD_HEADER: f64 = 36.0;
+const CARD_WIDTH: f64 = 240.0;
+const CARD_HEADER: f64 = 32.0;
 const CARD_ROW: f64 = 22.0;
-const CARD_PAD: f64 = 8.0;
-const H_GAP: f64 = 96.0;
-const V_GAP: f64 = 48.0;
+const CARD_PAD: f64 = 4.0;
+const H_GAP: f64 = 168.0;
+const V_GAP: f64 = 56.0;
 const ORIGIN: f64 = 40.0;
+const EDGE_STUB: f64 = 20.0;
 
 fn card_height(table: &ErTable) -> f64 {
     let rows = table.columns.len().max(1) as f64;
@@ -407,18 +398,34 @@ fn calculate_table_positions(
     positions
 }
 
+/// Orthogonal connector from a source column row to a target column row.
+///
+/// Leaves the FK row horizontally, turns in the gap, then enters the PK row
+/// so `orders.user_id` clearly points at `users.id` instead of the card body.
 fn relationship_path(from: &ErCardPos, to: &ErCardPos, y1: f64, y2: f64) -> String {
+    let from_left = from.x;
     let from_right = from.x + from.w;
     let to_left = to.x;
-    let (x1, x2) = if from_right <= to_left {
-        (from_right, to_left)
-    } else if to.x + to.w <= from.x {
-        (from.x, to.x + to.w)
+    let to_right = to.x + to.w;
+    let gap = 8.0;
+
+    if from_right + gap <= to_left {
+        manhattan(from_right, y1, to_left, y2)
+    } else if to_right + gap <= from_left {
+        manhattan(from_left, y1, to_right, y2)
     } else {
-        (from_right, to_left)
-    };
-    let mid = (x1 + x2) / 2.0;
-    format!("M {x1:.1} {y1:.1} C {mid:.1} {y1:.1}, {mid:.1} {y2:.1}, {x2:.1} {y2:.1}")
+        let outer = from_right.max(to_right) + EDGE_STUB;
+        format!("M {from_right:.1} {y1:.1} H {outer:.1} V {y2:.1} H {to_right:.1}")
+    }
+}
+
+fn manhattan(x1: f64, y1: f64, x2: f64, y2: f64) -> String {
+    if (y1 - y2).abs() < 0.5 {
+        format!("M {x1:.1} {y1:.1} H {x2:.1}")
+    } else {
+        let mid = (x1 + x2) / 2.0;
+        format!("M {x1:.1} {y1:.1} H {mid:.1} V {y2:.1} H {x2:.1}")
+    }
 }
 
 fn world_bounds(positions: &HashMap<String, ErCardPos>) -> (f64, f64) {
@@ -547,6 +554,50 @@ mod tests {
         assert_eq!(positions.len(), 2);
         assert!(positions.contains_key("users"));
         assert!(positions.contains_key("orphan_table"));
+    }
+
+    #[test]
+    fn relationship_path_is_orthogonal_from_fk_row_to_pk_row() {
+        let users = make_table("users");
+        let mut orders = make_table("orders");
+        orders.columns.push(ErColumn {
+            name: "user_id".to_string(),
+            data_type: "INTEGER".to_string(),
+            is_nullable: false,
+            is_primary_key: false,
+            is_foreign_key: true,
+        });
+        let users_pos = ErCardPos {
+            x: 40.0,
+            y: 40.0,
+            w: CARD_WIDTH,
+            h: card_height(&users),
+        };
+        let orders_pos = ErCardPos {
+            x: 40.0 + CARD_WIDTH + H_GAP,
+            y: 40.0,
+            w: CARD_WIDTH,
+            h: card_height(&orders),
+        };
+        let y_fk = column_anchor_y(&orders, &orders_pos, "user_id");
+        let y_pk = column_anchor_y(&users, &users_pos, "id");
+        let path = relationship_path(&orders_pos, &users_pos, y_fk, y_pk);
+        assert!(
+            path.starts_with(&format!("M {:.1} {:.1}", orders_pos.x, y_fk)),
+            "arrow should leave the left edge of the FK row: {path}"
+        );
+        assert!(
+            path.contains(&format!("H {:.1}", users_pos.x + users_pos.w)),
+            "arrow should enter the right edge of users: {path}"
+        );
+        assert!(
+            path.contains(&format!("V {:.1}", y_pk)),
+            "vertical segment should align with users.id: {path}"
+        );
+        assert!(
+            !path.contains('C'),
+            "should be orthogonal, not a bezier: {path}"
+        );
     }
 
     #[test]

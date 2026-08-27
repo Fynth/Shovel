@@ -71,6 +71,36 @@ pub enum AiProviderKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AiProviderGroup {
+    Subscription,
+    Cloud,
+    Local,
+    Agent,
+}
+
+impl AiProviderGroup {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Subscription => "Subscription",
+            Self::Cloud => "Cloud",
+            Self::Local => "Local",
+            Self::Agent => "Agents",
+        }
+    }
+}
+
+/// Catalog grouping for the agent-panel picker and provider popover.
+pub fn provider_group(provider: &str) -> AiProviderGroup {
+    match provider {
+        "opencode-go" | "opencode-zen" | "nanogpt" | "zai-coding" | "xiaomi-plan" =>
+            AiProviderGroup::Subscription,
+        "ollama" => AiProviderGroup::Local,
+        slug if slug.starts_with("acp:") => AiProviderGroup::Agent,
+        _ => AiProviderGroup::Cloud,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BuiltinProviderSpec {
     pub slug: &'static str,
     pub label: &'static str,
@@ -85,11 +115,14 @@ pub fn builtin_providers() -> &'static [BuiltinProviderSpec] {
         ("deepseek-v4-pro", "DeepSeek V4 Pro"),
         ("deepseek-v4-flash", "DeepSeek V4 Flash"),
         ("deepseek-chat", "DeepSeek Chat"),
+        ("deepseek-coder", "DeepSeek Coder"),
     ];
     const OPENAI_MODELS: &[(&str, &str)] = &[
         ("gpt-5.6-sol", "GPT-5.6 Sol"),
         ("gpt-5.6-terra", "GPT-5.6 Terra"),
         ("gpt-5.6-luna", "GPT-5.6 Luna"),
+        ("gpt-5.3-codex", "GPT-5.3 Codex"),
+        ("gpt-5.5", "GPT-5.5"),
     ];
     const GROQ_MODELS: &[(&str, &str)] = &[
         ("llama-3.3-70b-versatile", "Llama 3.3 70B"),
@@ -98,20 +131,28 @@ pub fn builtin_providers() -> &'static [BuiltinProviderSpec] {
     ];
     const OPENROUTER_MODELS: &[(&str, &str)] = &[
         ("openai/gpt-5.6-sol", "GPT-5.6 Sol"),
+        ("openai/gpt-5.3-codex", "GPT-5.3 Codex"),
         ("anthropic/claude-opus-5", "Claude Opus 5"),
+        ("anthropic/claude-sonnet-5", "Claude Sonnet 5"),
         ("google/gemini-3.7-flash", "Gemini 3.7 Flash"),
         ("x-ai/grok-4.6", "Grok 4.6"),
+        ("z-ai/glm-5.3", "GLM-5.3"),
+        ("minimax/minimax-m3", "MiniMax M3"),
+        ("moonshotai/kimi-k3", "Kimi K3"),
         ("deepseek/deepseek-v4-pro", "DeepSeek V4 Pro"),
+        ("qwen/qwen3.8-max", "Qwen3.8 Max"),
     ];
     const XAI_MODELS: &[(&str, &str)] = &[
         ("grok-4.6", "Grok 4.6"),
         ("grok-4.5", "Grok 4.5"),
         ("grok-4.3", "Grok 4.3"),
+        ("grok-build-0.1", "Grok Build"),
     ];
     const MISTRAL_MODELS: &[(&str, &str)] = &[
         ("mistral-medium-latest", "Mistral Medium"),
         ("mistral-large-latest", "Mistral Large"),
         ("codestral-latest", "Codestral"),
+        ("devstral-latest", "Devstral"),
     ];
     const GOOGLE_MODELS: &[(&str, &str)] = &[
         ("gemini-3.7-flash", "Gemini 3.7 Flash"),
@@ -120,16 +161,32 @@ pub fn builtin_providers() -> &'static [BuiltinProviderSpec] {
     ];
     const MOONSHOT_MODELS: &[(&str, &str)] = &[
         ("kimi-k3", "Kimi K3"),
+        ("kimi-k2.7-code", "Kimi K2.7 Code"),
         ("kimi-k2-turbo-preview", "Kimi K2 Turbo"),
         ("kimi-k2.6", "Kimi K2.6"),
     ];
     const ZHIPU_MODELS: &[(&str, &str)] = &[
         ("glm-5.3", "GLM-5.3"),
         ("glm-5.3-flash", "GLM-5.3 Flash"),
-        ("glm-4.5", "GLM-4.5"),
+        ("glm-5.2", "GLM-5.2"),
+        ("glm-5-turbo", "GLM-5 Turbo"),
+    ];
+    const ZAI_MODELS: &[(&str, &str)] = &[
+        ("glm-5.3", "GLM-5.3"),
+        ("glm-5.3-flash", "GLM-5.3 Flash"),
+        ("glm-5.2", "GLM-5.2"),
+        ("glm-5-turbo", "GLM-5 Turbo"),
+    ];
+    const ZAI_CODING_MODELS: &[(&str, &str)] = &[
+        ("glm-5.3", "GLM-5.3 Coding"),
+        ("glm-5.3-flash", "GLM-5.3 Flash Coding"),
+        ("glm-5.3-highspeed", "GLM-5.3 Highspeed"),
+        ("glm-5.2", "GLM-5.2 Coding"),
+        ("glm-5-turbo", "GLM-5 Turbo Coding"),
     ];
     const QWEN_MODELS: &[(&str, &str)] = &[
         ("qwen3.8-max", "Qwen3.8 Max"),
+        ("qwen3-coder-plus", "Qwen3 Coder Plus"),
         ("qwen-plus", "Qwen Plus"),
         ("qwen-flash", "Qwen Flash"),
     ];
@@ -141,12 +198,15 @@ pub fn builtin_providers() -> &'static [BuiltinProviderSpec] {
     const MINIMAX_MODELS: &[(&str, &str)] = &[
         ("MiniMax-M3", "MiniMax M3"),
         ("MiniMax-M2.7", "MiniMax M2.7"),
+        ("MiniMax-M2.7-highspeed", "MiniMax M2.7 Highspeed"),
+        ("MiniMax-M2.5", "MiniMax M2.5"),
     ];
     const YI_MODELS: &[(&str, &str)] =
         &[("yi-lightning", "Yi Lightning"), ("yi-large", "Yi Large")];
     const BYTEDANCE_MODELS: &[(&str, &str)] = &[
+        ("doubao-seed-2.1-turbo", "Doubao Seed 2.1 Turbo"),
+        ("doubao-seed-2.0-code", "Doubao Seed 2.0 Code"),
         ("doubao-seed-1.6", "Doubao Seed 1.6"),
-        ("doubao-1.5-pro-32k", "Doubao 1.5 Pro"),
     ];
     const TOGETHER_MODELS: &[(&str, &str)] = &[
         ("deepseek-ai/DeepSeek-V4-Pro", "DeepSeek V4 Pro"),
@@ -179,6 +239,73 @@ pub fn builtin_providers() -> &'static [BuiltinProviderSpec] {
     const NVIDIA_MODELS: &[(&str, &str)] = &[
         ("nvidia/nemotron-3.5-lightning", "Nemotron 3.5 Lightning"),
         ("meta/llama-3.3-70b-instruct", "Llama 3.3 70B"),
+    ];
+    const OPENCODE_GO_MODELS: &[(&str, &str)] = &[
+        ("grok-4.6", "Grok 4.6"),
+        ("gpt-5.6-luna", "GPT-5.6 Luna"),
+        ("glm-5.3", "GLM-5.3"),
+        ("glm-5.3-flash", "GLM-5.3 Flash"),
+        ("glm-5.2", "GLM-5.2"),
+        ("kimi-k3", "Kimi K3"),
+        ("kimi-k2.7-code", "Kimi K2.7 Code"),
+        ("minimax-m3", "MiniMax M3"),
+        ("deepseek-v4-pro", "DeepSeek V4 Pro"),
+        ("deepseek-v4-flash", "DeepSeek V4 Flash"),
+        ("qwen3.8-max", "Qwen3.8 Max"),
+        ("mimo-v2.5-pro", "MiMo V2.5 Pro"),
+        ("longcat-2.0", "LongCat 2.0"),
+        ("hy3", "Hy3"),
+    ];
+    const OPENCODE_ZEN_MODELS: &[(&str, &str)] = &[
+        ("gpt-5.6-sol", "GPT-5.6 Sol"),
+        ("gpt-5.3-codex", "GPT-5.3 Codex"),
+        ("glm-5.3", "GLM-5.3"),
+        ("kimi-k3", "Kimi K3"),
+        ("deepseek-v4-pro", "DeepSeek V4 Pro"),
+        ("minimax-m3", "MiniMax M3"),
+        ("qwen3.8-max", "Qwen3.8 Max"),
+        ("grok-4.6", "Grok 4.6"),
+    ];
+    const NANOGPT_MODELS: &[(&str, &str)] = &[
+        ("openai/gpt-5.6-sol", "GPT-5.6 Sol"),
+        ("openai/gpt-5.3-codex", "GPT-5.3 Codex"),
+        ("anthropic/claude-opus-4.6", "Claude Opus 4.6"),
+        ("anthropic/claude-sonnet-4.6", "Claude Sonnet 4.6"),
+        ("google/gemini-3.7-flash", "Gemini 3.7 Flash"),
+        ("minimax/minimax-m2.7", "MiniMax M2.7"),
+        ("moonshotai/kimi-k3", "Kimi K3"),
+        ("zai-org/glm-5.3", "GLM-5.3"),
+    ];
+    const XIAOMI_MODELS: &[(&str, &str)] = &[
+        ("mimo-v2.5-pro", "MiMo V2.5 Pro"),
+        ("mimo-v2.5", "MiMo V2.5"),
+    ];
+    const HUGGINGFACE_MODELS: &[(&str, &str)] = &[
+        ("moonshotai/Kimi-K2.5", "Kimi K2.5"),
+        ("Qwen/Qwen3.8-27B", "Qwen3.8 27B"),
+        ("deepseek-ai/DeepSeek-V4-Pro", "DeepSeek V4 Pro"),
+    ];
+    const SAMBANOVA_MODELS: &[(&str, &str)] = &[
+        ("Meta-Llama-3.3-70B-Instruct", "Llama 3.3 70B"),
+        ("DeepSeek-V4-Pro", "DeepSeek V4 Pro"),
+    ];
+    const HYPERBOLIC_MODELS: &[(&str, &str)] = &[
+        ("deepseek-ai/DeepSeek-V4-Pro", "DeepSeek V4 Pro"),
+        ("moonshotai/Kimi-K2.5", "Kimi K2.5"),
+    ];
+    const VENICE_MODELS: &[(&str, &str)] = &[
+        ("llama-3.3-70b", "Llama 3.3 70B"),
+        ("qwen3-235b", "Qwen3 235B"),
+        ("deepseek-v4-pro", "DeepSeek V4 Pro"),
+    ];
+    const LONGCAT_MODELS: &[(&str, &str)] = &[
+        ("longcat-2.0", "LongCat 2.0"),
+        ("LongCat-Flash-Chat", "LongCat Flash"),
+    ];
+    const NOVITA_MODELS: &[(&str, &str)] = &[
+        ("deepseek/deepseek-v4-pro", "DeepSeek V4 Pro"),
+        ("qwen/qwen3.8-max", "Qwen3.8 Max"),
+        ("minimaxai/minimax-m3", "MiniMax M3"),
     ];
     const EMPTY_MODELS: &[(&str, &str)] = &[];
 
@@ -273,6 +400,22 @@ pub fn builtin_providers() -> &'static [BuiltinProviderSpec] {
             supports_model_refresh: true,
         },
         BuiltinProviderSpec {
+            slug: "zai",
+            label: "Z.AI",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://api.z.ai/api/paas/v4",
+            builtin_models: ZAI_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "zai-coding",
+            label: "Z.AI Coding Plan",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://api.z.ai/api/coding/paas/v4",
+            builtin_models: ZAI_CODING_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
             slug: "qwen",
             label: "Qwen (DashScope)",
             kind: AiProviderKind::NativeHttp,
@@ -351,6 +494,94 @@ pub fn builtin_providers() -> &'static [BuiltinProviderSpec] {
             kind: AiProviderKind::NativeHttp,
             default_base_url: "https://api.deepinfra.com",
             builtin_models: DEEPINFRA_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "opencode-go",
+            label: "OpenCode Go",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://opencode.ai/zen/go",
+            builtin_models: OPENCODE_GO_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "opencode-zen",
+            label: "OpenCode Zen",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://opencode.ai/zen",
+            builtin_models: OPENCODE_ZEN_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "nanogpt",
+            label: "NanoGPT",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://nano-gpt.com/api",
+            builtin_models: NANOGPT_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "xiaomi",
+            label: "Xiaomi MiMo",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://api.xiaomimimo.com",
+            builtin_models: XIAOMI_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "xiaomi-plan",
+            label: "Xiaomi Token Plan",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://token-plan-cn.xiaomimimo.com",
+            builtin_models: XIAOMI_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "huggingface",
+            label: "Hugging Face",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://router.huggingface.co",
+            builtin_models: HUGGINGFACE_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "sambanova",
+            label: "SambaNova",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://api.sambanova.ai",
+            builtin_models: SAMBANOVA_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "hyperbolic",
+            label: "Hyperbolic",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://api.hyperbolic.xyz",
+            builtin_models: HYPERBOLIC_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "venice",
+            label: "Venice",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://api.venice.ai/api",
+            builtin_models: VENICE_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "longcat",
+            label: "LongCat",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://api.longcat.chat/openai",
+            builtin_models: LONGCAT_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "novita",
+            label: "Novita",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://api.novita.ai/v3/openai",
+            builtin_models: NOVITA_MODELS,
             supports_model_refresh: true,
         },
         BuiltinProviderSpec {
@@ -609,8 +840,19 @@ mod tests {
             "qwen",
             "moonshot",
             "zhipu",
+            "zai",
+            "zai-coding",
             "minimax",
             "bytedance",
+            "opencode-go",
+            "opencode-zen",
+            "nanogpt",
+            "xiaomi",
+            "xiaomi-plan",
+            "huggingface",
+            "venice",
+            "longcat",
+            "novita",
         ] {
             assert!(slugs.contains(&slug), "missing provider {slug}");
         }
@@ -630,6 +872,11 @@ mod tests {
             .find(|p| p.slug == "xai")
             .unwrap();
         assert!(xai.builtin_models.iter().any(|(id, _)| *id == "grok-4.6"));
+        assert!(
+            xai.builtin_models
+                .iter()
+                .any(|(id, _)| *id == "grok-build-0.1")
+        );
         let openrouter = builtin_providers()
             .iter()
             .find(|p| p.slug == "openrouter")
@@ -640,6 +887,75 @@ mod tests {
                 .iter()
                 .any(|(id, _)| *id == "anthropic/claude-opus-5")
         );
+        let zai = builtin_providers()
+            .iter()
+            .find(|p| p.slug == "zai")
+            .unwrap();
+        assert!(zai.builtin_models.iter().any(|(id, _)| *id == "glm-5.3"));
+        let zai_coding = builtin_providers()
+            .iter()
+            .find(|p| p.slug == "zai-coding")
+            .unwrap();
+        assert_eq!(
+            zai_coding.default_base_url,
+            "https://api.z.ai/api/coding/paas/v4"
+        );
+        let minimax = builtin_providers()
+            .iter()
+            .find(|p| p.slug == "minimax")
+            .unwrap();
+        assert!(
+            minimax
+                .builtin_models
+                .iter()
+                .any(|(id, _)| *id == "MiniMax-M3")
+        );
+        let moonshot = builtin_providers()
+            .iter()
+            .find(|p| p.slug == "moonshot")
+            .unwrap();
+        assert!(
+            moonshot
+                .builtin_models
+                .iter()
+                .any(|(id, _)| *id == "kimi-k2.7-code")
+        );
+        let qwen = builtin_providers()
+            .iter()
+            .find(|p| p.slug == "qwen")
+            .unwrap();
+        assert!(
+            qwen.builtin_models
+                .iter()
+                .any(|(id, _)| *id == "qwen3-coder-plus")
+        );
+        let go = builtin_providers()
+            .iter()
+            .find(|p| p.slug == "opencode-go")
+            .unwrap();
+        assert_eq!(go.default_base_url, "https://opencode.ai/zen/go");
+        assert!(go.builtin_models.iter().any(|(id, _)| *id == "grok-4.6"));
+        let nanogpt = builtin_providers()
+            .iter()
+            .find(|p| p.slug == "nanogpt")
+            .unwrap();
+        assert_eq!(nanogpt.default_base_url, "https://nano-gpt.com/api");
+        assert!(
+            nanogpt
+                .builtin_models
+                .iter()
+                .any(|(id, _)| *id == "openai/gpt-5.6-sol")
+        );
+    }
+
+    #[test]
+    fn provider_group_classifies_subscription_and_agents() {
+        assert_eq!(provider_group("opencode-go"), AiProviderGroup::Subscription);
+        assert_eq!(provider_group("nanogpt"), AiProviderGroup::Subscription);
+        assert_eq!(provider_group("zai-coding"), AiProviderGroup::Subscription);
+        assert_eq!(provider_group("openai"), AiProviderGroup::Cloud);
+        assert_eq!(provider_group("ollama"), AiProviderGroup::Local);
+        assert_eq!(provider_group("acp:codex"), AiProviderGroup::Agent);
     }
 
     #[test]

@@ -197,19 +197,15 @@
 .er-diagram__svg {
   position: absolute;
   inset: 0;
+  z-index: 2;
   overflow: visible;
-  pointer-events: none;
-}
-
-.er-diagram__edge-label {
-  font-size: 10px;
-  fill: var(--color-text-muted);
   pointer-events: none;
 }
 
 .er-diagram__tables {
   position: absolute;
   inset: 0;
+  z-index: 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -218,7 +214,7 @@
 
 .er-table-card {
   position: absolute;
-  width: 220px;
+  width: 240px;
   display: flex;
   flex-direction: column;
   border: 1px solid
@@ -277,6 +273,8 @@
   align-items: baseline;
   justify-content: space-between;
   gap: $spacing-sm;
+  box-sizing: border-box;
+  height: 32px;
   padding: $spacing-sm $spacing-md;
   border-bottom: 1px solid var(--glass-border);
   // Subtle primary tint so the header reads as the table's "title bar".
@@ -312,22 +310,31 @@
 .er-table-card__columns {
   display: flex;
   flex-direction: column;
-  // Long column lists scroll inside the card instead of overflowing the
-  // canvas — keeps relationship lines from being covered by oversized cards.
   max-height: none;
   overflow-y: visible;
-  padding: $spacing-2xs 0;
+  padding: 4px 0;
 }
 
 .er-table-card__column {
   display: flex;
   align-items: center;
-  padding: $spacing-2xs $spacing-md;
+  box-sizing: border-box;
+  height: 22px;
+  padding: 0 $spacing-md;
   transition: background-color $motion-fast ease;
 
   &:hover {
     background: var(--color-hover);
   }
+}
+
+.er-table-card__column--fk {
+  box-shadow: inset 2px 0 0 var(--color-primary);
+}
+
+.er-table-card__column--pk {
+  box-shadow: inset 2px 0 0
+    color-mix(in srgb, var(--color-primary) 55%, var(--color-border));
 }
 
 .er-table-card__column-name {
