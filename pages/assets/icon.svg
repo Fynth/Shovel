@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Shovel logo icon</title>
+  <desc id="desc">Minimal shovel logo with dark navy handle and bright blue blade.</desc>
+
+  <!-- Colors:
+       navy: #071A35
+       blue:  #14A8F4
+  -->
+
+  <!-- D-shaped grip -->
+  <path
+    d="M404 164
+       H620
+       C631.046 164 640 172.954 640 184
+       V247
+       C640 311.065 588.065 363 524 363
+       H500
+       C435.935 363 384 311.065 384 247
+       V184
+       C384 172.954 392.954 164 404 164
+       Z
+       M430 206
+       V249
+       C430 293.183 465.817 329 510 329
+       H514
+       C558.183 329 594 293.183 594 249
+       V206
+       H430
+       Z"
+    fill="#071A35"
+    fill-rule="evenodd"
+    clip-rule="evenodd"/>
+
+  <!-- Shaft -->
+  <rect x="478" y="342" width="68" height="330" rx="0" fill="#071A35"/>
+
+  <!-- Small connector -->
+  <path
+    d="M512 632
+       C529.673 632 544 646.327 544 664
+       V705
+       H480
+       V664
+       C480 646.327 494.327 632 512 632
+       Z"
+    fill="#14A8F4"/>
+
+  <!-- Blade -->
+  <path
+    d="M393 672
+       C390.791 672 389 673.791 389 676
+       V745
+       C389 825.5 441.5 870.5 511.5 900
+       C512.5 900.42 513.5 900.42 514.5 900
+       C584.5 870.5 637 825.5 637 745
+       V676
+       C637 673.791 635.209 672 633 672
+       H393
+       Z"
+    fill="#14A8F4"/>
+</svg>

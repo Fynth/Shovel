@@ -220,6 +220,9 @@ jobs:
       - build-arch-site
       - build-flatpak-site
     runs-on: ubuntu-latest
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
 
     permissions:
       pages: write
@@ -230,6 +233,12 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
+      - name: Checkout landing page
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.git_ref || format('refs/tags/v{0}', github.event.inputs.version) }}
+          sparse-checkout: pages
+
       - name: Download APT site artifact
         uses: actions/download-artifact@v4
         with:
@@ -269,30 +278,16 @@ jobs:
           fi
 
           mkdir -p site
+          if [[ -d pages ]]; then
+            cp -a pages/. site/
+          fi
+          touch site/.nojekyll
+
           cp -R "${apt_source}" site/apt
           mkdir -p site/arch
           cp -R "${pacman_source}/arch/." site/arch/
           cp "${pacman_source}/index.html" site/arch/index.html
           cp -R "${flatpak_source}" site/flatpak
-
-          cat <<'EOF' > site/index.html
-          <!doctype html>
-          <html lang="en">
-          <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>Shovel Package Repositories</title>
-          </head>
-          <body>
-            <h1>Shovel Package Repositories</h1>
-            <ul>
-              <li><a href="./apt/">APT repository</a></li>
-              <li><a href="./arch/">Arch repository</a></li>
-              <li><a href="./flatpak/">Flatpak repository</a></li>
-            </ul>
-          </body>
-          </html>
-          EOF
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

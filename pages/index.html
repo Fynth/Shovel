@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en" class="theme-dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Shovel — native desktop database client</title>
+    <meta
+      name="description"
+      content="Shovel is a native desktop database client for SQLite, PostgreSQL, MySQL, and ClickHouse. SQL editor, result grid, schema explorer, and optional ACP agents."
+    />
+    <meta name="theme-color" content="#14161b" />
+    <link rel="canonical" href="https://fynth.github.io/Shovel/" />
+    <link rel="icon" href="./assets/favicon.png" type="image/png" />
+    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
+    <meta property="og:title" content="Shovel" />
+    <meta
+      property="og:description"
+      content="Native desktop database client. SQLite, PostgreSQL, MySQL, ClickHouse. Rust and Dioxus."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://fynth.github.io/Shovel/" />
+    <meta property="og:image" content="https://fynth.github.io/Shovel/assets/workspace.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <a class="skip" href="#content">Skip to content</a>
+
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="./">
+          <svg class="brand__mark" viewBox="0 0 1024 1024" width="20" height="20" aria-hidden="true">
+            <path fill="currentColor" fill-rule="evenodd" d="M404 164H620C631.046 164 640 172.954 640 184V247C640 311.065 588.065 363 524 363H500C435.935 363 384 311.065 384 247V184C384 172.954 392.954 164 404 164ZM430 206V249C430 293.183 465.817 329 510 329H514C558.183 329 594 293.183 594 249V206H430Z"/>
+            <rect x="478" y="342" width="68" height="330" fill="currentColor"/>
+            <path fill="#74b4ff" d="M512 632C529.673 632 544 646.327 544 664V705H480V664C480 646.327 494.327 632 512 632Z"/>
+            <path fill="#74b4ff" d="M393 672C390.791 672 389 673.791 389 676V745C389 825.5 441.5 870.5 511.5 900C512.5 900.42 513.5 900.42 514.5 900C584.5 870.5 637 825.5 637 745V676C637 673.791 635.209 672 633 672H393Z"/>
+          </svg>
+          Shovel
+        </a>
+        <nav class="nav" aria-label="Page">
+          <a href="#workspace">Workspace</a>
+          <a href="#features">Features</a>
+          <a href="#engines">Engines</a>
+          <a href="#install">Install</a>
+        </nav>
+        <div class="header-actions">
+          <button class="btn btn--ghost" type="button" data-theme-toggle>Theme</button>
+          <a class="btn btn--ghost" href="https://github.com/Fynth/Shovel">GitHub</a>
+          <a class="btn btn--primary" href="https://github.com/Fynth/Shovel/releases/latest">Releases</a>
+        </div>
+      </div>
+    </header>
+
+    <main id="content">
+      <section class="hero">
+        <div class="wrap">
+          <div>
+            <p class="eyebrow">Database client</p>
+            <h1>Shovel</h1>
+            <p class="lede">A native desktop client for the databases you already run.</p>
+            <p>
+              SQLite, PostgreSQL, MySQL, and ClickHouse. Write SQL, walk the schema, edit rows,
+              export the result. An ACP agent sits in the same window if you want one. Turn it off
+              and Shovel is still a SQL client.
+            </p>
+            <div class="hero-actions">
+              <a class="btn btn--primary" href="https://github.com/Fynth/Shovel/releases/latest">Download</a>
+              <a class="btn" href="#install">Install commands</a>
+              <a class="btn btn--ghost" href="https://github.com/Fynth/Shovel">Source</a>
+            </div>
+          </div>
+          <pre class="snippet" aria-hidden="true"><span class="tok-cm">-- rust + dioxus. not a browser tab.</span>
+<span class="tok-kw">select</span> engine, query, edit_rows
+<span class="tok-kw">from</span> support
+<span class="tok-kw">where</span> engine <span class="tok-kw">in</span> (
+  <span class="tok-str">'sqlite'</span>,
+  <span class="tok-str">'postgres'</span>,
+  <span class="tok-str">'mysql'</span>,
+  <span class="tok-str">'clickhouse'</span>
+);</pre>
+        </div>
+      </section>
+
+      <div class="shot" id="workspace">
+        <div class="wrap">
+          <figure class="frame">
+            <img
+              src="./assets/workspace.png"
+              width="1890"
+              height="1099"
+              alt="Shovel workspace with schema explorer, SQL editor, result grid, and agent panel"
+            />
+            <figcaption>Explorer, editor, grid, and agent on a SQLite file.</figcaption>
+          </figure>
+          <p class="engines-strip">
+            SQLite <span>·</span> PostgreSQL <span>·</span> MySQL <span>·</span> ClickHouse
+            <span>·</span> Rust <span>·</span> Dioxus <span>·</span> ACP
+          </p>
+        </div>
+      </div>
+
+      <section id="features">
+        <div class="wrap">
+          <h2>What it actually does</h2>
+          <p class="section-lead">
+            Panels you can hide. Queries that stay in tabs. Rows you can edit without leaving the
+            grid.
+          </p>
+          <div class="features">
+            <article class="feature">
+              <h3>Query</h3>
+              <p>Multi-tab SQL, formatting, history, pagination. Inline completions as you type. Tab accepts, keep typing to ignore.</p>
+            </article>
+            <article class="feature">
+              <h3>Explorer</h3>
+              <p>Schemas, tables, views, columns. Open a table with one click. F2 renames. Delete drops, after you confirm.</p>
+            </article>
+            <article class="feature">
+              <h3>Grid</h3>
+              <p>Sort, filter, inspect JSON, open a row. Draft inserts, cell edits, and deletes, then apply or discard.</p>
+            </article>
+            <article class="feature">
+              <h3>Import / export</h3>
+              <p>CSV in. CSV, JSON, XLSX, XML, HTML, and SQL out.</p>
+            </article>
+            <article class="feature">
+              <h3>Chat</h3>
+              <p>Threads persist on disk and follow the open connection. Streaming SQL, then insert it into the editor.</p>
+            </article>
+            <article class="feature">
+              <h3>ACP</h3>
+              <p>OpenCode from the registry, or embedded Ollama and DeepSeek. Secrets go in the OS keyring. There is no plaintext fallback.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="engines">
+        <div class="wrap">
+          <h2>Engine support</h2>
+          <p class="section-lead">
+            ClickHouse connects, explores, queries, and exports. Row editing is still SQLite,
+            PostgreSQL, and MySQL.
+          </p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Engine</th>
+                  <th>Connect</th>
+                  <th>Explore</th>
+                  <th>Query</th>
+                  <th>Export</th>
+                  <th>Edit rows</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>SQLite</td>
+                  <td class="yes">yes</td>
+                  <td class="yes">yes</td>
+                  <td class="yes">yes</td>
+                  <td class="yes">yes</td>
+                  <td class="yes">yes</td>
+                </tr>
+                <tr>
+                  <td>PostgreSQL</td>
+                  <td class="yes">yes</td>
+                  <td class="yes">yes</td>
+                  <td class="yes">yes</td>
+                  <td class="yes">yes</td>
+                  <td class="yes">yes</td>
+                </tr>
+                <tr>
+                  <td>MySQL</td>
+                  <td class="yes">yes</td>
+                  <td class="yes">yes</td>
+                  <td class="yes">yes</td>
+                  <td class="yes">yes</td>
+                  <td class="yes">yes</td>
+                </tr>
+                <tr>
+                  <td>ClickHouse</td>
+                  <td class="yes">yes</td>
+                  <td class="yes">yes</td>
+                  <td class="yes">yes</td>
+                  <td class="yes">yes</td>
+                  <td class="warn">not yet</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="install">
+        <div class="wrap">
+          <h2>Install</h2>
+          <p class="section-lead">
+            Builds are on
+            <a href="https://github.com/Fynth/Shovel/releases/latest">GitHub Releases</a>.
+            Linux packages, a Windows installer, or cargo if you already have the toolchain.
+          </p>
+          <div class="install">
+            <div class="install-row">
+              <h3>Debian / Ubuntu</h3>
+              <pre>echo "deb [arch=amd64 trusted=yes] https://fynth.github.io/Shovel/apt stable main" | sudo tee /etc/apt/sources.list.d/shovel.list
+sudo apt update && sudo apt install shovel</pre>
+              <button
+                class="btn"
+                type="button"
+                data-copy="echo &quot;deb [arch=amd64 trusted=yes] https://fynth.github.io/Shovel/apt stable main&quot; | sudo tee /etc/apt/sources.list.d/shovel.list
+sudo apt update && sudo apt install shovel"
+              >
+                Copy
+              </button>
+            </div>
+            <div class="install-row">
+              <h3>Arch</h3>
+              <pre>yay -S shovel</pre>
+              <button class="btn" type="button" data-copy="yay -S shovel">Copy</button>
+            </div>
+            <div class="install-row">
+              <h3>Flatpak</h3>
+              <pre>flatpak install --user ./shovel-linux-x86_64.flatpak
+flatpak run dev.shovel.app</pre>
+              <button
+                class="btn"
+                type="button"
+                data-copy="flatpak install --user ./shovel-linux-x86_64.flatpak
+flatpak run dev.shovel.app"
+              >
+                Copy
+              </button>
+            </div>
+            <div class="install-row">
+              <h3>Windows</h3>
+              <pre>shovel-windows-x86_64.msi</pre>
+              <a class="btn" href="https://github.com/Fynth/Shovel/releases/latest">Open</a>
+            </div>
+            <div class="install-row">
+              <h3>From source</h3>
+              <pre>cargo run -p app --features desktop</pre>
+              <button class="btn" type="button" data-copy="cargo run -p app --features desktop">Copy</button>
+            </div>
+          </div>
+          <p class="note">
+            Nightly Rust, pinned in the repo. The Windows <span class="mono">.exe</span> needs WebView2.
+            The APT repo is unsigned, so the source line uses <span class="mono">trusted=yes</span>.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <span>Shovel is MIT licensed.</span>
+        <nav aria-label="Footer">
+          <a href="https://github.com/Fynth/Shovel">GitHub</a>
+          <a href="https://github.com/Fynth/Shovel/releases">Releases</a>
+          <a href="https://github.com/Fynth/Shovel/blob/main/README.md">README</a>
+          <a href="./apt/">APT</a>
+          <a href="./arch/">Arch</a>
+          <a href="./flatpak/">Flatpak</a>
+        </nav>
+      </div>
+    </footer>
+
+    <div class="toast-wrap" id="toasts"></div>
+    <script src="./app.js"></script>
+  </body>
+</html>
