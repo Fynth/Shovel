@@ -109,6 +109,8 @@ pub use storage::{
 // --- ACP agent runtime ---
 
 pub use acp::{
+    NativeChatMessage,
+    NativeChatRequest,
     build_acp_database_context,
     build_embedded_deepseek_launch,
     build_embedded_ollama_launch,

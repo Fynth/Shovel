@@ -1,5 +1,7 @@
 // Core ACP functionality (no DB dependencies) — re-exported from acp-core.
 pub use acp_core::{
+    NativeChatMessage,
+    NativeChatRequest,
     agents::{
         self,
         AgentCoordinator,
