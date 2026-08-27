@@ -39,6 +39,14 @@
 mod dialect;
 pub use dialect::*;
 
+mod handle;
+pub use handle::*;
+
+#[cfg(feature = "fake")]
+mod fake;
+#[cfg(feature = "fake")]
+pub use fake::*;
+
 /// A generic trait for establishing a connection pool to a database.
 ///
 /// `DatabaseDriver` is the primary abstraction at the boundary between the
