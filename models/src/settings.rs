@@ -767,10 +767,15 @@ impl AppUiSettings {
     /// has no active model yet. Legacy blobs stay in memory for key migration
     /// but are not written back to JSON.
     pub fn migrate_legacy_ai_fields(&mut self) {
-        if self.ai_catalog.active.is_some() {
-            return;
+        if self.ai_catalog.active.is_none() {
+            self.migrate_legacy_chat_fields();
         }
+        if self.ai_catalog.active_completion.is_none() {
+            self.migrate_legacy_completion_fields();
+        }
+    }
 
+    fn migrate_legacy_chat_fields(&mut self) {
         let legacy = [
             (
                 "deepseek",
@@ -895,6 +900,29 @@ impl AppUiSettings {
         }
 
         self.ai_catalog.active = active;
+    }
+
+    fn migrate_legacy_completion_fields(&mut self) {
+        let codestral_model = self.codestral.model.trim();
+        if self.codestral.enabled && !codestral_model.is_empty() {
+            self.ai_catalog
+                .overrides
+                .entry("codestral".into())
+                .or_default()
+                .enabled = true;
+            self.ai_catalog.active_completion = Some(crate::ActiveModel {
+                provider: "codestral".into(),
+                model: codestral_model.to_string(),
+            });
+            return;
+        }
+        let deepseek_model = self.deepseek.model.trim();
+        if self.deepseek.enabled && !deepseek_model.is_empty() {
+            self.ai_catalog.active_completion = Some(crate::ActiveModel {
+                provider: "deepseek".into(),
+                model: deepseek_model.to_string(),
+            });
+        }
     }
 }
 
@@ -1663,6 +1691,53 @@ mod tests {
         let dumped = serde_json::to_value(&settings).unwrap();
         assert!(dumped.get("deepseek").is_none());
         assert!(dumped.get("ai_catalog").is_some());
+    }
+
+    #[test]
+    fn migrate_legacy_codestral_fills_active_completion_even_if_chat_active() {
+        let json = serde_json::json!({
+            "codestral": { "enabled": true, "model": "codestral-latest" },
+            "deepseek": { "enabled": true, "model": "deepseek-chat" },
+            "ai_catalog": {
+                "active": { "provider": "openai", "model": "gpt-5.6-sol" }
+            }
+        });
+        let mut settings: AppUiSettings = serde_json::from_value(json).unwrap();
+        settings.migrate_legacy_ai_fields();
+        let completion = settings
+            .ai_catalog
+            .active_completion
+            .as_ref()
+            .expect("active_completion");
+        assert_eq!(completion.provider, "codestral");
+        assert_eq!(completion.model, "codestral-latest");
+        assert_eq!(
+            settings.ai_catalog.active.as_ref().unwrap().provider,
+            "openai"
+        );
+        assert!(
+            settings
+                .ai_catalog
+                .overrides
+                .get("codestral")
+                .is_some_and(|over| over.enabled)
+        );
+    }
+
+    #[test]
+    fn migrate_legacy_deepseek_fills_completion_when_codestral_off() {
+        let json = serde_json::json!({
+            "deepseek": { "enabled": true, "model": "deepseek-chat" }
+        });
+        let mut settings: AppUiSettings = serde_json::from_value(json).unwrap();
+        settings.migrate_legacy_ai_fields();
+        let completion = settings
+            .ai_catalog
+            .active_completion
+            .as_ref()
+            .expect("active_completion");
+        assert_eq!(completion.provider, "deepseek");
+        assert_eq!(completion.model, "deepseek-chat");
     }
 
     #[test]
