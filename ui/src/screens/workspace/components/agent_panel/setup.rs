@@ -172,6 +172,8 @@ pub(crate) async fn ensure_default_sql_agent_connected(
             .await,
         DefaultConnectAction::ConnectAcpOpencode =>
             ensure_opencode_connected(panel_state, chat_revision).await,
+        DefaultConnectAction::AcpCustom =>
+            Err("Connect the custom ACP agent from the setup form.".to_string()),
         DefaultConnectAction::UnreadyNative =>
             Err("Add an API key for the selected provider.".to_string()),
         DefaultConnectAction::VendorDeepSeek =>
@@ -331,6 +333,7 @@ pub(super) enum DefaultConnectAction {
     NativeReady,
     ConnectAcpCodex,
     ConnectAcpOpencode,
+    AcpCustom,
     UnreadyNative,
     VendorDeepSeek,
     VendorOllama,
@@ -353,7 +356,10 @@ pub(super) fn default_connect_action(
             Some(AiProviderKind::Acp) if provider == "acp:codex" => {
                 return DefaultConnectAction::ConnectAcpCodex;
             }
-            Some(AiProviderKind::Acp) => return DefaultConnectAction::ConnectAcpOpencode,
+            Some(AiProviderKind::Acp) if provider == "acp:opencode" => {
+                return DefaultConnectAction::ConnectAcpOpencode;
+            }
+            Some(AiProviderKind::Acp) => return DefaultConnectAction::AcpCustom,
             Some(AiProviderKind::NativeHttp) => return DefaultConnectAction::UnreadyNative,
             None => {}
         }
@@ -522,5 +528,21 @@ mod tests {
         assert_eq!(acp_catalog_provider_id("opencode"), "acp:opencode");
         assert_eq!(acp_catalog_provider_id("codex-acp"), "acp:codex");
         assert_eq!(acp_catalog_provider_id("other"), "acp:custom");
+    }
+
+    #[test]
+    fn acp_custom_active_does_not_auto_connect_opencode() {
+        assert_eq!(
+            default_connect_action(Some("acp:custom"), false, true, true),
+            DefaultConnectAction::AcpCustom
+        );
+        assert_eq!(
+            default_connect_action(Some("acp:opencode"), false, true, true),
+            DefaultConnectAction::ConnectAcpOpencode
+        );
+        assert_eq!(
+            default_connect_action(Some("acp:codex"), false, true, true),
+            DefaultConnectAction::ConnectAcpCodex
+        );
     }
 }
