@@ -25,7 +25,6 @@ use keyboard::KeyboardSection;
 use sections::{
     AdvancedSection,
     AppearanceSection,
-    CodeStralCompletionSection,
     ConfigSection,
     DatabaseSection,
     DeepSeekAgentSection,
@@ -234,8 +233,7 @@ pub fn SettingsModal(props: SettingsModalProps) -> Element {
                             },
                             SettingsCategory::Editor => rsx! {
                                 SqlFormattingSection { ..section_props.clone() }
-                                EditorBehaviorSection { ..section_props.clone() }
-                                CodeStralCompletionSection { ..section_props }
+                                EditorBehaviorSection { ..section_props }
                             },
                             SettingsCategory::Grid => rsx! {
                                 GridSection { ..section_props }

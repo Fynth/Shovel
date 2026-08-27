@@ -14,8 +14,10 @@ use models::{
     UiDensity,
     WorkspaceSplitMode,
     builtin_providers,
+    completion_picker_ids,
     normalize_native_chat_url,
     provider_backend,
+    resolve_picker_models,
 };
 use std::collections::BTreeMap;
 
@@ -981,6 +983,9 @@ pub(super) fn LanguageModelsSection(props: SettingsSectionProps) -> Element {
                     native_http_provider_card(spec, &settings, section, on_change, extra_drafts)
                 }
             }
+            {
+                sql_autocomplete_group(&settings, section, on_change)
+            }
             div { class: "settings-modal__group",
                 span { class: "settings-modal__group-title", "Custom providers" }
                 for custom in settings.ai_catalog.custom_native.clone() {
@@ -1187,86 +1192,6 @@ pub(super) fn SqlFormattingSection(props: SettingsSectionProps) -> Element {
                 sql_settings: section_props_signal.read().sql_settings.clone(),
                 settings: section_props_signal.read().settings.clone(),
                 on_change,
-            }
-        }
-    }
-}
-
-#[component]
-pub(super) fn CodeStralCompletionSection(props: SettingsSectionProps) -> Element {
-    let settings = props.settings.clone();
-    let on_change = props.on_change;
-    let section_props_signal = use_signal(|| props.clone());
-    sync_section_props(section_props_signal, &props);
-
-    rsx! {
-        section {
-            class: "settings-modal__section",
-            div {
-                class: "settings-modal__section-header",
-                h3 { class: "settings-modal__section-title", "CodeStral Completion" }
-                p {
-                    class: "settings-modal__section-hint",
-                    "AI-powered SQL code completion via CodeStral API."
-                }
-            }
-            label {
-                class: "settings-modal__toggle",
-                input {
-                    r#type: "checkbox",
-                    checked: settings.codestral.enabled,
-                    disabled: settings.codestral.api_key.is_empty(),
-                    oninput: move |event| {
-                        let mut next = section_props_signal.read().settings.clone();
-                        next.codestral.enabled = event.checked();
-                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
-                    },
-                }
-                span { "Enable CodeStral inline completion" }
-            }
-            div {
-                class: "field",
-                span { class: "field__label", "API Key" }
-                input {
-                    class: "input",
-                    r#type: "password",
-                    placeholder: "sk-...",
-                    value: "{settings.codestral.api_key}",
-                    oninput: move |event| {
-                        let mut next = section_props_signal.read().settings.clone();
-                        let value = event.value();
-                        next.codestral.api_key = value.clone();
-                        if value.trim().is_empty() {
-                            next.codestral.enabled = false;
-                        }
-                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
-                    },
-                }
-            }
-            div {
-                class: "field",
-                span { class: "field__label", "Model" }
-                input {
-                    class: "input",
-                    placeholder: "codestral-latest",
-                    value: "{settings.codestral.model}",
-                    oninput: move |event| {
-                        let mut next = section_props_signal.read().settings.clone();
-                        next.codestral.model = event.value();
-                        on_change.call((next, section_props_signal.read().sql_settings.clone()));
-                    },
-                }
-            }
-            if settings.codestral.api_key.is_empty() {
-                p {
-                    class: "settings-modal__section-hint",
-                    "Enter an API key to enable CodeStral completion. Get your key from "
-                    a {
-                        href: "https://codestral.mistral.ai/",
-                        target: "_blank",
-                        "codestral.mistral.ai"
-                    }
-                }
             }
         }
     }
@@ -1551,6 +1476,177 @@ fn refresh_catalog_models(
 
 fn extra_draft_value(drafts: Signal<BTreeMap<String, String>>, slug: &str) -> String {
     drafts.read().get(slug).cloned().unwrap_or_default()
+}
+
+fn completion_picker_label(settings: &AppUiSettings, id: &str) -> String {
+    if let Some(spec) = builtin_providers().iter().find(|spec| spec.slug == id) {
+        return spec.label.to_string();
+    }
+    settings
+        .ai_catalog
+        .custom_native
+        .iter()
+        .find(|custom| custom.id == id)
+        .map(|custom| {
+            if custom.name.trim().is_empty() {
+                custom.id.clone()
+            } else {
+                custom.name.clone()
+            }
+        })
+        .unwrap_or_else(|| id.to_string())
+}
+
+fn resolved_models_for_provider(settings: &AppUiSettings, provider: &str) -> Vec<AiModelEntry> {
+    if let Some(spec) = builtin_providers()
+        .iter()
+        .find(|spec| spec.slug == provider)
+    {
+        let builtin: Vec<AiModelEntry> = spec
+            .builtin_models
+            .iter()
+            .map(|(id, label)| AiModelEntry {
+                id: (*id).to_string(),
+                label: (*label).to_string(),
+            })
+            .collect();
+        let extra = settings
+            .ai_catalog
+            .overrides
+            .get(provider)
+            .map(|over| over.extra_models.as_slice())
+            .unwrap_or(&[]);
+        let hidden = settings
+            .ai_catalog
+            .overrides
+            .get(provider)
+            .map(|over| over.hidden_builtin_ids.as_slice())
+            .unwrap_or(&[]);
+        return resolve_picker_models(&builtin, extra, hidden);
+    }
+    settings
+        .ai_catalog
+        .custom_native
+        .iter()
+        .find(|custom| custom.id == provider)
+        .map(|custom| custom.models.clone())
+        .unwrap_or_default()
+}
+
+fn sql_autocomplete_group(
+    settings: &AppUiSettings,
+    section: Signal<SettingsSectionProps>,
+    on_change: Callback<(AppUiSettings, SqlFormatSettings)>,
+) -> Element {
+    let provider_options: Vec<(String, String)> = completion_picker_ids(&settings.ai_catalog)
+        .into_iter()
+        .map(|id| {
+            let label = completion_picker_label(settings, &id);
+            (id, label)
+        })
+        .collect();
+    let selected_provider = settings
+        .ai_catalog
+        .active_completion
+        .as_ref()
+        .map(|active| active.provider.clone())
+        .unwrap_or_default();
+    let selected_model = settings
+        .ai_catalog
+        .active_completion
+        .as_ref()
+        .map(|active| active.model.clone())
+        .unwrap_or_default();
+    let model_options = if selected_provider.is_empty() {
+        Vec::new()
+    } else {
+        resolved_models_for_provider(settings, &selected_provider)
+    };
+    let provider_empty = selected_provider.is_empty();
+
+    rsx! {
+        div { class: "settings-modal__group",
+            span { class: "settings-modal__group-title", "SQL autocomplete" }
+            p {
+                class: "settings-modal__section-hint",
+                "Ghost text uses this slot, not the chat model. Enable Codestral on its Language models card above — there is no separate CodeStral section."
+            }
+            div { class: "settings-modal__grid",
+                div { class: "field",
+                    span { class: "field__label", "Provider" }
+                    select {
+                        class: "input",
+                        value: selected_provider.clone(),
+                        onchange: move |event| {
+                            let provider = event.value();
+                            if provider.is_empty() {
+                                emit_ui_update(section, on_change, |next| {
+                                    next.ai_catalog.active_completion = None;
+                                });
+                                return;
+                            }
+                            let snapshot = section.peek().settings.clone();
+                            let model = resolved_models_for_provider(&snapshot, &provider)
+                                .into_iter()
+                                .next()
+                                .map(|entry| entry.id)
+                                .unwrap_or_default();
+                            emit_ui_update(section, on_change, move |next| {
+                                next.ai_catalog.active_completion = Some(ActiveModel {
+                                    provider,
+                                    model,
+                                });
+                            });
+                        },
+                        option {
+                            value: "",
+                            "Off"
+                        }
+                        for (id, label) in provider_options {
+                            option {
+                                value: id,
+                                {label}
+                            }
+                        }
+                    }
+                }
+                div { class: "field",
+                    span { class: "field__label", "Model" }
+                    select {
+                        class: "input",
+                        value: selected_model.clone(),
+                        disabled: provider_empty,
+                        onchange: move |event| {
+                            let model = event.value();
+                            let provider = section
+                                .peek()
+                                .settings
+                                .ai_catalog
+                                .active_completion
+                                .as_ref()
+                                .map(|active| active.provider.clone())
+                                .unwrap_or_default();
+                            if provider.is_empty() {
+                                return;
+                            }
+                            emit_ui_update(section, on_change, move |next| {
+                                next.ai_catalog.active_completion = Some(ActiveModel {
+                                    provider,
+                                    model,
+                                });
+                            });
+                        },
+                        for model in model_options {
+                            option {
+                                value: "{model.id}",
+                                {model.display_label().to_string()}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn native_http_provider_card(

@@ -834,6 +834,34 @@ pub fn provider_offers_complete(provider: &str, catalog: &AiCatalogSettings) -> 
     provider_backend(provider, catalog).is_some_and(|id| backend_capabilities(id).complete)
 }
 
+pub fn completion_picker_ids(catalog: &AiCatalogSettings) -> Vec<String> {
+    let mut ids = Vec::new();
+    for spec in builtin_providers() {
+        if provider_offers_complete(spec.slug, catalog)
+            && native_http_provider_enabled(catalog, spec.slug)
+        {
+            ids.push(spec.slug.to_string());
+        }
+    }
+    for custom in &catalog.custom_native {
+        if provider_offers_complete(&custom.id, catalog) {
+            ids.push(custom.id.clone());
+        }
+    }
+    ids
+}
+
+pub fn chat_picker_native_ids(catalog: &AiCatalogSettings) -> Vec<String> {
+    builtin_providers()
+        .iter()
+        .filter(|spec| {
+            provider_offers_chat(spec.slug, catalog)
+                && native_http_provider_enabled(catalog, spec.slug)
+        })
+        .map(|spec| spec.slug.to_string())
+        .collect()
+}
+
 /// Remove a custom native provider. Clears `active` / `active_completion` when they point at it.
 pub fn delete_custom_provider(cat: &mut AiCatalogSettings, id: &str) {
     cat.custom_native.retain(|provider| provider.id != id);
@@ -997,6 +1025,27 @@ mod tests {
         let got = resolve_picker_models(&builtin, &extra, &hidden);
         let ids: Vec<_> = got.iter().map(|m| m.id.as_str()).collect();
         assert_eq!(ids, ["gpt-4o", "my-ft"]);
+    }
+
+    #[test]
+    fn pickers_split_chat_and_complete() {
+        let mut cat = AiCatalogSettings::default();
+        for slug in ["openai", "codestral", "ollama"] {
+            cat.overrides.insert(
+                slug.into(),
+                AiProviderOverride {
+                    enabled: true,
+                    ..Default::default()
+                },
+            );
+        }
+        let complete = completion_picker_ids(&cat);
+        assert!(complete.contains(&"codestral".into()));
+        assert!(complete.contains(&"openai".into()));
+        let chat = chat_picker_native_ids(&cat);
+        assert!(chat.contains(&"openai".into()));
+        assert!(!chat.contains(&"codestral".into()));
+        assert!(!chat.iter().any(|id| id.starts_with("acp:")));
     }
 
     #[test]

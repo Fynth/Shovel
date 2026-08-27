@@ -12,6 +12,7 @@ use models::{
     needs_acp_reconnect,
     provider_backend,
     provider_kind,
+    provider_offers_chat,
     resolve_picker_models,
 };
 
@@ -548,6 +549,9 @@ fn native_picker_sections(settings: &AppUiSettings) -> Vec<NativePickerSection> 
         if spec.kind() != AiProviderKind::NativeHttp {
             continue;
         }
+        if !provider_offers_chat(spec.slug, &settings.ai_catalog) {
+            continue;
+        }
         if !native_http_provider_enabled(&settings.ai_catalog, spec.slug) {
             continue;
         }
@@ -579,6 +583,9 @@ fn native_picker_sections(settings: &AppUiSettings) -> Vec<NativePickerSection> 
         });
     }
     for custom in &settings.ai_catalog.custom_native {
+        if !provider_offers_chat(&custom.id, &settings.ai_catalog) {
+            continue;
+        }
         let label = if custom.name.trim().is_empty() {
             custom.id.clone()
         } else {
@@ -867,6 +874,26 @@ mod tests {
             .collect();
         assert!(slugs.iter().any(|slug| slug == "openai"));
         assert!(!slugs.iter().any(|slug| slug == "deepseek"));
+    }
+
+    #[test]
+    fn native_picker_omits_complete_only_backends() {
+        let mut settings = AppUiSettings::default();
+        for slug in ["openai", "codestral"] {
+            settings.ai_catalog.overrides.insert(
+                slug.into(),
+                AiProviderOverride {
+                    enabled: true,
+                    ..Default::default()
+                },
+            );
+        }
+        let slugs: Vec<_> = native_picker_sections(&settings)
+            .into_iter()
+            .map(|section| section.slug)
+            .collect();
+        assert!(slugs.iter().any(|slug| slug == "openai"));
+        assert!(!slugs.iter().any(|slug| slug == "codestral"));
     }
 
     #[test]

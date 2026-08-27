@@ -339,6 +339,13 @@ pub fn set_active_model(provider: String, model: String) {
     });
 }
 
+#[allow(dead_code)] // settings window is a separate VDom; it writes via emit_ui_update
+pub fn set_active_completion(provider: String, model: String) {
+    update_ui_settings(|current| {
+        current.ai_catalog.active_completion = Some(ActiveModel { provider, model });
+    });
+}
+
 pub fn set_show_saved_queries(visible: bool) {
     update_ui_settings(|current| {
         current.show_saved_queries = visible;
