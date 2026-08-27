@@ -420,6 +420,13 @@ impl Default for GridSettings {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SqlCompletionSettings {
+    pub provider: String,
+    pub model: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppBehaviorSettings {
@@ -629,6 +636,8 @@ pub struct AppUiSettings {
     /// after the user stops typing for a short idle pause; otherwise
     /// completions stay as ghost text until the user presses Tab.
     pub ai_auto_apply_completions: bool,
+    /// Provider/model used for SQL editor ghost-text completions.
+    pub sql_completion: SqlCompletionSettings,
 
     pub explorer: ExplorerViewSettings,
 
@@ -681,7 +690,8 @@ impl Default for AppUiSettings {
             ai_catalog: crate::AiCatalogSettings::default(),
             lm_keys: BTreeMap::new(),
             ai_response_language: "English".to_string(),
-            ai_auto_apply_completions: true,
+            ai_auto_apply_completions: false,
+            sql_completion: SqlCompletionSettings::default(),
             explorer: ExplorerViewSettings::default(),
             show_bottom_panel: true,
             bottom_panel_height: 120.0,
@@ -696,6 +706,17 @@ impl Default for AppUiSettings {
 }
 
 impl AppUiSettings {
+    pub fn sql_ghost_ready(&self) -> bool {
+        self.ai_features_enabled
+            && !self.sql_completion.provider.trim().is_empty()
+            && !self.sql_completion.model.trim().is_empty()
+            && crate::is_native_http_ready(
+                &self.sql_completion.provider,
+                &self.lm_api_key(&self.sql_completion.provider),
+                &self.ai_catalog,
+            )
+    }
+
     pub fn openai_compat(&self, provider: OpenAiCompatProvider) -> &OpenAiCompatSettings {
         match provider {
             OpenAiCompatProvider::OpenAi => &self.openai,
@@ -1065,36 +1086,36 @@ mod tests {
     }
 
     #[test]
-    fn fresh_default_ai_auto_apply_completions_is_enabled() {
-        assert!(AppUiSettings::default().ai_auto_apply_completions);
+    fn fresh_default_ai_auto_apply_completions_is_disabled() {
+        assert!(!AppUiSettings::default().ai_auto_apply_completions);
     }
 
     #[test]
-    fn legacy_settings_missing_ai_auto_apply_completions_defaults_to_true() {
-        // Settings written before the auto-apply feature shipped should
-        // still deserialize — the missing field must default to `true` so
-        // existing users get auto-apply behaviour on first launch.
-        let settings: AppUiSettings = serde_json::from_str(
-            r#"{
-                "theme":"Dark",
-                "ai_features_enabled":true,
-                "restore_session_on_launch":true,
-                "show_saved_queries":true,
-                "show_connections":false,
-                "show_explorer":true,
-                "show_history":false,
-                "show_sql_editor":false,
-                "show_agent_panel":false,
-                "default_page_size":100,
-                "tool_panel_layout":{
-                    "sidebar":["Connections","Explorer","SavedQueries","History"],
-                    "inspector":["Agent"]
-                }
-            }"#,
-        )
-        .expect("legacy settings fixture should deserialize");
+    fn legacy_settings_missing_ai_auto_apply_completions_defaults_to_false() {
+        let settings: AppUiSettings =
+            serde_json::from_str(r#"{"theme":"Dark"}"#).expect("legacy JSON");
+        assert!(!settings.ai_auto_apply_completions);
+    }
 
-        assert!(settings.ai_auto_apply_completions);
+    #[test]
+    fn fresh_default_sql_completion_is_empty() {
+        let settings = AppUiSettings::default();
+        assert!(settings.sql_completion.provider.is_empty());
+        assert!(settings.sql_completion.model.is_empty());
+        assert!(!settings.sql_ghost_ready());
+    }
+
+    #[test]
+    fn sql_ghost_ready_rejects_acp_slug() {
+        let settings = AppUiSettings {
+            ai_features_enabled: true,
+            sql_completion: super::SqlCompletionSettings {
+                provider: "acp:opencode".into(),
+                model: "x".into(),
+            },
+            ..AppUiSettings::default()
+        };
+        assert!(!settings.sql_ghost_ready());
     }
 
     #[test]
@@ -1279,9 +1300,14 @@ mod tests {
             show_sql_editor: true,
             show_agent_panel: true,
             default_page_size: 250,
-            // Default for ai_auto_apply_completions is `true`; flip it so the
-            // round-trip explicitly exercises the new field.
-            ai_auto_apply_completions: false,
+            // Default for ai_auto_apply_completions is `false`; flip it so the
+            // round-trip explicitly exercises the field.
+            ai_auto_apply_completions: true,
+            // Non-default sql_completion so round-trip exercises the new field.
+            sql_completion: super::SqlCompletionSettings {
+                provider: "openai".into(),
+                model: "gpt-5.6-luna".into(),
+            },
             // Explorer view settings — flip from defaults so every field is
             // explicitly exercised by the JSON round-trip.
             explorer: ExplorerViewSettings {
@@ -1430,6 +1456,10 @@ mod tests {
             assert_eq!(
                 reloaded.ai_auto_apply_completions, settings.ai_auto_apply_completions,
                 "{field_name} toggle dropped ai_auto_apply_completions"
+            );
+            assert_eq!(
+                reloaded.sql_completion, settings.sql_completion,
+                "{field_name} toggle dropped sql_completion"
             );
             assert_eq!(
                 reloaded.explorer, settings.explorer,

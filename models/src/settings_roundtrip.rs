@@ -141,6 +141,14 @@ fn app_ui_settings_with_modified_values_round_trip() {
 }
 
 #[test]
+fn missing_sql_completion_deserializes_to_empty_provider() {
+    let parsed: AppUiSettings =
+        serde_json::from_value(json!({"theme": "Dark"})).expect("legacy JSON");
+    assert!(parsed.sql_completion.provider.is_empty());
+    assert!(parsed.sql_completion.model.is_empty());
+}
+
+#[test]
 fn unknown_fields_in_settings_json_are_tolerated() {
     // Forward-compat: a future build may add new fields. Older builds must
     // not crash on those fields — they just ignore them.
