@@ -572,6 +572,8 @@ confirm_before_drop = true
             ..ThemeOverrides::default()
         };
         let css = theme.to_css();
+        assert!(css.contains(".app, .settings-window-shell"));
+        assert!(!css.contains(":root {"));
         assert!(css.contains("--color-primary: #ff0000;"));
         assert!(css.contains("--ui-font-size: 14px;"));
         assert!(css.contains("--radius-md: 8px;"));

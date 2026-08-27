@@ -26,9 +26,9 @@ pub fn parse_hex_color(value: &str) -> Option<String> {
 
 /// Structured overrides for the app's CSS design tokens. Every field is
 /// optional; `None` leaves the default token untouched. When applied, these
-/// are rendered into `:root { --color-*: ...; --font-*: ...; }` CSS variables
-/// that the existing components already consume, so a theme override restyles
-/// the whole app without touching individual components.
+/// are rendered onto `.app` / `.settings-window-shell` (plus density/theme
+/// class combinations) so the variables beat stylesheet class selectors such
+/// as `.theme-dark` and `.app.density-*`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ThemeOverrides {
@@ -64,10 +64,23 @@ pub struct ThemeOverrides {
     pub spacing: Option<u32>,
 }
 
+/// Selectors that beat live token setters (`.theme-dark`, `.app.density-*`,
+/// `.app { --font-sans; --radius-* }`). Injected after the compiled
+/// stylesheet so equal-specificity rules still win by source order.
+const THEME_OVERRIDE_SELECTOR: &str = concat!(
+    ".app, .settings-window-shell, ",
+    ".app.theme-dark, .app.theme-light, ",
+    ".settings-window-shell.theme-dark, .settings-window-shell.theme-light, ",
+    ".app.density-compact, .app.density-normal, .app.density-comfortable, ",
+    ".settings-window-shell.density-compact, ",
+    ".settings-window-shell.density-normal, ",
+    ".settings-window-shell.density-comfortable"
+);
+
 impl ThemeOverrides {
-    /// Render these overrides as a CSS `:root { ... }` block. Only the
-    /// tokens that are set are emitted; the rest fall back to the defaults
-    /// already defined in the stylesheet.
+    /// Render these overrides as a CSS block on `.app` and
+    /// `.settings-window-shell`. Only the tokens that are set are emitted;
+    /// the rest fall back to the defaults already defined in the stylesheet.
     pub fn to_css(&self) -> String {
         let mut rules = Vec::new();
         let mut push = |name: &str, value: &str| rules.push(format!("  --{name}: {value};"));
@@ -163,7 +176,7 @@ impl ThemeOverrides {
         if rules.is_empty() {
             String::new()
         } else {
-            format!(":root {{\n{}\n}}", rules.join("\n"))
+            format!("{THEME_OVERRIDE_SELECTOR} {{\n{}\n}}", rules.join("\n"))
         }
     }
 }
@@ -284,6 +297,10 @@ mod tests {
             ..ThemeOverrides::default()
         };
         let css = theme.to_css();
+        assert!(css.contains(".app, .settings-window-shell"));
+        assert!(css.contains(".app.density-compact"));
+        assert!(css.contains(".settings-window-shell.density-compact"));
+        assert!(!css.contains(":root {"));
         assert!(css.contains("--color-primary: #ff0000;"));
         assert!(css.contains("--ui-font-size: 14px;"));
         assert!(css.contains("--radius-md: 8px;"));

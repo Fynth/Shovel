@@ -3,7 +3,7 @@
 use dioxus::prelude::*;
 use models::{DEFAULT_KEYBINDINGS, KeybindingMap, combo_conflict, effective_keybindings};
 
-use super::{SettingsSectionProps, widgets::KeyCapture};
+use super::{SettingsSectionProps, sync_section_props, widgets::KeyCapture};
 
 /// Human labels for bindable action ids. Order matches [`DEFAULT_KEYBINDINGS`].
 const ACTION_LABELS: &[(&str, &str)] = &[
@@ -37,6 +37,7 @@ pub(super) fn KeyboardSection(props: SettingsSectionProps) -> Element {
     let settings = props.settings.clone();
     let on_change = props.on_change;
     let section_props_signal = use_signal(|| props.clone());
+    sync_section_props(section_props_signal, &props);
     let mut filter = use_signal(String::new);
     let mut conflict = use_signal(|| None::<(String, String)>);
 

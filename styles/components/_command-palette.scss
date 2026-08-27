@@ -25,7 +25,7 @@
   display: flex;
   flex-direction: column;
   border: 1px solid color-mix(in srgb, var(--glass-border) 78%, var(--color-border));
-  border-radius: $radius-lg;
+  border-radius: var(--radius-lg, #{$radius-lg});
   background:
     radial-gradient(
       circle at 8% 0%,
@@ -91,7 +91,7 @@
   color: var(--color-text-muted);
   padding: 2px $spacing-sm;
   border: 1px solid color-mix(in srgb, var(--glass-border) 78%, var(--color-border));
-  border-radius: $radius-sm;
+  border-radius: var(--radius-sm, #{$radius-sm});
   background: color-mix(in srgb, var(--color-panel-2) 64%, transparent);
 }
 
@@ -131,7 +131,7 @@
   gap: $spacing-md;
   padding: $spacing-sm $spacing-md;
   border: 1px solid transparent;
-  border-radius: $radius-md;
+  border-radius: var(--radius-md, #{$radius-md});
   background: transparent;
   color: var(--color-text);
   font: inherit;
@@ -208,7 +208,7 @@
   color: var(--color-text-muted);
   padding: 1px $spacing-xs;
   border: 1px solid color-mix(in srgb, var(--glass-border) 60%, transparent);
-  border-radius: $radius-sm;
+  border-radius: var(--radius-sm, #{$radius-sm});
   background: color-mix(in srgb, var(--color-panel-2) 36%, transparent);
   flex-shrink: 0;
 }
@@ -271,7 +271,7 @@
 
 @media (max-width: 760px) {
   .command-palette {
-    border-radius: $radius-md;
+    border-radius: var(--radius-md, #{$radius-md});
   }
 
   .command-palette__input-row,

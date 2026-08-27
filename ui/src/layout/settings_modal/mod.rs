@@ -151,22 +151,27 @@ pub struct SettingsSectionProps {
     pub on_change: Callback<(AppUiSettings, SqlFormatSettings)>,
 }
 
+/// Keep a section's props signal aligned with the latest parent snapshot.
+///
+/// Event closures clone this signal and read it at click time. `use_signal(||
+/// props)` only runs at mount, so without a write-back sequential edits reuse
+/// the open-time snapshot and clobber earlier fields.
+pub(super) fn sync_section_props(
+    mut signal: Signal<SettingsSectionProps>,
+    props: &SettingsSectionProps,
+) {
+    if *signal.peek() != *props {
+        signal.set(props.clone());
+    }
+}
+
 #[component]
 pub fn SettingsModal(props: SettingsModalProps) -> Element {
-    // Wrap `props` in a `Signal` so every per-control closure below can take a
-    // cheap `Signal` clone (instead of an expensive `AppUiSettings` clone) and
-    // read the latest value at event time. Without this, the first `move`
-    // closure captures `props` by value and every subsequent closure loses
-    // access — `AppUiSettings` is not `Copy`, and field accesses inside
-    // closures move the value out of the props struct.
-    let props = use_signal(|| props);
-    let on_change = props.read().on_change;
-    let on_close = props.read().on_close;
-    // Local clone for the render body (kept out of closures to avoid moves).
-    // The render body never reads the SQL formatter settings directly — those
-    // flow through `SqlFormatFieldsAdapter`, which owns its own signal.
-    let settings = props.read().settings.clone();
-    let sql_settings = props.read().sql_settings.clone();
+    // Read the current props each render. Do not snapshot them in a
+    // `use_signal(|| props)` — that initializer runs once and would freeze
+    // every section on the open-time values.
+    let on_change = props.on_change;
+    let on_close = props.on_close;
 
     // Local-only category switcher — does NOT escape the component. The
     // native settings window is a separate VirtualDom, so writing this to a
@@ -179,8 +184,8 @@ pub fn SettingsModal(props: SettingsModalProps) -> Element {
     // its own owned `on_change` callback (it is `Clone`) and its own read-only
     // snapshot of the current settings.
     let section_props = SettingsSectionProps {
-        settings: settings.clone(),
-        sql_settings: sql_settings.clone(),
+        settings: props.settings,
+        sql_settings: props.sql_settings,
         on_change,
     };
 
@@ -246,7 +251,7 @@ pub fn SettingsModal(props: SettingsModalProps) -> Element {
                                 AdvancedSection { ..section_props }
                             },
                             SettingsCategory::Config => rsx! {
-                                ConfigSection {}
+                                ConfigSection { ..section_props }
                             },
                         }
                     }

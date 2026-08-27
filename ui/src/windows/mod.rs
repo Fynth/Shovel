@@ -20,7 +20,7 @@
 //! `app.rs` to write the new value to disk.
 
 use crate::{
-    layout::SettingsModal,
+    layout::{SettingsModal, ToastContainer},
     screens::{
         connect::edit_connection_modal::EditConnectionModal,
         workspace::components::{
@@ -222,6 +222,7 @@ pub fn SettingsWindowRoot(props: SettingsWindowRootProps) -> Element {
                 on_change,
                 on_close,
             }
+            ToastContainer {}
         }
     }
 }

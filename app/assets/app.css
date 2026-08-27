@@ -166,7 +166,8 @@ textarea {
   --grid-row-hover: rgba(0, 122, 255, 0.055);
 }
 
-.app.density-compact {
+.app.density-compact,
+.settings-window-shell.density-compact {
   --ui-row-height: 24px;
   --ui-toolbar-height: 30px;
   --ui-tab-height: 28px;
@@ -178,7 +179,8 @@ textarea {
   --ui-row-padding-x: 6px;
 }
 
-.app.density-normal {
+.app.density-normal,
+.settings-window-shell.density-normal {
   --ui-row-height: 28px;
   --ui-toolbar-height: 34px;
   --ui-tab-height: 32px;
@@ -190,7 +192,8 @@ textarea {
   --ui-row-padding-x: 8px;
 }
 
-.app.density-comfortable {
+.app.density-comfortable,
+.settings-window-shell.density-comfortable {
   --ui-row-height: 32px;
   --ui-toolbar-height: 40px;
   --ui-tab-height: 36px;
@@ -1532,7 +1535,7 @@ select.input:focus-visible {
   display: flex;
   flex-direction: column;
   border: 1px solid color-mix(in srgb, var(--glass-border) 78%, var(--color-border));
-  border-radius: 18px;
+  border-radius: var(--radius-lg, 18px);
   background: radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--color-primary) 14%, transparent), transparent 32%), linear-gradient(180deg, color-mix(in srgb, var(--color-surface-contrast, var(--color-panel-2)) 62%, transparent), transparent 140px), color-mix(in srgb, var(--color-surface-main, var(--color-panel)) 94%, var(--glass-tint));
   box-shadow: var(--shadow-panel, 0 18px 40px rgba(8, 10, 20, 0.32)), inset 0 1px 0 var(--glass-highlight);
   overflow: hidden;
@@ -1583,7 +1586,7 @@ select.input:focus-visible {
   color: var(--color-text-muted);
   padding: 2px 6px;
   border: 1px solid color-mix(in srgb, var(--glass-border) 78%, var(--color-border));
-  border-radius: 7px;
+  border-radius: var(--radius-sm, 7px);
   background: color-mix(in srgb, var(--color-panel-2) 64%, transparent);
 }
 
@@ -1623,7 +1626,7 @@ select.input:focus-visible {
   gap: 8px;
   padding: 6px 8px;
   border: 1px solid transparent;
-  border-radius: 11px;
+  border-radius: var(--radius-md, 11px);
   background: transparent;
   color: var(--color-text);
   font: inherit;
@@ -1684,7 +1687,7 @@ select.input:focus-visible {
   color: var(--color-text-muted);
   padding: 1px 3px;
   border: 1px solid color-mix(in srgb, var(--glass-border) 60%, transparent);
-  border-radius: 7px;
+  border-radius: var(--radius-sm, 7px);
   background: color-mix(in srgb, var(--color-panel-2) 36%, transparent);
   flex-shrink: 0;
 }
@@ -1745,7 +1748,7 @@ select.input:focus-visible {
 }
 @media (max-width: 760px) {
   .command-palette {
-    border-radius: 11px;
+    border-radius: var(--radius-md, 11px);
   }
   .command-palette__input-row,
 .command-palette__footer {
@@ -6631,12 +6634,12 @@ select.input:focus-visible {
     transition: none;
   }
 }
-.results__row:hover {
-  background: var(--grid-row-hover);
+tr.results__row--stripe {
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
 }
 
-.results__row--stripe td {
-  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+.results__row:hover {
+  background: var(--grid-row-hover);
 }
 
 .results__row--selected {

@@ -12,6 +12,7 @@ use models::{
 use super::{
     SettingsSectionProps,
     reset_ui_preserving_secrets,
+    sync_section_props,
     widgets::{ColorField, FontSelect, SliderField},
 };
 
@@ -57,6 +58,7 @@ pub(super) fn AppearanceSection(props: SettingsSectionProps) -> Element {
     let settings = props.settings.clone();
     let on_change = props.on_change;
     let section_props_signal = use_signal(|| props.clone());
+    sync_section_props(section_props_signal, &props);
     let accent = settings
         .theme_overrides
         .primary
@@ -204,6 +206,7 @@ pub(super) fn DatabaseSection(props: SettingsSectionProps) -> Element {
     let settings = props.settings.clone();
     let on_change = props.on_change;
     let section_props_signal = use_signal(|| props.clone());
+    sync_section_props(section_props_signal, &props);
 
     rsx! {
         section {
@@ -308,6 +311,7 @@ pub(super) fn EditorBehaviorSection(props: SettingsSectionProps) -> Element {
     let settings = props.settings.clone();
     let on_change = props.on_change;
     let section_props_signal = use_signal(|| props.clone());
+    sync_section_props(section_props_signal, &props);
 
     rsx! {
         section {
@@ -386,6 +390,7 @@ pub(super) fn GridSection(props: SettingsSectionProps) -> Element {
     let settings = props.settings.clone();
     let on_change = props.on_change;
     let section_props_signal = use_signal(|| props.clone());
+    sync_section_props(section_props_signal, &props);
 
     rsx! {
         section {
@@ -466,6 +471,7 @@ pub(super) fn NavigationSection(props: SettingsSectionProps) -> Element {
     let settings = props.settings.clone();
     let on_change = props.on_change;
     let section_props_signal = use_signal(|| props.clone());
+    sync_section_props(section_props_signal, &props);
 
     rsx! {
         section {
@@ -723,6 +729,7 @@ pub(super) fn DeepSeekAgentSection(props: SettingsSectionProps) -> Element {
     let settings = props.settings.clone();
     let on_change = props.on_change;
     let section_props_signal = use_signal(|| props.clone());
+    sync_section_props(section_props_signal, &props);
 
     rsx! {
         section {
@@ -850,6 +857,7 @@ pub(super) fn OllamaSection(props: SettingsSectionProps) -> Element {
     let settings = props.settings.clone();
     let on_change = props.on_change;
     let section_props_signal = use_signal(|| props.clone());
+    sync_section_props(section_props_signal, &props);
 
     rsx! {
         section {
@@ -930,6 +938,7 @@ pub(super) fn AdvancedSection(props: SettingsSectionProps) -> Element {
     let settings = props.settings.clone();
     let on_change = props.on_change;
     let section_props_signal = use_signal(|| props.clone());
+    sync_section_props(section_props_signal, &props);
 
     rsx! {
         section {
@@ -1016,6 +1025,7 @@ pub(super) fn AdvancedSection(props: SettingsSectionProps) -> Element {
 pub(super) fn SqlFormattingSection(props: SettingsSectionProps) -> Element {
     let on_change = props.on_change;
     let section_props_signal = use_signal(|| props.clone());
+    sync_section_props(section_props_signal, &props);
 
     rsx! {
         section {
@@ -1064,6 +1074,7 @@ pub(super) fn CodeStralCompletionSection(props: SettingsSectionProps) -> Element
     let settings = props.settings.clone();
     let on_change = props.on_change;
     let section_props_signal = use_signal(|| props.clone());
+    sync_section_props(section_props_signal, &props);
 
     rsx! {
         section {
@@ -1158,25 +1169,33 @@ fn SqlFormatFieldsAdapter(
 ) -> Element {
     // Wrap both props in signals so the multiple `move` closures below can
     // each capture a cheap `Signal` clone instead of moving the owned values.
-    let sql_settings = use_signal(move || sql_settings);
-    let settings = use_signal(move || settings);
+    // Write incoming props back — `use_signal(|| value)` only captures mount
+    // time, and SQL edits must emit the latest UI snapshot.
+    let mut sql_settings_signal = use_signal(|| sql_settings.clone());
+    let mut settings_signal = use_signal(|| settings.clone());
+    if *sql_settings_signal.peek() != sql_settings {
+        sql_settings_signal.set(sql_settings.clone());
+    }
+    if *settings_signal.peek() != settings {
+        settings_signal.set(settings.clone());
+    }
 
     // Local working copy — `SqlFormatSettingsFields` mutates this signal.
-    let mut local_sql = use_signal(move || sql_settings.read().clone());
+    let mut local_sql = use_signal(|| sql_settings.clone());
 
     // Whenever the prop changes (e.g. bridge round-tripped a fresh value from
     // the main window), re-seed the local signal. `use_effect` with an
     // equality check avoids overwriting unsaved edits if the prop value is
     // already current.
     use_effect(move || {
-        if local_sql.peek().clone() != sql_settings.read().clone() {
-            local_sql.set(sql_settings.read().clone());
+        if *local_sql.peek() != *sql_settings_signal.read() {
+            local_sql.set(sql_settings_signal.read().clone());
         }
     });
 
     // Propagate every local change upstream through `on_change`.
     use_effect(move || {
-        on_change.call((settings.read().clone(), local_sql()));
+        on_change.call((settings_signal.read().clone(), local_sql()));
     });
 
     rsx! {
@@ -1188,7 +1207,7 @@ fn SqlFormatFieldsAdapter(
 /// manager or reload it. The config file is the declarative customization
 /// surface — every setting in this modal can also be set there.
 #[component]
-pub(super) fn ConfigSection() -> Element {
+pub(super) fn ConfigSection(props: SettingsSectionProps) -> Element {
     let config_path = use_memo(|| {
         dirs::data_local_dir()
             .unwrap_or_else(|| {
@@ -1199,6 +1218,9 @@ pub(super) fn ConfigSection() -> Element {
     });
     let config_path = config_path();
     let path_display = config_path.display().to_string();
+    let current_settings = props.settings.clone();
+    let sql_settings = props.sql_settings.clone();
+    let on_change = props.on_change;
 
     rsx! {
         section {
@@ -1240,7 +1262,12 @@ pub(super) fn ConfigSection() -> Element {
                     button {
                         class: "button button--ghost button--small",
                         onclick: move |_| {
-                            let _ = reload_config();
+                            match reload_config(&current_settings) {
+                                Ok(next) => {
+                                    on_change.call((next, sql_settings.clone()));
+                                }
+                                Err(err) => crate::app_state::toast_error(err),
+                            }
                         },
                         "Reload config"
                     }
@@ -1272,8 +1299,13 @@ fn open_config_file(path: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Reload the config file and re-apply it to the current UI settings.
-fn reload_config() -> Result<(), String> {
+/// Reload `config.toml` and merge it onto `current`.
+///
+/// The settings window is a separate VirtualDom, so this must not read or
+/// write main-window globals. The caller emits the merged snapshot through
+/// `on_change`, which updates the window locally and bridges to the main
+/// window. `ShovelConfig::load` errors are returned as-is for toasting.
+fn reload_config(current: &AppUiSettings) -> Result<AppUiSettings, String> {
     let data_dir = dirs::data_local_dir()
         .unwrap_or_else(|| {
             std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
@@ -1281,12 +1313,11 @@ fn reload_config() -> Result<(), String> {
         .join("shovel");
     let path = data_dir.join("config.toml");
     let Some(config) = models::ShovelConfig::load(&path)? else {
-        return Ok(());
+        return Ok(current.clone());
     };
-    let mut settings = crate::app_state::APP_UI_SETTINGS();
+    let mut settings = current.clone();
     config.apply_to(&mut settings);
-    crate::app_state::replace_ui_settings(settings);
-    Ok(())
+    Ok(settings)
 }
 
 fn parse_u32_in_range(value: &str, fallback: u32, min: u32, max: u32) -> u32 {

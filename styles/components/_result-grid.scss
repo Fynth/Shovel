@@ -512,12 +512,12 @@
   }
 }
 
-.results__row:hover {
-  background: var(--grid-row-hover);
+tr.results__row--stripe {
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
 }
 
-.results__row--stripe td {
-  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+.results__row:hover {
+  background: var(--grid-row-hover);
 }
 
 .results__row--selected {
