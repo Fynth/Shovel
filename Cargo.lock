@@ -2239,9 +2239,12 @@ dependencies = [
 name = "driver-sqlite"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "database",
  "libsqlite3-sys",
+ "models",
  "sqlx",
+ "tokio",
 ]
 
 [[package]]

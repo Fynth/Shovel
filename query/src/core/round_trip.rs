@@ -9,8 +9,10 @@
 #![allow(unused_imports)]
 
 use super::*;
-use database::{LiveConnection, SessionHandle};
+use database::SessionHandle;
+use driver_sqlite::SqliteSession;
 use sqlx::sqlite::SqlitePool;
+use std::sync::Arc;
 
 /// Connects to a fresh `:memory:` SQLite database and returns it as a
 /// `SessionHandle` that the public `query` API can consume.
@@ -18,7 +20,7 @@ async fn fresh_sqlite() -> SessionHandle {
     let pool = SqlitePool::connect(":memory:")
         .await
         .expect("connect to in-memory sqlite");
-    SessionHandle::from_legacy(LiveConnection::Sqlite(pool))
+    SessionHandle::wrap(Arc::new(SqliteSession { pool }))
 }
 
 /// Creates a small test schema used by the round-trip tests.

@@ -1,3 +1,8 @@
+mod rows;
+mod session;
+
+pub use session::SqliteSession;
+
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use std::{path::PathBuf, str::FromStr, time::Duration};
 
@@ -32,22 +37,31 @@ impl database::DatabaseDriver for SqliteDriver {
 
 #[cfg(test)]
 mod tests {
-    // SqliteDriver::connect requires a real SQLite database file (or :memory:).
-    // The driver's entire logic is inside the `connect` async method which
-    // dispatches to `sqlx::SqlitePool::connect_with`. There are no pure helper
-    // functions to unit-test in this crate.
-    //
-    // Integration tests should cover:
-    //   - Connecting to an in-memory database (`:memory:`)
-    //   - Connecting to a file path that exists
-    //   - Error when the file does not exist (create_if_missing is false)
-    //   - Connecting with a `sqlite:` DSN prefix
-    //   - Whitespace trimming of the target string
+    use super::{SqliteDriver, SqliteSession};
+    use database::{DatabaseDriver, SessionHandle};
+    use models::QueryOutput;
+    use std::sync::Arc;
 
-    #[test]
-    fn sqlite_driver_connect_requires_database() {
-        // `SqliteDriver::connect` delegates entirely to `sqlx::SqlitePool`.
-        // It should be tested with integration tests using `:memory:` or
-        // temporary database files on disk.
+    #[tokio::test]
+    async fn sqlite_session_executes_select() {
+        let pool = SqliteDriver::connect(":memory:".into()).await.unwrap();
+        sqlx::query("create table items (id integer, name text)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("insert into items values (1, 'a')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let handle = SessionHandle::wrap(Arc::new(SqliteSession { pool }));
+        let out = handle
+            .query()
+            .execute_sql("select id, name from items")
+            .await
+            .unwrap();
+        match out {
+            QueryOutput::Table(page) => assert_eq!(page.rows.len(), 1),
+            other => panic!("{other:?}"),
+        }
     }
 }

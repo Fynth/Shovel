@@ -4,6 +4,9 @@ mod registry;
 pub use database::SessionHandle;
 pub use registry::{register_session, session, unregister_session};
 
+#[cfg(feature = "sqlite")]
+use std::sync::Arc;
+
 use connection_ssh::{OpenedSshTunnel, open_ssh_tunnel, register_ssh_tunnel};
 #[cfg(any(
     feature = "sqlite",
@@ -20,7 +23,7 @@ use driver_mysql::{MySqlConfig, MySqlDriver};
 #[cfg(feature = "postgres")]
 use driver_postgres::{PgConfig, PgDriver};
 #[cfg(feature = "sqlite")]
-use driver_sqlite::SqliteDriver;
+use driver_sqlite::{SqliteDriver, SqliteSession};
 use models::{ClickHouseFormData, ConnectionRequest, DatabaseError, SshTunnelConfig};
 #[cfg(feature = "clickhouse")]
 use reqwest::Url;
@@ -179,7 +182,8 @@ pub async fn test_connection(request: ConnectionRequest) -> Result<(), DatabaseE
 /// # Returns
 ///
 /// * `Ok(SessionHandle)` — a type-erased session wrapping the live connection
-///   (legacy sqlx pool or ClickHouse form, via [`SessionHandle::from_legacy`]).
+///   (`SqliteSession` for SQLite; other backends still use
+///   [`SessionHandle::from_legacy`]).
 ///
 /// # Errors
 ///
@@ -200,7 +204,7 @@ pub async fn connect_to_db(request: ConnectionRequest) -> Result<SessionHandle, 
             let pool = SqliteDriver::connect(data.path)
                 .await
                 .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-            Ok(SessionHandle::from_legacy(LiveConnection::Sqlite(pool)))
+            Ok(SessionHandle::wrap(Arc::new(SqliteSession { pool })))
         }
         #[cfg(feature = "postgres")]
         ConnectionRequest::Postgres(mut data) => {

@@ -1,32 +1,6 @@
 use models::{DatabaseError, EditableTableContext, QueryPage, TablePreviewSource};
 use sqlx::{Column, Row, TypeInfo};
 
-pub(crate) fn sqlite_rows_to_page(rows: Vec<sqlx::sqlite::SqliteRow>) -> QueryPage {
-    let columns = rows
-        .first()
-        .map(|row| row.columns().iter().map(|c| c.name().to_string()).collect())
-        .unwrap_or_default();
-
-    let rows: Vec<Vec<String>> = rows
-        .into_iter()
-        .map(|row| {
-            (0..row.columns().len())
-                .map(|idx| sqlite_cell_to_string(&row, idx))
-                .collect()
-        })
-        .collect();
-
-    QueryPage {
-        columns,
-        page_size: rows.len() as u32,
-        rows,
-        editable: None,
-        offset: 0,
-        has_previous: false,
-        has_next: false,
-    }
-}
-
 pub(crate) fn postgres_rows_to_page(rows: Vec<sqlx::postgres::PgRow>) -> QueryPage {
     let columns = rows
         .first()
@@ -76,39 +50,6 @@ pub(crate) fn mysql_rows_to_page(rows: Vec<sqlx::mysql::MySqlRow>) -> QueryPage 
         offset: 0,
         has_previous: false,
         has_next: false,
-    }
-}
-
-pub(super) fn sqlite_rows_to_paginated_page(
-    mut rows: Vec<sqlx::sqlite::SqliteRow>,
-    page_size: u32,
-    offset: u64,
-) -> QueryPage {
-    let columns = rows
-        .first()
-        .map(|row| row.columns().iter().map(|c| c.name().to_string()).collect())
-        .unwrap_or_default();
-    let has_next = rows.len() > page_size as usize;
-    if has_next {
-        rows.truncate(page_size as usize);
-    }
-    let rows: Vec<Vec<String>> = rows
-        .into_iter()
-        .map(|row| {
-            (0..row.columns().len())
-                .map(|idx| sqlite_cell_to_string(&row, idx))
-                .collect()
-        })
-        .collect();
-
-    QueryPage {
-        columns,
-        rows,
-        editable: None,
-        offset,
-        page_size,
-        has_previous: offset > 0,
-        has_next,
     }
 }
 

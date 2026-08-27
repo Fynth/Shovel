@@ -10,7 +10,15 @@ pub mod splitter;
 
 use database::{DatabaseDriver, Dialect, FormatFlavor, LiveConnection, SessionHandle};
 use driver_clickhouse::ClickHouseDriver;
-use models::{DatabaseError, QueryFilter, QueryOutput, QuerySort, TablePreviewSource};
+use models::{
+    DatabaseError,
+    DatabaseKind,
+    EditableTableContext,
+    QueryFilter,
+    QueryOutput,
+    QuerySort,
+    TablePreviewSource,
+};
 use sqlx::Row;
 
 pub use ddl::{create_table, drop_table, duplicate_table, rename_table, truncate_table};
@@ -47,8 +55,6 @@ use self::{
         mysql_rows_to_paginated_page,
         postgres_preview_rows_to_paginated_page,
         postgres_rows_to_paginated_page,
-        sqlite_preview_rows_to_paginated_page,
-        sqlite_rows_to_paginated_page,
     },
 };
 
@@ -74,7 +80,7 @@ const CLICKHOUSE_DIALECT: Dialect = Dialect {
     format_flavor: FormatFlavor::Generic,
 };
 
-pub(crate) use self::rows::{postgres_rows_to_page, sqlite_rows_to_page};
+pub(crate) use self::rows::postgres_rows_to_page;
 
 pub(crate) fn require_live(handle: &SessionHandle) -> Result<LiveConnection, DatabaseError> {
     handle
@@ -112,17 +118,16 @@ pub async fn execute_query_page(
     filter: Option<QueryFilter>,
     sort: Option<QuerySort>,
 ) -> Result<QueryOutput, DatabaseError> {
-    let dialect = handle.dialect();
-    let built_sql = build_paginated_query(
+    let (built_sql, used_locator) = sql_for_query_exec(
+        handle,
         &sql,
         page_size,
         offset,
         filter.as_ref(),
         sort.as_ref(),
-        dialect,
     );
     match handle.query().execute_sql(&built_sql).await {
-        Ok(out) => Ok(out),
+        Ok(out) => Ok(with_editable_source(out, &sql, used_locator)),
         Err(DatabaseError::Unsupported(_)) => {
             let live = handle.legacy().ok_or(DatabaseError::Unsupported(
                 "no query exec and no live connection".into(),
@@ -131,6 +136,57 @@ pub async fn execute_query_page(
         }
         Err(err) => Err(err),
     }
+}
+
+fn sql_for_query_exec(
+    handle: &SessionHandle,
+    sql: &str,
+    page_size: u32,
+    offset: u64,
+    filter: Option<&QueryFilter>,
+    sort: Option<&QuerySort>,
+) -> (String, bool) {
+    if !is_paginated_query(sql) {
+        return (sql.to_string(), false);
+    }
+
+    let dialect = handle.dialect();
+    if handle.kind() == DatabaseKind::Sqlite
+        && let Some(plan) = editable_select_plan(sql)
+    {
+        return (
+            build_editable_paginated_query(
+                &plan, page_size, offset, "rowid", filter, sort, dialect,
+            ),
+            true,
+        );
+    }
+
+    (
+        build_paginated_query(sql, page_size, offset, filter, sort, dialect),
+        false,
+    )
+}
+
+fn with_editable_source(out: QueryOutput, original_sql: &str, used_locator: bool) -> QueryOutput {
+    if !used_locator {
+        return out;
+    }
+    let QueryOutput::Table(mut page) = out else {
+        return out;
+    };
+    let Some(plan) = editable_select_plan(original_sql) else {
+        return QueryOutput::Table(page);
+    };
+    if let Some(ctx) = page.editable.as_mut() {
+        ctx.source = plan.source;
+    } else {
+        page.editable = Some(EditableTableContext {
+            source: plan.source,
+            row_locators: vec![String::new(); page.rows.len()],
+        });
+    }
+    QueryOutput::Table(page)
 }
 
 pub(crate) async fn execute_query_page_live(
@@ -142,8 +198,9 @@ pub(crate) async fn execute_query_page_live(
     sort: Option<QuerySort>,
 ) -> Result<QueryOutput, DatabaseError> {
     match connection {
-        LiveConnection::Sqlite(pool) =>
-            execute_sqlite_query_page(&sql, &pool, page_size, offset, filter, sort).await,
+        LiveConnection::Sqlite(_) => Err(DatabaseError::Unsupported(
+            "SQLite queries go through SqliteSession".into(),
+        )),
         LiveConnection::Postgres(pool) =>
             execute_postgres_query_page(&sql, &pool, page_size, offset, filter, sort).await,
         LiveConnection::MySql(pool) =>
@@ -151,70 +208,6 @@ pub(crate) async fn execute_query_page_live(
         LiveConnection::ClickHouse(config) =>
             execute_clickhouse_query_page(&sql, &config, page_size, offset, filter, sort).await,
     }
-}
-
-async fn execute_sqlite_query_page(
-    sql: &str,
-    pool: &sqlx::SqlitePool,
-    page_size: u32,
-    offset: u64,
-    filter: Option<QueryFilter>,
-    sort: Option<QuerySort>,
-) -> Result<QueryOutput, DatabaseError> {
-    let normalized = sql.trim().to_lowercase();
-
-    if let Some(plan) = editable_select_plan(sql) {
-        let query = build_editable_paginated_query(
-            &plan,
-            page_size,
-            offset,
-            "rowid",
-            filter.as_ref(),
-            sort.as_ref(),
-            SQLITE_DIALECT,
-        );
-        let rows = sqlx::query(&query)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-        return Ok(QueryOutput::Table(sqlite_preview_rows_to_paginated_page(
-            rows,
-            plan.source,
-            page_size,
-            offset,
-        )));
-    }
-
-    if is_paginated_query(&normalized) {
-        let rows = sqlx::query(&build_paginated_query(
-            sql,
-            page_size,
-            offset,
-            filter.as_ref(),
-            sort.as_ref(),
-            SQLITE_DIALECT,
-        ))
-        .fetch_all(pool)
-        .await
-        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-        return Ok(QueryOutput::Table(sqlite_rows_to_paginated_page(
-            rows, page_size, offset,
-        )));
-    }
-
-    if is_tabular_query(&normalized) {
-        let rows = sqlx::query(sql)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-        return Ok(QueryOutput::Table(sqlite_rows_to_page(rows)));
-    }
-
-    let result = sqlx::query(sql)
-        .execute(pool)
-        .await
-        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-    Ok(QueryOutput::AffectedRows(result.rows_affected()))
 }
 
 async fn execute_postgres_query_page(
@@ -744,7 +737,6 @@ mod round_trip;
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{
-        LiveConnection,
         create_table,
         drop_table,
         duplicate_table,
@@ -760,12 +752,13 @@ mod tests {
         truncate_table,
     };
     use database::{FakeDriver, SessionHandle};
+    use driver_sqlite::SqliteSession;
     use models::{QueryOutput, TablePreviewSource};
     use sqlx::SqlitePool;
     use std::sync::Arc;
 
     fn sqlite_handle(pool: SqlitePool) -> SessionHandle {
-        SessionHandle::from_legacy(LiveConnection::Sqlite(pool))
+        SessionHandle::wrap(Arc::new(SqliteSession { pool }))
     }
 
     #[tokio::test]
