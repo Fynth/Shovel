@@ -142,6 +142,7 @@ mod tests {
 
     #[test]
     fn complete_does_not_set_native_chat_cancel() {
+        let _guard = crate::native_chat::native_chat_cancel_test_lock();
         crate::native_chat::clear_native_chat_cancel();
         assert!(!crate::native_chat::native_chat_cancel_requested());
     }

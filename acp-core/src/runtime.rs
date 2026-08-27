@@ -1607,8 +1607,10 @@ mod tests {
 
     #[test]
     fn cancel_acp_prompt_succeeds_without_connected_agent_for_native() {
+        let _guard = crate::native_chat::native_chat_cancel_test_lock();
         let result = super::cancel_acp_prompt();
         assert!(result.is_ok());
+        crate::native_chat::clear_native_chat_cancel();
     }
 
     #[test]

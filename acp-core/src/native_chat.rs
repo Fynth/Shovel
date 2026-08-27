@@ -6,6 +6,9 @@ use std::{
     time::Duration,
 };
 
+#[cfg(test)]
+use std::sync::Mutex;
+
 use futures_util::{
     StreamExt,
     future::Either,
@@ -22,6 +25,9 @@ const NATIVE_CHAT_CANCEL_POLL: Duration = Duration::from_millis(50);
 
 static NATIVE_CHAT_CANCEL: AtomicBool = AtomicBool::new(false);
 
+#[cfg(test)]
+static NATIVE_CHAT_CANCEL_TEST_LOCK: Mutex<()> = Mutex::new(());
+
 /// Request cancellation of an in-flight native chat stream.
 pub fn request_native_chat_cancel() {
     NATIVE_CHAT_CANCEL.store(true, Ordering::SeqCst);
@@ -35,6 +41,13 @@ pub fn clear_native_chat_cancel() {
 /// Whether native chat cancel has been requested.
 pub fn native_chat_cancel_requested() -> bool {
     NATIVE_CHAT_CANCEL.load(Ordering::SeqCst)
+}
+
+#[cfg(test)]
+pub(crate) fn native_chat_cancel_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    NATIVE_CHAT_CANCEL_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -279,6 +292,7 @@ mod tests {
         NativeChatRequest,
         clear_native_chat_cancel,
         live_native_event_stream,
+        native_chat_cancel_test_lock,
         request_native_chat_cancel,
         stream,
         take_complete_line_events,
@@ -446,9 +460,12 @@ mod tests {
     }
 
     #[tokio::test]
+    // Holds the cancel test lock across awaits so parallel tests cannot arm the flag mid-stream.
+    #[allow(clippy::await_holding_lock)]
     async fn live_stream_emits_deltas_then_stops_on_cancel() {
         use futures_util::StreamExt as _;
 
+        let _guard = native_chat_cancel_test_lock();
         clear_native_chat_cancel();
         let chunks: Vec<Result<Vec<u8>, String>> = vec![
             Ok(b"data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n".to_vec()),
