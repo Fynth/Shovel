@@ -345,6 +345,7 @@
 .sql-editor {
   position: relative;
   display: flex;
+  line-height: 1.64;
   min-height: 0;
   height: 100%;
   border: 1px solid color-mix(in srgb, var(--glass-border) 70%, var(--color-border));
@@ -382,7 +383,7 @@
   z-index: 1;
   overflow: hidden;
   text-align: right;
-  padding: 8px 6px 0 0;
+  padding: 0 6px 0 0;
   color: var(--color-text-dim);
   font-family: var(--font-mono, monospace);
   font-size: inherit;
@@ -392,6 +393,10 @@
   span {
     display: block;
   }
+}
+
+.sql-editor__gutter-inner {
+  padding-top: 18px;
 }
 
 .sql-editor__input {
@@ -450,6 +455,14 @@
     min-height: 96px;
   }
 
+  .sql-editor {
+    line-height: 1.5;
+  }
+
+  .sql-editor__gutter-inner {
+    padding-top: 12px;
+  }
+
   .sql-editor__highlight,
   .sql-editor__input {
     padding: 12px 14px;
@@ -461,6 +474,14 @@
 @media (max-height: 720px) {
   .editor {
     min-height: 80px;
+  }
+
+  .sql-editor {
+    line-height: 1.45;
+  }
+
+  .sql-editor__gutter-inner {
+    padding-top: 8px;
   }
 
   .sql-editor__highlight,

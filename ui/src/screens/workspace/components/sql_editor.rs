@@ -1204,6 +1204,7 @@ pub fn SqlEditor(
                 div {
                     class: "sql-editor__gutter",
                     div {
+                        class: "sql-editor__gutter-inner",
                         style: gutter_offset,
                         for n in line_number_labels(&current_sql) {
                             span { "{n}" }
