@@ -46,14 +46,7 @@ use self::{
         sqlite_filter_expression,
     },
     editable::editable_select_plan,
-    rows::{
-        clickhouse_rows_to_page,
-        clickhouse_rows_to_paginated_page,
-        invalid_sqlite_locator,
-        mysql_preview_rows_to_paginated_page,
-        mysql_rows_to_page,
-        mysql_rows_to_paginated_page,
-    },
+    rows::{clickhouse_rows_to_page, clickhouse_rows_to_paginated_page, invalid_sqlite_locator},
 };
 
 const LOCATOR_COLUMN: &str = "__shovel_locator";
@@ -211,99 +204,12 @@ pub(crate) async fn execute_query_page_live(
         LiveConnection::Postgres(_) => Err(DatabaseError::Unsupported(
             "PostgreSQL queries go through PostgresSession".into(),
         )),
-        LiveConnection::MySql(pool) =>
-            execute_mysql_query_page(&sql, &pool, page_size, offset, filter, sort).await,
+        LiveConnection::MySql(_) => Err(DatabaseError::Unsupported(
+            "MySQL queries go through MysqlSession".into(),
+        )),
         LiveConnection::ClickHouse(config) =>
             execute_clickhouse_query_page(&sql, &config, page_size, offset, filter, sort).await,
     }
-}
-
-async fn execute_mysql_query_page(
-    sql: &str,
-    pool: &sqlx::MySqlPool,
-    page_size: u32,
-    offset: u64,
-    filter: Option<QueryFilter>,
-    sort: Option<QuerySort>,
-) -> Result<QueryOutput, DatabaseError> {
-    let normalized = sql.trim().to_lowercase();
-
-    if let Some(plan) = editable_select_plan(sql) {
-        let schema_name = mysql_effective_schema_name(pool, plan.source.schema.as_deref()).await?;
-        let primary_key_columns =
-            mysql_primary_key_columns(pool, &schema_name, &plan.source.table_name).await?;
-
-        if primary_key_columns.is_empty() {
-            let rows = sqlx::query(&build_paginated_query(
-                sql,
-                page_size,
-                offset,
-                filter.as_ref(),
-                sort.as_ref(),
-                MYSQL_DIALECT,
-            ))
-            .fetch_all(pool)
-            .await
-            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-            return Ok(QueryOutput::Table(mysql_rows_to_paginated_page(
-                rows, page_size, offset,
-            )));
-        }
-
-        let locator_expr = mysql_locator_expression(&primary_key_columns);
-        let mut plan = plan;
-        plan.source.schema = Some(schema_name);
-        let query = build_editable_paginated_query(
-            &plan,
-            page_size,
-            offset,
-            &locator_expr,
-            filter.as_ref(),
-            sort.as_ref(),
-            MYSQL_DIALECT,
-        );
-        let rows = sqlx::query(&query)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-        return Ok(QueryOutput::Table(mysql_preview_rows_to_paginated_page(
-            rows,
-            plan.source,
-            page_size,
-            offset,
-        )));
-    }
-
-    if is_paginated_query(&normalized) {
-        let rows = sqlx::query(&build_paginated_query(
-            sql,
-            page_size,
-            offset,
-            filter.as_ref(),
-            sort.as_ref(),
-            MYSQL_DIALECT,
-        ))
-        .fetch_all(pool)
-        .await
-        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-        return Ok(QueryOutput::Table(mysql_rows_to_paginated_page(
-            rows, page_size, offset,
-        )));
-    }
-
-    if is_tabular_query(&normalized) {
-        let rows = sqlx::query(sql)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-        return Ok(QueryOutput::Table(mysql_rows_to_page(rows)));
-    }
-
-    let result = sqlx::query(sql)
-        .execute(pool)
-        .await
-        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
-    Ok(QueryOutput::AffectedRows(result.rows_affected()))
 }
 
 async fn execute_clickhouse_query_page(

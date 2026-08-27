@@ -1,3 +1,8 @@
+mod rows;
+mod session;
+
+pub use session::MysqlSession;
+
 use sqlx::mysql::{MySqlConnectOptions, MySqlSslMode};
 use std::str::FromStr;
 
@@ -134,6 +139,12 @@ fn parse_mysql_ssl_mode(mode: &str) -> MySqlSslMode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mysql_session_is_a_driver_session() {
+        fn assert_session<T: database::DriverSession>() {}
+        assert_session::<crate::MysqlSession>();
+    }
 
     // ── looks_like_dsn ───────────────────────────────────────────────
 

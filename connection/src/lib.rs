@@ -4,7 +4,7 @@ mod registry;
 pub use database::SessionHandle;
 pub use registry::{register_session, session, unregister_session};
 
-#[cfg(any(feature = "sqlite", feature = "postgres"))]
+#[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
 use std::sync::Arc;
 
 use connection_ssh::{OpenedSshTunnel, open_ssh_tunnel, register_ssh_tunnel};
@@ -19,7 +19,7 @@ use database::LiveConnection;
 #[cfg(feature = "clickhouse")]
 use driver_clickhouse::ClickHouseDriver;
 #[cfg(feature = "mysql")]
-use driver_mysql::{MySqlConfig, MySqlDriver};
+use driver_mysql::{MySqlConfig, MySqlDriver, MysqlSession};
 #[cfg(feature = "postgres")]
 use driver_postgres::{PgConfig, PgDriver, PostgresSession};
 #[cfg(feature = "sqlite")]
@@ -182,8 +182,8 @@ pub async fn test_connection(request: ConnectionRequest) -> Result<(), DatabaseE
 /// # Returns
 ///
 /// * `Ok(SessionHandle)` — a type-erased session wrapping the live connection
-///   (`SqliteSession` / `PostgresSession` for those backends; MySQL and
-///   ClickHouse still use [`SessionHandle::from_legacy`]).
+///   (`SqliteSession` / `PostgresSession` / `MysqlSession` for those backends;
+///   ClickHouse still uses [`SessionHandle::from_legacy`]).
 ///
 /// # Errors
 ///
@@ -273,12 +273,12 @@ pub async fn connect_to_db(request: ConnectionRequest) -> Result<SessionHandle, 
                 MySqlDriver::connect(config)
                     .await
                     .map_err(|e| DatabaseError::Driver(e.to_string()))
-                    .map(LiveConnection::MySql)
+                    .map(|pool| SessionHandle::wrap(Arc::new(MysqlSession { pool })))
             }
             .await;
 
             finalize_tunnel(&session_key, resolved, &result);
-            result.map(SessionHandle::from_legacy)
+            result
         }
         #[cfg(feature = "clickhouse")]
         ConnectionRequest::ClickHouse(mut data) => {
