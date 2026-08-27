@@ -17,7 +17,7 @@ use models::{
     TablePreviewSource,
 };
 
-use crate::{Dialect, FormatFlavor, LiveConnection, quote_ident_double};
+use crate::{Dialect, FormatFlavor, LiveConnection, quote_ident_backtick, quote_ident_double};
 
 #[async_trait]
 pub trait QueryExec: Send + Sync {
@@ -150,6 +150,23 @@ fn legacy_unsupported<T>() -> Result<T, DatabaseError> {
     Err(DatabaseError::Unsupported(LEGACY_UNSUPPORTED.to_string()))
 }
 
+/// Maps a [`LiveConnection`] variant (via [`LiveConnection::kind`]) to the
+/// dialect `LegacyDriver` reports. Filter expressions stay stubbed: pagination
+/// still selects `*_DIALECT` from the live pool, not `handle.dialect()`.
+fn dialect_for_live(kind: DatabaseKind) -> Dialect {
+    let (quote_identifier, format_flavor): (fn(&str) -> String, FormatFlavor) = match kind {
+        DatabaseKind::Postgres => (quote_ident_double, FormatFlavor::Postgres),
+        DatabaseKind::Sqlite => (quote_ident_double, FormatFlavor::Generic),
+        DatabaseKind::MySql | DatabaseKind::ClickHouse =>
+            (quote_ident_backtick, FormatFlavor::Generic),
+    };
+    Dialect {
+        quote_identifier,
+        filter_expression: |_, _, _| "1=1".to_string(),
+        format_flavor,
+    }
+}
+
 #[derive(Clone)]
 struct LegacyDriver {
     connection: LiveConnection,
@@ -208,11 +225,7 @@ impl DriverSession for LegacyDriver {
     }
 
     fn dialect(&self) -> Dialect {
-        Dialect {
-            quote_identifier: quote_ident_double,
-            filter_expression: |_, _, _| "1=1".to_string(),
-            format_flavor: FormatFlavor::Generic,
-        }
+        dialect_for_live(self.connection.kind())
     }
 
     fn as_mutate(&self) -> Option<&dyn MutateExec> {
@@ -229,5 +242,24 @@ impl DriverSession for LegacyDriver {
 
     fn as_legacy(&self) -> Option<LiveConnection> {
         Some(self.connection.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dialect_for_live;
+    use crate::FormatFlavor;
+    use models::DatabaseKind;
+
+    #[test]
+    fn from_legacy_postgres_reports_postgres_flavor_sqlite_reports_generic() {
+        assert_eq!(
+            dialect_for_live(DatabaseKind::Postgres).format_flavor,
+            FormatFlavor::Postgres
+        );
+        assert_eq!(
+            dialect_for_live(DatabaseKind::Sqlite).format_flavor,
+            FormatFlavor::Generic
+        );
     }
 }
