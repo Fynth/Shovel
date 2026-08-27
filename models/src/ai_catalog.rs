@@ -99,6 +99,40 @@ pub fn builtin_providers() -> &'static [BuiltinProviderSpec] {
         ("codestral-latest", ""),
         ("mistral-small-latest", ""),
     ];
+    const MOONSHOT_MODELS: &[(&str, &str)] = &[
+        ("kimi-k2-turbo-preview", ""),
+        ("moonshot-v1-auto", ""),
+        ("moonshot-v1-128k", ""),
+    ];
+    const ZHIPU_MODELS: &[(&str, &str)] =
+        &[("glm-4.5", ""), ("glm-4-flash", ""), ("glm-4-plus", "")];
+    const QWEN_MODELS: &[(&str, &str)] = &[("qwen-max", ""), ("qwen-plus", ""), ("qwen-turbo", "")];
+    const SILICONFLOW_MODELS: &[(&str, &str)] = &[
+        ("deepseek-ai/DeepSeek-V3", ""),
+        ("Qwen/Qwen2.5-72B-Instruct", ""),
+        ("moonshotai/Kimi-K2-Instruct", ""),
+    ];
+    const MINIMAX_MODELS: &[(&str, &str)] = &[("MiniMax-Text-01", ""), ("MiniMax-M1", "")];
+    const YI_MODELS: &[(&str, &str)] = &[("yi-lightning", ""), ("yi-large", "")];
+    const TOGETHER_MODELS: &[(&str, &str)] = &[
+        ("meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo", ""),
+        ("Qwen/Qwen2.5-72B-Instruct-Turbo", ""),
+        ("deepseek-ai/DeepSeek-V3", ""),
+    ];
+    const FIREWORKS_MODELS: &[(&str, &str)] = &[
+        ("accounts/fireworks/models/llama-v3p1-70b-instruct", ""),
+        ("accounts/fireworks/models/deepseek-v3", ""),
+    ];
+    const PERPLEXITY_MODELS: &[(&str, &str)] = &[
+        ("sonar-pro", ""),
+        ("sonar", ""),
+        ("sonar-reasoning-pro", ""),
+    ];
+    const CEREBRAS_MODELS: &[(&str, &str)] = &[("llama-3.3-70b", ""), ("qwen-3-32b", "")];
+    const DEEPINFRA_MODELS: &[(&str, &str)] = &[
+        ("meta-llama/Meta-Llama-3.1-70B-Instruct", ""),
+        ("deepseek-ai/DeepSeek-V3", ""),
+    ];
     const EMPTY_MODELS: &[(&str, &str)] = &[];
 
     const PROVIDERS: &[BuiltinProviderSpec] = &[
@@ -156,6 +190,96 @@ pub fn builtin_providers() -> &'static [BuiltinProviderSpec] {
             kind: AiProviderKind::NativeHttp,
             default_base_url: "http://localhost:11434",
             builtin_models: EMPTY_MODELS,
+            supports_model_refresh: true,
+        },
+        // Chinese OpenAI-compatible providers
+        BuiltinProviderSpec {
+            slug: "moonshot",
+            label: "Moonshot (Kimi)",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://api.moonshot.cn",
+            builtin_models: MOONSHOT_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "zhipu",
+            label: "Zhipu (GLM)",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://open.bigmodel.cn/api/paas/v4",
+            builtin_models: ZHIPU_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "qwen",
+            label: "Qwen (DashScope)",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://dashscope.aliyuncs.com/compatible-mode",
+            builtin_models: QWEN_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "siliconflow",
+            label: "SiliconFlow",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://api.siliconflow.cn",
+            builtin_models: SILICONFLOW_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "minimax",
+            label: "MiniMax",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://api.minimax.chat/v1",
+            builtin_models: MINIMAX_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "yi",
+            label: "01.AI (Yi)",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://api.lingyiwanwu.com",
+            builtin_models: YI_MODELS,
+            supports_model_refresh: true,
+        },
+        // Other world OpenAI-compatible providers (no Anthropic/Google/Bedrock APIs)
+        BuiltinProviderSpec {
+            slug: "together",
+            label: "Together",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://api.together.xyz",
+            builtin_models: TOGETHER_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "fireworks",
+            label: "Fireworks",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://api.fireworks.ai/inference",
+            builtin_models: FIREWORKS_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "perplexity",
+            label: "Perplexity",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://api.perplexity.ai",
+            builtin_models: PERPLEXITY_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "cerebras",
+            label: "Cerebras",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://api.cerebras.ai",
+            builtin_models: CEREBRAS_MODELS,
+            supports_model_refresh: true,
+        },
+        BuiltinProviderSpec {
+            slug: "deepinfra",
+            label: "DeepInfra",
+            kind: AiProviderKind::NativeHttp,
+            default_base_url: "https://api.deepinfra.com",
+            builtin_models: DEEPINFRA_MODELS,
             supports_model_refresh: true,
         },
         BuiltinProviderSpec {

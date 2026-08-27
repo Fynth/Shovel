@@ -336,6 +336,145 @@ impl Default for OllamaSettings {
     }
 }
 
+/// Built-in OpenAI-compatible chat providers (API key + base URL + model).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum OpenAiCompatProvider {
+    OpenAi,
+    Groq,
+    OpenRouter,
+    XAi,
+    Mistral,
+}
+
+impl OpenAiCompatProvider {
+    pub const ALL: [Self; 5] = [
+        Self::OpenAi,
+        Self::Groq,
+        Self::OpenRouter,
+        Self::XAi,
+        Self::Mistral,
+    ];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::OpenAi => "openai",
+            Self::Groq => "groq",
+            Self::OpenRouter => "openrouter",
+            Self::XAi => "xai",
+            Self::Mistral => "mistral",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::OpenAi => "OpenAI",
+            Self::Groq => "Groq",
+            Self::OpenRouter => "OpenRouter",
+            Self::XAi => "xAI",
+            Self::Mistral => "Mistral",
+        }
+    }
+
+    pub fn default_base_url(self) -> &'static str {
+        match self {
+            Self::OpenAi => "https://api.openai.com",
+            Self::Groq => "https://api.groq.com/openai",
+            Self::OpenRouter => "https://openrouter.ai/api",
+            Self::XAi => "https://api.x.ai",
+            Self::Mistral => "https://api.mistral.ai",
+        }
+    }
+
+    pub fn default_model(self) -> &'static str {
+        self.models().first().copied().unwrap_or("gpt-4o-mini")
+    }
+
+    pub fn models(self) -> &'static [&'static str] {
+        match self {
+            Self::OpenAi => &[
+                "gpt-4.1",
+                "gpt-4.1-mini",
+                "gpt-4o",
+                "gpt-4o-mini",
+                "o4-mini",
+            ],
+            Self::Groq => &[
+                "llama-3.3-70b-versatile",
+                "openai/gpt-oss-120b",
+                "qwen/qwen3-32b",
+            ],
+            Self::OpenRouter => &[
+                "openai/gpt-4o",
+                "anthropic/claude-sonnet-4",
+                "google/gemini-2.5-pro",
+            ],
+            Self::XAi => &["grok-4", "grok-3", "grok-3-mini"],
+            Self::Mistral => &[
+                "mistral-large-latest",
+                "codestral-latest",
+                "mistral-small-latest",
+            ],
+        }
+    }
+
+    pub fn keyring_service(self) -> &'static str {
+        match self {
+            Self::OpenAi => "shovel.openai",
+            Self::Groq => "shovel.groq",
+            Self::OpenRouter => "shovel.openrouter",
+            Self::XAi => "shovel.xai",
+            Self::Mistral => "shovel.mistral",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OpenAiCompatSettings {
+    pub enabled: bool,
+    #[serde(skip_serializing)]
+    pub api_key: String,
+    pub base_url: String,
+    pub model: String,
+}
+
+impl OpenAiCompatSettings {
+    fn for_provider(provider: OpenAiCompatProvider) -> Self {
+        Self {
+            enabled: false,
+            api_key: String::new(),
+            base_url: provider.default_base_url().to_string(),
+            model: provider.default_model().to_string(),
+        }
+    }
+}
+
+impl Default for OpenAiCompatSettings {
+    fn default() -> Self {
+        Self::for_provider(OpenAiCompatProvider::OpenAi)
+    }
+}
+
+fn default_openai_settings() -> OpenAiCompatSettings {
+    OpenAiCompatSettings::for_provider(OpenAiCompatProvider::OpenAi)
+}
+
+fn default_groq_settings() -> OpenAiCompatSettings {
+    OpenAiCompatSettings::for_provider(OpenAiCompatProvider::Groq)
+}
+
+fn default_openrouter_settings() -> OpenAiCompatSettings {
+    OpenAiCompatSettings::for_provider(OpenAiCompatProvider::OpenRouter)
+}
+
+fn default_xai_settings() -> OpenAiCompatSettings {
+    OpenAiCompatSettings::for_provider(OpenAiCompatProvider::XAi)
+}
+
+fn default_mistral_settings() -> OpenAiCompatSettings {
+    OpenAiCompatSettings::for_provider(OpenAiCompatProvider::Mistral)
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppUiSettings {
@@ -354,8 +493,23 @@ pub struct AppUiSettings {
     pub tool_panel_layout: WorkspaceToolLayout,
 
     pub codestral: CodeStralSettings,
+    /// Legacy vendor blob — deserialize for migration only; catalog is source of truth.
+    #[serde(default, skip_serializing)]
     pub deepseek: DeepSeekSettings,
+    #[serde(default, skip_serializing)]
     pub ollama: OllamaSettings,
+    #[serde(default = "default_openai_settings", skip_serializing)]
+    pub openai: OpenAiCompatSettings,
+    #[serde(default = "default_groq_settings", skip_serializing)]
+    pub groq: OpenAiCompatSettings,
+    #[serde(default = "default_openrouter_settings", skip_serializing)]
+    pub openrouter: OpenAiCompatSettings,
+    #[serde(default = "default_xai_settings", skip_serializing)]
+    pub xai: OpenAiCompatSettings,
+    #[serde(default = "default_mistral_settings", skip_serializing)]
+    pub mistral: OpenAiCompatSettings,
+    #[serde(default)]
+    pub ai_catalog: crate::AiCatalogSettings,
     pub ai_response_language: String,
     /// When `true`, inline AI completions are inserted automatically
     /// after the user stops typing for a short idle pause; otherwise
@@ -399,6 +553,12 @@ impl Default for AppUiSettings {
             codestral: CodeStralSettings::default(),
             deepseek: DeepSeekSettings::default(),
             ollama: OllamaSettings::default(),
+            openai: OpenAiCompatSettings::for_provider(OpenAiCompatProvider::OpenAi),
+            groq: OpenAiCompatSettings::for_provider(OpenAiCompatProvider::Groq),
+            openrouter: OpenAiCompatSettings::for_provider(OpenAiCompatProvider::OpenRouter),
+            xai: OpenAiCompatSettings::for_provider(OpenAiCompatProvider::XAi),
+            mistral: OpenAiCompatSettings::for_provider(OpenAiCompatProvider::Mistral),
+            ai_catalog: crate::AiCatalogSettings::default(),
             ai_response_language: "English".to_string(),
             ai_auto_apply_completions: true,
             explorer: ExplorerViewSettings::default(),
@@ -406,6 +566,165 @@ impl Default for AppUiSettings {
             bottom_panel_height: 120.0,
             split_mode: WorkspaceSplitMode::default(),
         }
+    }
+}
+
+impl AppUiSettings {
+    pub fn openai_compat(&self, provider: OpenAiCompatProvider) -> &OpenAiCompatSettings {
+        match provider {
+            OpenAiCompatProvider::OpenAi => &self.openai,
+            OpenAiCompatProvider::Groq => &self.groq,
+            OpenAiCompatProvider::OpenRouter => &self.openrouter,
+            OpenAiCompatProvider::XAi => &self.xai,
+            OpenAiCompatProvider::Mistral => &self.mistral,
+        }
+    }
+
+    pub fn openai_compat_mut(
+        &mut self,
+        provider: OpenAiCompatProvider,
+    ) -> &mut OpenAiCompatSettings {
+        match provider {
+            OpenAiCompatProvider::OpenAi => &mut self.openai,
+            OpenAiCompatProvider::Groq => &mut self.groq,
+            OpenAiCompatProvider::OpenRouter => &mut self.openrouter,
+            OpenAiCompatProvider::XAi => &mut self.xai,
+            OpenAiCompatProvider::Mistral => &mut self.mistral,
+        }
+    }
+
+    /// Copy legacy per-vendor AI settings into `ai_catalog` when the catalog
+    /// has no active model yet. Legacy blobs stay in memory for key migration
+    /// but are not written back to JSON.
+    pub fn migrate_legacy_ai_fields(&mut self) {
+        if self.ai_catalog.active.is_some() {
+            return;
+        }
+
+        let legacy = [
+            (
+                "deepseek",
+                self.deepseek.enabled,
+                self.deepseek.api_key.clone(),
+                self.deepseek.base_url.clone(),
+                self.deepseek.model.clone(),
+                self.deepseek.thinking_enabled,
+                self.deepseek.reasoning_effort.clone(),
+            ),
+            (
+                "openai",
+                self.openai.enabled,
+                self.openai.api_key.clone(),
+                self.openai.base_url.clone(),
+                self.openai.model.clone(),
+                false,
+                "medium".to_string(),
+            ),
+            (
+                "groq",
+                self.groq.enabled,
+                self.groq.api_key.clone(),
+                self.groq.base_url.clone(),
+                self.groq.model.clone(),
+                false,
+                "medium".to_string(),
+            ),
+            (
+                "openrouter",
+                self.openrouter.enabled,
+                self.openrouter.api_key.clone(),
+                self.openrouter.base_url.clone(),
+                self.openrouter.model.clone(),
+                false,
+                "medium".to_string(),
+            ),
+            (
+                "xai",
+                self.xai.enabled,
+                self.xai.api_key.clone(),
+                self.xai.base_url.clone(),
+                self.xai.model.clone(),
+                false,
+                "medium".to_string(),
+            ),
+            (
+                "mistral",
+                self.mistral.enabled,
+                self.mistral.api_key.clone(),
+                self.mistral.base_url.clone(),
+                self.mistral.model.clone(),
+                false,
+                "medium".to_string(),
+            ),
+            (
+                "ollama",
+                self.ollama.enabled,
+                self.ollama.api_key.clone(),
+                self.ollama.base_url.clone(),
+                self.ollama.model.clone(),
+                false,
+                "medium".to_string(),
+            ),
+        ];
+
+        let mut active = None;
+        for (slug, enabled, api_key, base_url, model, thinking_enabled, reasoning_effort) in legacy
+        {
+            let has_key = !api_key.trim().is_empty();
+            let model_trim = model.trim();
+            let default_model = crate::builtin_providers()
+                .iter()
+                .find(|p| p.slug == slug)
+                .and_then(|p| p.builtin_models.first().map(|(id, _)| *id))
+                .unwrap_or("");
+            // Ollama's stock default is empty; others use the first builtin id.
+            let stock_model = if slug == "ollama" {
+                ""
+            } else if slug == "deepseek" {
+                "deepseek-chat"
+            } else {
+                default_model
+            };
+            let model_customized = !model_trim.is_empty() && model_trim != stock_model;
+            if !(enabled || has_key || model_customized) {
+                continue;
+            }
+
+            let builtin_ids: Vec<&str> = crate::builtin_providers()
+                .iter()
+                .find(|p| p.slug == slug)
+                .map(|p| p.builtin_models.iter().map(|(id, _)| *id).collect())
+                .unwrap_or_default();
+
+            let mut extra_models = Vec::new();
+            if !model_trim.is_empty() && !builtin_ids.contains(&model_trim) {
+                extra_models.push(crate::AiModelEntry {
+                    id: model_trim.to_string(),
+                    label: String::new(),
+                });
+            }
+
+            self.ai_catalog.overrides.insert(
+                slug.to_string(),
+                crate::AiProviderOverride {
+                    enabled,
+                    base_url,
+                    extra_models,
+                    hidden_builtin_ids: Vec::new(),
+                    thinking_enabled,
+                    reasoning_effort,
+                },
+            );
+
+            if active.is_none() && enabled && !model_trim.is_empty() {
+                active = Some(crate::ActiveModel {
+                    provider: slug.to_string(),
+                    model: model_trim.to_string(),
+                });
+            }
+        }
+
+        self.ai_catalog.active = active;
     }
 }
 
@@ -794,10 +1113,22 @@ mod tests {
         };
         settings.codestral.enabled = true;
         settings.codestral.model = "codestral-22b".to_string();
-        settings.deepseek.enabled = true;
-        settings.deepseek.model = "deepseek-v4-flash".to_string();
-        settings.deepseek.thinking_enabled = true;
-        settings.deepseek.reasoning_effort = "high".to_string();
+        // Legacy vendor blobs are skip_serializing; catalog is what persists.
+        settings.ai_catalog.active = Some(crate::ActiveModel {
+            provider: "deepseek".into(),
+            model: "deepseek-v4-flash".into(),
+        });
+        settings.ai_catalog.overrides.insert(
+            "deepseek".into(),
+            crate::AiProviderOverride {
+                enabled: true,
+                base_url: "https://api.deepseek.com".into(),
+                extra_models: Vec::new(),
+                hidden_builtin_ids: Vec::new(),
+                thinking_enabled: true,
+                reasoning_effort: "high".into(),
+            },
+        );
         settings.ai_response_language = "Deutsch".to_string();
 
         let toggle_mutations: Vec<(&str, ToggleFn)> = vec![
@@ -898,20 +1229,8 @@ mod tests {
                 "{field_name} toggle dropped codestral.model"
             );
             assert_eq!(
-                reloaded.deepseek.enabled, settings.deepseek.enabled,
-                "{field_name} toggle dropped deepseek.enabled"
-            );
-            assert_eq!(
-                reloaded.deepseek.model, settings.deepseek.model,
-                "{field_name} toggle dropped deepseek.model"
-            );
-            assert_eq!(
-                reloaded.deepseek.thinking_enabled, settings.deepseek.thinking_enabled,
-                "{field_name} toggle dropped deepseek.thinking_enabled"
-            );
-            assert_eq!(
-                reloaded.deepseek.reasoning_effort, settings.deepseek.reasoning_effort,
-                "{field_name} toggle dropped deepseek.reasoning_effort"
+                reloaded.ai_catalog, settings.ai_catalog,
+                "{field_name} toggle dropped ai_catalog"
             );
             assert_eq!(
                 reloaded.tool_panel_layout, settings.tool_panel_layout,
@@ -1059,5 +1378,43 @@ mod tests {
             WorkspaceSplitMode::Vertical
         );
         assert_eq!(WorkspaceSplitMode::Vertical.next(), WorkspaceSplitMode::Off);
+    }
+
+    #[test]
+    fn migrate_legacy_deepseek_fills_catalog_active_and_override() {
+        let json = r#"{
+        "theme":"Dark",
+        "deepseek":{
+            "enabled":true,
+            "base_url":"https://api.deepseek.com",
+            "model":"deepseek-chat",
+            "thinking_enabled":true,
+            "reasoning_effort":"high"
+        }
+    }"#;
+        let mut settings: AppUiSettings = serde_json::from_str(json).unwrap();
+        settings.migrate_legacy_ai_fields();
+        let active = settings.ai_catalog.active.as_ref().expect("active");
+        assert_eq!(active.provider, "deepseek");
+        assert_eq!(active.model, "deepseek-chat");
+        let over = settings
+            .ai_catalog
+            .overrides
+            .get("deepseek")
+            .expect("override");
+        assert!(over.enabled);
+        assert_eq!(over.reasoning_effort, "high");
+        assert!(over.thinking_enabled);
+        let dumped = serde_json::to_value(&settings).unwrap();
+        assert!(dumped.get("deepseek").is_none());
+        assert!(dumped.get("ai_catalog").is_some());
+    }
+
+    #[test]
+    fn catalog_secrets_are_not_in_json() {
+        let mut settings = AppUiSettings::default();
+        settings.deepseek.api_key = "sk-legacy".into();
+        let dumped = serde_json::to_string(&settings).unwrap();
+        assert!(!dumped.contains("sk-legacy"));
     }
 }
