@@ -19,6 +19,9 @@ use serde_json::{Value, json};
 const NATIVE_CHAT_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const NATIVE_CHAT_TIMEOUT: Duration = Duration::from_secs(120);
 const NATIVE_CHAT_CANCEL_POLL: Duration = Duration::from_millis(50);
+const COMPLETION_MAX_TOKENS: u32 = 100;
+const COMPLETION_TEMPERATURE: f64 = 0.2;
+const COMPLETION_TIMEOUT: Duration = Duration::from_secs(15);
 
 static NATIVE_CHAT_CANCEL: AtomicBool = AtomicBool::new(false);
 
@@ -59,6 +62,13 @@ pub enum NativeChatEvent {
     Delta(String),
     Thought(String),
     Finished,
+    Error(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CompletionToken {
+    Text(String),
+    Done,
     Error(String),
 }
 
@@ -126,6 +136,40 @@ fn ollama_request_body(req: &NativeChatRequest) -> Value {
         "messages": req.messages,
         "stream": true,
     })
+}
+
+pub fn completion_request_body(req: &NativeChatRequest) -> Value {
+    let stop = json!(["\n\n", "```"]);
+    if req.provider_slug == "ollama" {
+        json!({
+            "model": req.model,
+            "messages": req.messages,
+            "stream": true,
+            "options": {
+                "num_predict": COMPLETION_MAX_TOKENS,
+                "temperature": COMPLETION_TEMPERATURE,
+                "stop": stop,
+            }
+        })
+    } else {
+        json!({
+            "model": req.model,
+            "messages": req.messages,
+            "stream": true,
+            "max_tokens": COMPLETION_MAX_TOKENS,
+            "temperature": COMPLETION_TEMPERATURE,
+            "stop": stop,
+        })
+    }
+}
+
+pub fn completion_token_from_event(event: NativeChatEvent) -> Option<CompletionToken> {
+    match event {
+        NativeChatEvent::Delta(text) => Some(CompletionToken::Text(text)),
+        NativeChatEvent::Thought(_) => None,
+        NativeChatEvent::Finished => None,
+        NativeChatEvent::Error(text) => Some(CompletionToken::Error(text)),
+    }
 }
 
 fn normalize_reasoning_effort_value(value: &str) -> &'static str {
@@ -434,14 +478,157 @@ pub async fn stream_native_chat(
     )))
 }
 
+/// Yield parsed chat events as HTTP body chunks arrive. Dropping the stream
+/// aborts the request. Does not observe native chat cancel.
+fn live_completion_event_stream<S, B, E>(
+    byte_stream: S,
+    is_ollama: bool,
+) -> impl Stream<Item = NativeChatEvent>
+where
+    S: Stream<Item = Result<B, E>> + Unpin,
+    B: AsRef<[u8]>,
+    E: std::fmt::Display,
+{
+    let state = NativeBodyState {
+        byte_stream,
+        buffer: String::new(),
+        is_ollama,
+        pending: VecDeque::new(),
+        finished: false,
+    };
+
+    stream::unfold(state, |mut state| async move {
+        if let Some(event) = state.pending.pop_front() {
+            return Some((event, state));
+        }
+        if state.finished {
+            return None;
+        }
+
+        loop {
+            match state.byte_stream.next().await {
+                None => {
+                    let mut events = flush_remaining_buffer(&mut state.buffer, state.is_ollama);
+                    if !events.iter().any(is_terminal_event) {
+                        events.push(NativeChatEvent::Finished);
+                    }
+                    state.pending.extend(events);
+                    state.finished = true;
+                    return state.pending.pop_front().map(|event| (event, state));
+                }
+                Some(Err(err)) => {
+                    state.finished = true;
+                    return Some((
+                        NativeChatEvent::Error(format!("Native chat stream failed: {err}")),
+                        state,
+                    ));
+                }
+                Some(Ok(bytes)) => {
+                    state
+                        .buffer
+                        .push_str(&String::from_utf8_lossy(bytes.as_ref()));
+                    let events = take_complete_line_events(&mut state.buffer, state.is_ollama);
+                    if events.is_empty() {
+                        continue;
+                    }
+                    for event in events {
+                        let terminal = is_terminal_event(&event);
+                        state.pending.push_back(event);
+                        if terminal {
+                            state.finished = true;
+                            break;
+                        }
+                    }
+                    return state.pending.pop_front().map(|event| (event, state));
+                }
+            }
+        }
+    })
+}
+
+/// POST to the provider chat endpoint and yield completion tokens.
+/// Does not observe native chat cancel; dropping the receiver aborts the task.
+pub fn stream_native_completion(
+    req: NativeChatRequest,
+) -> tokio::sync::mpsc::UnboundedReceiver<CompletionToken> {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        let stream = match open_native_completion_stream(req).await {
+            Ok(stream) => stream,
+            Err(err) => {
+                let _ = tx.send(CompletionToken::Error(err));
+                return;
+            }
+        };
+        futures_util::pin_mut!(stream);
+        let mut sent_error_or_done = false;
+        while let Some(event) = stream.next().await {
+            if let Some(token) = completion_token_from_event(event) {
+                if matches!(token, CompletionToken::Error(_) | CompletionToken::Done) {
+                    sent_error_or_done = true;
+                }
+                if tx.send(token).is_err() {
+                    return;
+                }
+                if sent_error_or_done {
+                    return;
+                }
+            }
+        }
+        if !sent_error_or_done {
+            let _ = tx.send(CompletionToken::Done);
+        }
+    });
+    rx
+}
+
+async fn open_native_completion_stream(
+    req: NativeChatRequest,
+) -> Result<impl Stream<Item = NativeChatEvent>, String> {
+    let client = reqwest::Client::builder()
+        .timeout(COMPLETION_TIMEOUT)
+        .build()
+        .map_err(|err| format!("Failed to build HTTP client: {err}"))?;
+
+    let url = chat_url(&req);
+    let is_ollama = req.provider_slug == "ollama";
+    let body = completion_request_body(&req);
+
+    let response = client
+        .post(&url)
+        .headers(auth_headers(&req.api_key)?)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|err| format!("Native chat request failed: {err}"))?;
+
+    let status = response.status();
+    if status.as_u16() == 401 || status.as_u16() == 403 {
+        return Err("Auth failed".into());
+    }
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("{status}: {}", body.trim()));
+    }
+
+    let byte_stream = response
+        .bytes_stream()
+        .map(|chunk| chunk.map(|b| b.to_vec()))
+        .boxed();
+    Ok(live_completion_event_stream(byte_stream, is_ollama))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
+        CompletionToken,
         NativeChatEvent,
         NativeChatMessage,
         NativeChatRequest,
         chat_url,
         clear_native_chat_cancel,
+        completion_request_body,
+        completion_token_from_event,
         live_native_event_stream,
         openai_request_body,
         parse_ollama_ndjson_line,
@@ -617,5 +804,65 @@ mod tests {
         );
         assert_eq!(stream.next().await, None);
         clear_native_chat_cancel();
+    }
+
+    #[test]
+    fn completion_request_body_sets_max_tokens_temperature_and_stop() {
+        let req = NativeChatRequest {
+            base_url: "https://api.openai.com".into(),
+            api_key: "sk".into(),
+            model: "gpt-4o-mini".into(),
+            messages: vec![NativeChatMessage {
+                role: "user".into(),
+                content: "select ".into(),
+            }],
+            provider_slug: "openai".into(),
+            thinking_enabled: false,
+            reasoning_effort: "medium".into(),
+        };
+        let body = completion_request_body(&req);
+        assert_eq!(body["model"], "gpt-4o-mini");
+        assert_eq!(body["stream"], true);
+        assert_eq!(body["max_tokens"], 100);
+        assert_eq!(body["temperature"], 0.2);
+        assert_eq!(body["stop"][0], "\n\n");
+        assert_eq!(body["stop"][1], "```");
+        assert!(body.get("thinking").is_none());
+    }
+
+    #[test]
+    fn completion_ollama_body_uses_options_not_chat_cancel() {
+        request_native_chat_cancel();
+        let req = NativeChatRequest {
+            base_url: "http://localhost:11434".into(),
+            api_key: String::new(),
+            model: "qwen2.5-coder".into(),
+            messages: vec![],
+            provider_slug: "ollama".into(),
+            thinking_enabled: false,
+            reasoning_effort: "medium".into(),
+        };
+        let body = completion_request_body(&req);
+        clear_native_chat_cancel();
+        assert_eq!(body["options"]["num_predict"], 100);
+        assert_eq!(body["options"]["temperature"], 0.2);
+        assert_eq!(body["options"]["stop"][0], "\n\n");
+    }
+
+    #[test]
+    fn map_native_event_to_completion_ignores_thoughts() {
+        assert_eq!(
+            completion_token_from_event(NativeChatEvent::Thought("hmm".into())),
+            None
+        );
+        assert_eq!(
+            completion_token_from_event(NativeChatEvent::Delta("FROM".into())),
+            Some(CompletionToken::Text("FROM".into()))
+        );
+        assert_eq!(completion_token_from_event(NativeChatEvent::Finished), None);
+        assert_eq!(
+            completion_token_from_event(NativeChatEvent::Error("nope".into())),
+            Some(CompletionToken::Error("nope".into()))
+        );
     }
 }

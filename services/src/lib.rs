@@ -124,6 +124,7 @@ pub use storage::{
 // --- ACP agent runtime ---
 
 pub use acp::{
+    CompletionToken,
     NativeChatMessage,
     NativeChatRequest,
     build_embedded_deepseek_launch,
@@ -140,5 +141,6 @@ pub use acp::{
     respond_acp_permission,
     send_acp_prompt,
     send_acp_prompt_with_routing,
+    stream_native_completion,
 };
 pub use session_ops::{build_acp_database_context, warm_acp_database_schema_context};

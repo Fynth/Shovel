@@ -66,6 +66,7 @@ fn facade_surface_compiles() {
     // --- ACP agent runtime ---
     let _: Option<services::NativeChatMessage> = None;
     let _: Option<services::NativeChatRequest> = None;
+    let _ = &services::stream_native_completion;
     let _ = &services::build_acp_database_context;
     let _ = &services::build_embedded_deepseek_launch;
     let _ = &services::build_embedded_ollama_launch;

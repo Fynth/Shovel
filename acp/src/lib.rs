@@ -1,5 +1,6 @@
 // Core ACP functionality (no DB dependencies) — re-exported from acp-core.
 pub use acp_core::{
+    CompletionToken,
     NativeChatMessage,
     NativeChatRequest,
     agents::{
@@ -44,6 +45,7 @@ pub use acp_core::{
         send_acp_prompt,
         send_acp_prompt_with_routing,
     },
+    stream_native_completion,
 };
 
 #[cfg(feature = "embedding")]

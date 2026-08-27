@@ -32,7 +32,14 @@ pub use embedding::{
     MODEL_FILENAME,
     cosine_similarity,
 };
-pub use native_chat::{NativeChatEvent, NativeChatMessage, NativeChatRequest, stream_native_chat};
+pub use native_chat::{
+    CompletionToken,
+    NativeChatEvent,
+    NativeChatMessage,
+    NativeChatRequest,
+    stream_native_chat,
+    stream_native_completion,
+};
 pub use native_runtime::{native_chat_prompt, refresh_provider_models};
 pub use ollama::{
     EmbeddedOllamaAgentConfig,
