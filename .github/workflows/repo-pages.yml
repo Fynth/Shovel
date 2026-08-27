@@ -295,7 +295,7 @@ jobs:
           path: site
 
       - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Deploy package repositories to GitHub Pages
         id: deployment
