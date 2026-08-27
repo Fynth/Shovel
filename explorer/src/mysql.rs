@@ -22,7 +22,7 @@ pub async fn describe_table_mysql(
     .bind(&table)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::MySql)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     if let Some(row) = overview_rows.first() {
         let table_type = row
             .try_get::<String, _>("table_type")
@@ -48,7 +48,7 @@ pub async fn describe_table_mysql(
     if let Some(row) = sqlx::query(&create_sql)
         .fetch_optional(pool)
         .await
-        .map_err(DatabaseError::MySql)?
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?
     {
         let create_statement = row
             .try_get::<String, _>(1)
@@ -79,11 +79,11 @@ pub async fn describe_table_mysql(
     .bind(&table)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::MySql)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in column_rows {
         let column_name = row
             .try_get::<String, _>("column_name")
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let column_type = row
             .try_get::<String, _>("column_type")
             .unwrap_or_else(|_| "text".to_string());
@@ -121,13 +121,13 @@ pub async fn describe_table_mysql(
     .bind(&table)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::MySql)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     let mut grouped_indexes: std::collections::BTreeMap<String, (bool, String, Vec<String>)> =
         std::collections::BTreeMap::new();
     for row in index_rows {
         let index_name = row
             .try_get::<String, _>("index_name")
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let non_unique = row.try_get::<i64, _>("non_unique").unwrap_or(1) != 0;
         let index_type = row
             .try_get::<Option<String>, _>("index_type")
@@ -185,7 +185,7 @@ pub async fn describe_table_mysql(
     .bind(&table)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::MySql)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     let mut grouped_constraints: std::collections::BTreeMap<
         String,
         (String, Vec<String>, Vec<String>),
@@ -193,7 +193,7 @@ pub async fn describe_table_mysql(
     for row in constraint_rows {
         let constraint_name = row
             .try_get::<String, _>("constraint_name")
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let constraint_type = row
             .try_get::<String, _>("constraint_type")
             .unwrap_or_else(|_| "CONSTRAINT".to_string());
@@ -257,11 +257,11 @@ pub async fn describe_table_mysql(
     .bind(&table)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::MySql)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in trigger_rows {
         let trigger_name = row
             .try_get::<String, _>("trigger_name")
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let timing = row
             .try_get::<String, _>("action_timing")
             .unwrap_or_else(|_| String::new());
@@ -311,7 +311,7 @@ pub async fn load_foreign_keys_mysql(
     )
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::MySql)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
     let mut foreign_keys = Vec::new();
     for row in rows {
@@ -401,7 +401,7 @@ async fn fetch_mysql_create_ddl(
     let Some(row) = sqlx::query(sql)
         .fetch_optional(pool)
         .await
-        .map_err(DatabaseError::MySql)?
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?
     else {
         return Ok(None);
     };
@@ -442,12 +442,12 @@ pub async fn load_table_columns_mysql(
     .bind(table)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::MySql)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
     rows.into_iter()
         .map(|row| {
             row.try_get::<String, _>("column_name")
-                .map_err(DatabaseError::MySql)
+                .map_err(|e| DatabaseError::Driver(e.to_string()))
         })
         .collect()
 }
@@ -489,17 +489,17 @@ pub async fn load_connection_tree_mysql(
     )
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::MySql)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in rows {
         let schema = row
             .try_get::<String, _>("table_schema")
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let name = row
             .try_get::<String, _>("table_name")
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let table_type = row
             .try_get::<String, _>("table_type")
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let kind = if table_type.eq_ignore_ascii_case("view") {
             ExplorerNodeKind::View
         } else {
@@ -527,14 +527,14 @@ pub async fn load_connection_tree_mysql(
     )
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::MySql)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in rows {
         let schema = row
             .try_get::<String, _>("routine_schema")
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let name = row
             .try_get::<String, _>("routine_name")
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let routine_type = row.try_get::<String, _>("routine_type").unwrap_or_default();
         let kind = if routine_type.eq_ignore_ascii_case("procedure") {
             ExplorerNodeKind::Procedure
@@ -555,14 +555,14 @@ pub async fn load_connection_tree_mysql(
     )
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::MySql)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in rows {
         let schema = row
             .try_get::<String, _>("trigger_schema")
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let name = row
             .try_get::<String, _>("trigger_name")
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         push_node(&mut grouped, schema, name, ExplorerNodeKind::Trigger, None);
     }
 
@@ -590,10 +590,10 @@ pub async fn mysql_effective_schema_name(
     sqlx::query_scalar::<_, Option<String>>("select database()")
         .fetch_one(pool)
         .await
-        .map_err(DatabaseError::MySql)?
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| {
-            DatabaseError::UnsupportedDriver(
+            DatabaseError::Unsupported(
                 "No MySQL database selected. Set a default database or use a qualified table name."
                     .to_string(),
             )

@@ -39,7 +39,7 @@ async fn execute_sqlite_explain(
     let rows = sqlx::query(&explain_sql)
         .fetch_all(pool)
         .await
-        .map_err(DatabaseError::Sqlite)?;
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
     let mut raw_lines: Vec<String> = Vec::new();
     let mut entries: Vec<(i64, i64, String)> = Vec::new();
@@ -283,7 +283,7 @@ async fn execute_postgres_explain(
     let rows = sqlx::query(&explain_sql)
         .fetch_all(pool)
         .await
-        .map_err(DatabaseError::Postgres)?;
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
     // PostgreSQL returns the JSON as a single column in a single row.
     let mut raw_lines: Vec<String> = Vec::new();
@@ -458,7 +458,7 @@ async fn execute_mysql_explain(
     let rows = sqlx::query(&explain_sql)
         .fetch_all(pool)
         .await
-        .map_err(DatabaseError::MySql)?;
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
     let mut raw_lines: Vec<String> = Vec::new();
     let mut json_text = String::new();

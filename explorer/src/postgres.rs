@@ -27,11 +27,11 @@ pub async fn describe_table_postgres(
     .bind(&table)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::Postgres)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in column_rows {
         let column_name = row
             .try_get::<String, _>("column_name")
-            .map_err(DatabaseError::Postgres)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let data_type = row
             .try_get::<String, _>("data_type")
             .unwrap_or_else(|_| "text".to_string());
@@ -65,11 +65,11 @@ pub async fn describe_table_postgres(
     .bind(&table)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::Postgres)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in index_rows {
         let index_name = row
             .try_get::<String, _>("indexname")
-            .map_err(DatabaseError::Postgres)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let index_definition = row
             .try_get::<String, _>("indexdef")
             .unwrap_or_else(|_| String::new());
@@ -111,11 +111,11 @@ pub async fn describe_table_postgres(
     .bind(&table)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::Postgres)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in constraint_rows {
         let constraint_name = row
             .try_get::<String, _>("constraint_name")
-            .map_err(DatabaseError::Postgres)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let constraint_type = row
             .try_get::<String, _>("constraint_type")
             .unwrap_or_else(|_| "CONSTRAINT".to_string());
@@ -150,11 +150,11 @@ pub async fn describe_table_postgres(
     .bind(&table)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::Postgres)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in trigger_rows {
         let trigger_name = row
             .try_get::<String, _>("trigger_name")
-            .map_err(DatabaseError::Postgres)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let timing = row
             .try_get::<String, _>("action_timing")
             .unwrap_or_else(|_| String::new());
@@ -217,7 +217,7 @@ pub async fn load_foreign_keys_postgres(
     )
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::Postgres)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
     let mut foreign_keys = Vec::new();
     for row in rows {
@@ -262,7 +262,7 @@ pub async fn load_object_ddl_postgres(
             .bind(&object)
             .fetch_optional(pool)
             .await
-            .map_err(DatabaseError::Postgres)?
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?
             .flatten();
             Ok(ddl.filter(|s| !s.trim().is_empty()))
         }
@@ -279,7 +279,7 @@ pub async fn load_object_ddl_postgres(
             .bind(&object)
             .fetch_optional(pool)
             .await
-            .map_err(DatabaseError::Postgres)?
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?
             .flatten();
             Ok(ddl.filter(|s| !s.trim().is_empty()))
         }
@@ -300,7 +300,7 @@ pub async fn load_object_ddl_postgres(
             .bind(&object)
             .fetch_optional(pool)
             .await
-            .map_err(DatabaseError::Postgres)?
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?
             .flatten();
             Ok(ddl.filter(|s| !s.trim().is_empty()))
         }
@@ -318,7 +318,7 @@ pub async fn load_object_ddl_postgres(
             .bind(&object)
             .fetch_optional(pool)
             .await
-            .map_err(DatabaseError::Postgres)?
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?
             .flatten();
             Ok(ddl.filter(|s| !s.trim().is_empty()))
         }
@@ -360,13 +360,13 @@ async fn reconstruct_postgres_table_ddl(
     .bind(table)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::Postgres)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
     let mut column_lines: Vec<String> = Vec::new();
     for row in column_rows {
         let name = row
             .try_get::<String, _>("column_name")
-            .map_err(DatabaseError::Postgres)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let data_type = row
             .try_get::<String, _>("data_type")
             .unwrap_or_else(|_| "text".to_string());
@@ -403,7 +403,7 @@ async fn reconstruct_postgres_table_ddl(
     .bind(table)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::Postgres)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in constraint_rows {
         if let Some(def) = row
             .try_get::<Option<String>, _>("definition")
@@ -433,7 +433,7 @@ async fn reconstruct_postgres_table_ddl(
     .bind(table)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::Postgres)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in index_rows {
         if let Some(def) = row
             .try_get::<Option<String>, _>("indexdef")
@@ -468,12 +468,12 @@ pub async fn load_table_columns_postgres(
     .bind(table)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::Postgres)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
     rows.into_iter()
         .map(|row| {
             row.try_get::<String, _>("column_name")
-                .map_err(DatabaseError::Postgres)
+                .map_err(|e| DatabaseError::Driver(e.to_string()))
         })
         .collect()
 }
@@ -518,7 +518,7 @@ pub async fn load_connection_tree_postgres(
     )
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::Postgres)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
     // Cheap per-relation row estimates from pg_class.reltuples (statistics,
     // NOT a full COUNT). Keyed by (schema, name).
@@ -527,13 +527,13 @@ pub async fn load_connection_tree_postgres(
     for row in rows {
         let schema = row
             .try_get::<String, _>("table_schema")
-            .map_err(DatabaseError::Postgres)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let name = row
             .try_get::<String, _>("table_name")
-            .map_err(DatabaseError::Postgres)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let table_type = row
             .try_get::<String, _>("table_type")
-            .map_err(DatabaseError::Postgres)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let kind = if table_type.eq_ignore_ascii_case("view") {
             ExplorerNodeKind::View
         } else {
@@ -559,14 +559,14 @@ pub async fn load_connection_tree_postgres(
     )
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::Postgres)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in rows {
         let schema = row
             .try_get::<String, _>("schema")
-            .map_err(DatabaseError::Postgres)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let name = row
             .try_get::<String, _>("name")
-            .map_err(DatabaseError::Postgres)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let relkind = row.try_get::<String, _>("relkind").unwrap_or_default();
         let reltuples = row.try_get::<i64, _>("reltuples").ok();
         let kind = match relkind.as_str() {
@@ -595,14 +595,14 @@ pub async fn load_connection_tree_postgres(
     )
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::Postgres)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in rows {
         let schema = row
             .try_get::<String, _>("schema")
-            .map_err(DatabaseError::Postgres)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let name = row
             .try_get::<String, _>("name")
-            .map_err(DatabaseError::Postgres)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let prokind = row.try_get::<String, _>("prokind").unwrap_or_default();
         let kind = match prokind.as_str() {
             "p" => ExplorerNodeKind::Procedure,
@@ -625,14 +625,14 @@ pub async fn load_connection_tree_postgres(
     )
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::Postgres)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in rows {
         let schema = row
             .try_get::<String, _>("schema")
-            .map_err(DatabaseError::Postgres)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let name = row
             .try_get::<String, _>("name")
-            .map_err(DatabaseError::Postgres)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         push_node(&mut grouped, schema, name, ExplorerNodeKind::Trigger, None);
     }
 

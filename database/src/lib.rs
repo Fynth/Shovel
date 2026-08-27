@@ -123,14 +123,14 @@ pub trait DatabaseDriver {
     /// response.
     ///
     /// The default implementation returns
-    /// [`DatabaseError::UnsupportedDriver`]. Drivers that support
+    /// [`DatabaseError::Unsupported`]. Drivers that support
     /// ClickHouse-style HTTP query execution must override this.
     async fn execute_json_query(
         &self,
         _config: &models::ClickHouseFormData,
         _sql: &str,
     ) -> Result<models::ClickHouseJsonResponse, models::DatabaseError> {
-        Err(models::DatabaseError::UnsupportedDriver(
+        Err(models::DatabaseError::Unsupported(
             "execute_json_query is not supported for this driver".to_string(),
         ))
     }
@@ -139,14 +139,14 @@ pub trait DatabaseDriver {
     /// response.
     ///
     /// The default implementation returns
-    /// [`DatabaseError::UnsupportedDriver`]. Drivers that support
+    /// [`DatabaseError::Unsupported`]. Drivers that support
     /// ClickHouse-style HTTP query execution must override this.
     async fn execute_text_query(
         &self,
         _config: &models::ClickHouseFormData,
         _sql: &str,
     ) -> Result<String, models::DatabaseError> {
-        Err(models::DatabaseError::UnsupportedDriver(
+        Err(models::DatabaseError::Unsupported(
             "execute_text_query is not supported for this driver".to_string(),
         ))
     }

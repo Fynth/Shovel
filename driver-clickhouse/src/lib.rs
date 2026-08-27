@@ -23,7 +23,7 @@ impl database::DatabaseDriver for ClickHouseDriver {
     ) -> Result<ClickHouseJsonResponse, models::DatabaseError> {
         execute_json_query(config, sql)
             .await
-            .map_err(models::DatabaseError::ClickHouse)
+            .map_err(models::DatabaseError::Driver)
     }
 
     async fn execute_text_query(
@@ -33,7 +33,7 @@ impl database::DatabaseDriver for ClickHouseDriver {
     ) -> Result<String, models::DatabaseError> {
         execute_text_query(config, sql)
             .await
-            .map_err(models::DatabaseError::ClickHouse)
+            .map_err(models::DatabaseError::Driver)
     }
 }
 

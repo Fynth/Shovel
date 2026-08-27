@@ -23,12 +23,12 @@ pub async fn create_table(
     let table_name = table_name.trim();
     let columns_sql = columns_sql.trim().trim_end_matches(';').trim();
     if table_name.is_empty() {
-        return Err(DatabaseError::UnsupportedDriver(
+        return Err(DatabaseError::Unsupported(
             "Table name is empty".to_string(),
         ));
     }
     if columns_sql.is_empty() {
-        return Err(DatabaseError::UnsupportedDriver(
+        return Err(DatabaseError::Unsupported(
             "Table definition is empty".to_string(),
         ));
     }
@@ -46,7 +46,7 @@ pub async fn create_table(
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::Sqlite)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::Postgres(pool) => {
@@ -55,7 +55,7 @@ pub async fn create_table(
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::Postgres)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::MySql(pool) => {
@@ -64,7 +64,7 @@ pub async fn create_table(
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::MySql)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::ClickHouse(config) => {
@@ -72,9 +72,7 @@ pub async fn create_table(
                 .map(|engine| engine.trim().trim_end_matches(';').trim().to_string())
                 .filter(|engine| !engine.is_empty())
                 .ok_or_else(|| {
-                    DatabaseError::UnsupportedDriver(
-                        "ClickHouse engine clause is empty".to_string(),
-                    )
+                    DatabaseError::Unsupported("ClickHouse engine clause is empty".to_string())
                 })?;
             let qualified_name = qualified_clickhouse_table_name(
                 schema.as_deref(),
@@ -102,21 +100,21 @@ pub async fn drop_table(
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::Sqlite)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::Postgres(pool) => {
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::Postgres)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::MySql(pool) => {
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::MySql)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::ClickHouse(config) => {
@@ -138,7 +136,7 @@ pub async fn truncate_table(
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::Sqlite)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::Postgres(pool) => {
@@ -146,7 +144,7 @@ pub async fn truncate_table(
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::Postgres)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::MySql(pool) => {
@@ -154,7 +152,7 @@ pub async fn truncate_table(
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::MySql)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::ClickHouse(config) => {
@@ -172,12 +170,12 @@ pub async fn rename_table(
 ) -> Result<(), DatabaseError> {
     let new_table_name = new_table_name.trim();
     if new_table_name.is_empty() {
-        return Err(DatabaseError::UnsupportedDriver(
+        return Err(DatabaseError::Unsupported(
             "New table name is empty".to_string(),
         ));
     }
     if new_table_name == source.table_name.trim() {
-        return Err(DatabaseError::UnsupportedDriver(
+        return Err(DatabaseError::Unsupported(
             "New table name must be different from the source table".to_string(),
         ));
     }
@@ -193,7 +191,7 @@ pub async fn rename_table(
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::Sqlite)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::Postgres(pool) => {
@@ -204,7 +202,7 @@ pub async fn rename_table(
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::Postgres)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::MySql(pool) => {
@@ -214,7 +212,7 @@ pub async fn rename_table(
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::MySql)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::ClickHouse(config) => {
@@ -238,12 +236,12 @@ pub async fn duplicate_table(
 ) -> Result<(), DatabaseError> {
     let new_table_name = new_table_name.trim();
     if new_table_name.is_empty() {
-        return Err(DatabaseError::UnsupportedDriver(
+        return Err(DatabaseError::Unsupported(
             "New table name is empty".to_string(),
         ));
     }
     if new_table_name == source.table_name.trim() {
-        return Err(DatabaseError::UnsupportedDriver(
+        return Err(DatabaseError::Unsupported(
             "New table name must be different from the source table".to_string(),
         ));
     }
@@ -268,7 +266,7 @@ pub async fn duplicate_table(
             sqlx::query(&create_sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::Sqlite)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
             if copy_data {
                 let insert_sql = format!(
@@ -277,7 +275,7 @@ pub async fn duplicate_table(
                 sqlx::query(&insert_sql)
                     .execute(&pool)
                     .await
-                    .map_err(DatabaseError::Sqlite)?;
+                    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             }
 
             Ok(())
@@ -291,7 +289,7 @@ pub async fn duplicate_table(
             sqlx::query(&create_sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::Postgres)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
             if copy_data {
                 let insert_sql = format!(
@@ -300,7 +298,7 @@ pub async fn duplicate_table(
                 sqlx::query(&insert_sql)
                     .execute(&pool)
                     .await
-                    .map_err(DatabaseError::Postgres)?;
+                    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             }
 
             Ok(())
@@ -313,7 +311,7 @@ pub async fn duplicate_table(
             sqlx::query(&create_sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::MySql)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
             if copy_data {
                 let insert_sql = format!(
@@ -322,7 +320,7 @@ pub async fn duplicate_table(
                 sqlx::query(&insert_sql)
                     .execute(&pool)
                     .await
-                    .map_err(DatabaseError::MySql)?;
+                    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             }
 
             Ok(())

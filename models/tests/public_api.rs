@@ -4,7 +4,7 @@
 //! depends on, including:
 //!
 //! - `DatabaseConnection` / `ConnectionRequest` serde roundtrips
-//! - `DatabaseError` display + kinds
+//! - `DatabaseError` display
 //! - `DatabaseKind` <-> `ConnectionRequest` conversions
 //! - Form-data construction
 //!
@@ -125,21 +125,15 @@ fn saved_connection_roundtrips_through_json() {
 }
 
 #[test]
-fn database_error_kind_reports_origin() {
-    let ch = DatabaseError::ClickHouse("bad request".into());
-    assert_eq!(ch.kind(), Some(DatabaseKind::ClickHouse));
-    let tunnel = DatabaseError::Tunnel("ssh down".into());
-    assert_eq!(tunnel.kind(), None);
+fn database_error_display_is_unprefixed_driver_string() {
+    let err = DatabaseError::Driver("bad request".into());
+    assert_eq!(err.to_string(), "bad request");
 }
 
 #[test]
-fn database_error_displays_with_kind_prefix() {
-    let err = DatabaseError::ClickHouse("bad request".into());
-    let rendered = err.to_string();
-    assert!(
-        rendered.contains("ClickHouse"),
-        "Display impl should mention the driver kind, got: {rendered}"
-    );
+fn session_not_found_display_includes_id() {
+    let err = DatabaseError::SessionNotFound(7);
+    assert!(err.to_string().contains("7"));
 }
 
 #[test]

@@ -187,15 +187,12 @@ pub async fn test_connection(request: ConnectionRequest) -> Result<(), DatabaseE
 ///
 /// Returns [`DatabaseError`] in the following cases:
 ///
-/// * `DatabaseError::Sqlite` — the SQLite driver failed to open the
-///   database file.
-/// * `DatabaseError::Postgres` — the PostgreSQL driver failed to connect
-///   (bad credentials, unreachable host, etc.).
-/// * `DatabaseError::MySql` — the MySQL driver failed to connect.
-/// * `DatabaseError::ClickHouse` — the ClickHouse driver failed to connect.
+/// * `DatabaseError::Driver` — a backend driver failed to connect (bad
+///   credentials, unreachable host, missing file, HTTP error, etc.).
 /// * `DatabaseError::Tunnel` — SSH tunnel configuration is invalid (e.g.
 ///   host or username is empty, DSN input used with tunneling, HTTPS
 ///   ClickHouse endpoint requested over SSH, unparseable ClickHouse URL).
+/// * `DatabaseError::Unsupported` — the requested driver is not compiled in.
 pub async fn connect_to_db(
     request: ConnectionRequest,
 ) -> Result<DatabaseConnection, DatabaseError> {
@@ -206,7 +203,7 @@ pub async fn connect_to_db(
         ConnectionRequest::Sqlite(data) => {
             let pool = SqliteDriver::connect(data.path)
                 .await
-                .map_err(DatabaseError::Sqlite)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(DatabaseConnection::Sqlite(pool))
         }
         #[cfg(feature = "postgres")]
@@ -236,7 +233,7 @@ pub async fn connect_to_db(
                 };
                 PgDriver::connect(config)
                     .await
-                    .map_err(DatabaseError::Postgres)
+                    .map_err(|e| DatabaseError::Driver(e.to_string()))
                     .map(DatabaseConnection::Postgres)
             }
             .await;
@@ -275,7 +272,7 @@ pub async fn connect_to_db(
                 };
                 MySqlDriver::connect(config)
                     .await
-                    .map_err(DatabaseError::MySql)
+                    .map_err(|e| DatabaseError::Driver(e.to_string()))
                     .map(DatabaseConnection::MySql)
             }
             .await;
@@ -314,7 +311,7 @@ pub async fn connect_to_db(
             let result = async {
                 ClickHouseDriver::connect(data.clone())
                     .await
-                    .map_err(DatabaseError::ClickHouse)
+                    .map_err(DatabaseError::Driver)
                     .map(DatabaseConnection::ClickHouse)
             }
             .await;
@@ -323,7 +320,7 @@ pub async fn connect_to_db(
             result
         }
         #[allow(unreachable_patterns)]
-        _ => Err(DatabaseError::UnsupportedDriver(
+        _ => Err(DatabaseError::Unsupported(
             "this database driver is not compiled in".to_string(),
         )),
     }

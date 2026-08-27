@@ -55,7 +55,7 @@ pub async fn load_table_preview_page(
             let rows = sqlx::query(&sql)
                 .fetch_all(&pool)
                 .await
-                .map_err(DatabaseError::Sqlite)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(QueryOutput::Table(sqlite_preview_rows_to_paginated_page(
                 rows, source, page_size, offset,
             )))
@@ -75,7 +75,7 @@ pub async fn load_table_preview_page(
             let rows = sqlx::query(&sql)
                 .fetch_all(&pool)
                 .await
-                .map_err(DatabaseError::Postgres)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(QueryOutput::Table(postgres_preview_rows_to_paginated_page(
                 rows, source, page_size, offset,
             )))
@@ -97,7 +97,7 @@ pub async fn load_table_preview_page(
                 let rows = sqlx::query(&sql)
                     .fetch_all(&pool)
                     .await
-                    .map_err(DatabaseError::MySql)?;
+                    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
                 Ok(QueryOutput::Table(mysql_rows_to_paginated_page(
                     rows, page_size, offset,
                 )))
@@ -117,7 +117,7 @@ pub async fn load_table_preview_page(
                 let rows = sqlx::query(&sql)
                     .fetch_all(&pool)
                     .await
-                    .map_err(DatabaseError::MySql)?;
+                    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
                 let source = models::TablePreviewSource {
                     schema: Some(schema_name),
                     ..source

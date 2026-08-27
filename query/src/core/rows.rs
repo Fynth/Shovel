@@ -668,5 +668,5 @@ fn mysql_locator_to_string(row: &sqlx::mysql::MySqlRow, idx: usize) -> String {
 }
 
 pub(super) fn invalid_sqlite_locator() -> DatabaseError {
-    DatabaseError::UnsupportedDriver("invalid SQLite row locator".to_string())
+    DatabaseError::Unsupported("invalid SQLite row locator".to_string())
 }

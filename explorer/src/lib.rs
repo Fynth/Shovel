@@ -319,7 +319,7 @@ async fn load_sqlite_index_columns(
     let rows = sqlx::query(&sql)
         .fetch_all(pool)
         .await
-        .map_err(DatabaseError::Sqlite)?;
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     Ok(rows
         .into_iter()
         .filter_map(|row| row.try_get::<String, _>("name").ok())

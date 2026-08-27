@@ -145,7 +145,7 @@ async fn execute_sqlite_query_page(
         let rows = sqlx::query(&query)
             .fetch_all(pool)
             .await
-            .map_err(DatabaseError::Sqlite)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         return Ok(QueryOutput::Table(sqlite_preview_rows_to_paginated_page(
             rows,
             plan.source,
@@ -165,7 +165,7 @@ async fn execute_sqlite_query_page(
         ))
         .fetch_all(pool)
         .await
-        .map_err(DatabaseError::Sqlite)?;
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         return Ok(QueryOutput::Table(sqlite_rows_to_paginated_page(
             rows, page_size, offset,
         )));
@@ -175,14 +175,14 @@ async fn execute_sqlite_query_page(
         let rows = sqlx::query(sql)
             .fetch_all(pool)
             .await
-            .map_err(DatabaseError::Sqlite)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         return Ok(QueryOutput::Table(sqlite_rows_to_page(rows)));
     }
 
     let result = sqlx::query(sql)
         .execute(pool)
         .await
-        .map_err(DatabaseError::Sqlite)?;
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     Ok(QueryOutput::AffectedRows(result.rows_affected()))
 }
 
@@ -209,7 +209,7 @@ async fn execute_postgres_query_page(
         let rows = sqlx::query(&query)
             .fetch_all(pool)
             .await
-            .map_err(DatabaseError::Postgres)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         return Ok(QueryOutput::Table(postgres_preview_rows_to_paginated_page(
             rows,
             plan.source,
@@ -229,7 +229,7 @@ async fn execute_postgres_query_page(
         ))
         .fetch_all(pool)
         .await
-        .map_err(DatabaseError::Postgres)?;
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         return Ok(QueryOutput::Table(postgres_rows_to_paginated_page(
             rows, page_size, offset,
         )));
@@ -239,14 +239,14 @@ async fn execute_postgres_query_page(
         let rows = sqlx::query(sql)
             .fetch_all(pool)
             .await
-            .map_err(DatabaseError::Postgres)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         return Ok(QueryOutput::Table(postgres_rows_to_page(rows)));
     }
 
     let result = sqlx::query(sql)
         .execute(pool)
         .await
-        .map_err(DatabaseError::Postgres)?;
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     Ok(QueryOutput::AffectedRows(result.rows_affected()))
 }
 
@@ -276,7 +276,7 @@ async fn execute_mysql_query_page(
             ))
             .fetch_all(pool)
             .await
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             return Ok(QueryOutput::Table(mysql_rows_to_paginated_page(
                 rows, page_size, offset,
             )));
@@ -297,7 +297,7 @@ async fn execute_mysql_query_page(
         let rows = sqlx::query(&query)
             .fetch_all(pool)
             .await
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         return Ok(QueryOutput::Table(mysql_preview_rows_to_paginated_page(
             rows,
             plan.source,
@@ -317,7 +317,7 @@ async fn execute_mysql_query_page(
         ))
         .fetch_all(pool)
         .await
-        .map_err(DatabaseError::MySql)?;
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         return Ok(QueryOutput::Table(mysql_rows_to_paginated_page(
             rows, page_size, offset,
         )));
@@ -327,14 +327,14 @@ async fn execute_mysql_query_page(
         let rows = sqlx::query(sql)
             .fetch_all(pool)
             .await
-            .map_err(DatabaseError::MySql)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         return Ok(QueryOutput::Table(mysql_rows_to_page(rows)));
     }
 
     let result = sqlx::query(sql)
         .execute(pool)
         .await
-        .map_err(DatabaseError::MySql)?;
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     Ok(QueryOutput::AffectedRows(result.rows_affected()))
 }
 
@@ -526,7 +526,7 @@ fn build_insert_row_sql(
 
 fn parse_next_numeric_id(value: String, column_name: &str) -> Result<i64, DatabaseError> {
     value.trim().parse::<i64>().map_err(|_| {
-        DatabaseError::UnsupportedDriver(format!(
+        DatabaseError::Unsupported(format!(
             "Built-in auto id requires a numeric `{column_name}` column"
         ))
     })
@@ -545,7 +545,7 @@ async fn sqlite_single_primary_key_column(
     let rows = sqlx::query(&sql)
         .fetch_all(pool)
         .await
-        .map_err(DatabaseError::Sqlite)?;
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
     let mut primary_key_columns = Vec::new();
     for row in rows {
@@ -556,7 +556,7 @@ async fn sqlite_single_primary_key_column(
 
         let column_name = row
             .try_get::<String, _>("name")
-            .map_err(DatabaseError::Sqlite)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let data_type = row
             .try_get::<String, _>("type")
             .unwrap_or_else(|_| String::new());
@@ -584,11 +584,11 @@ async fn load_sqlite_create_statement(
     .bind(table_name)
     .fetch_optional(pool)
     .await
-    .map_err(DatabaseError::Sqlite)?
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?
     .flatten()
     .filter(|sql| !sql.trim().is_empty())
     .ok_or_else(|| {
-        DatabaseError::UnsupportedDriver(format!(
+        DatabaseError::Unsupported(format!(
             "Could not load CREATE TABLE statement for {}",
             table_name
         ))
@@ -621,7 +621,7 @@ fn rewrite_create_table_statement(
     let lower = statement.to_ascii_lowercase();
     let create_table = "create table";
     let Some(create_index) = lower.find(create_table) else {
-        return Err(DatabaseError::UnsupportedDriver(
+        return Err(DatabaseError::Unsupported(
             "Could not parse CREATE TABLE statement".to_string(),
         ));
     };
@@ -636,7 +636,7 @@ fn rewrite_create_table_statement(
     }
 
     let Some(open_paren_offset) = statement[name_start..].find('(') else {
-        return Err(DatabaseError::UnsupportedDriver(
+        return Err(DatabaseError::Unsupported(
             "Could not find the table definition in CREATE TABLE".to_string(),
         ));
     };
@@ -690,7 +690,7 @@ async fn postgres_single_primary_key_column(
     .bind(table_name)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::Postgres)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
     if rows.len() != 1 {
         return Ok(None);
@@ -699,7 +699,7 @@ async fn postgres_single_primary_key_column(
     let row = &rows[0];
     let column_name = row
         .try_get::<String, _>("column_name")
-        .map_err(DatabaseError::Postgres)?;
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     let data_type = row
         .try_get::<String, _>("data_type")
         .unwrap_or_else(|_| String::new());
@@ -1344,10 +1344,10 @@ async fn mysql_effective_schema_name(
     sqlx::query_scalar::<_, Option<String>>("select database()")
         .fetch_one(pool)
         .await
-        .map_err(DatabaseError::MySql)?
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| {
-            DatabaseError::UnsupportedDriver(
+            DatabaseError::Unsupported(
                 "No MySQL database selected. Set a default database or use a qualified table name."
                     .to_string(),
             )
@@ -1377,12 +1377,12 @@ async fn mysql_primary_key_columns(
     .bind(table_name)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::MySql)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
     rows.into_iter()
         .map(|row| {
             row.try_get::<String, _>("column_name")
-                .map_err(DatabaseError::MySql)
+                .map_err(|e| DatabaseError::Driver(e.to_string()))
         })
         .collect()
 }
@@ -1416,7 +1416,7 @@ async fn mysql_single_primary_key_column(
     .bind(table_name)
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::MySql)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
     if rows.len() != 1 {
         return Ok(None);
@@ -1425,7 +1425,7 @@ async fn mysql_single_primary_key_column(
     let row = &rows[0];
     let column_name = row
         .try_get::<String, _>("column_name")
-        .map_err(DatabaseError::MySql)?;
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     let data_type = row
         .try_get::<String, _>("data_type")
         .unwrap_or_else(|_| String::new());
@@ -1443,10 +1443,10 @@ fn mysql_locator_expression(pk_columns: &[String]) -> String {
 
 fn parse_mysql_locator(locator: &str, pk_columns: &[String]) -> Result<Vec<String>, DatabaseError> {
     let values = serde_json::from_str::<Vec<String>>(locator)
-        .map_err(|_| DatabaseError::UnsupportedDriver("Invalid MySQL row locator".to_string()))?;
+        .map_err(|_| DatabaseError::Unsupported("Invalid MySQL row locator".to_string()))?;
 
     if values.len() != pk_columns.len() {
-        return Err(DatabaseError::UnsupportedDriver(
+        return Err(DatabaseError::Unsupported(
             "Invalid MySQL row locator".to_string(),
         ));
     }

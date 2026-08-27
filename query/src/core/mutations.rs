@@ -46,7 +46,7 @@ pub async fn update_table_cell(
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::Sqlite)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::Postgres(pool) => {
@@ -60,7 +60,7 @@ pub async fn update_table_cell(
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::Postgres)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::MySql(pool) => {
@@ -68,7 +68,7 @@ pub async fn update_table_cell(
             let primary_key_columns =
                 mysql_primary_key_columns(&pool, &schema_name, &source.table_name).await?;
             if primary_key_columns.is_empty() {
-                return Err(DatabaseError::UnsupportedDriver(
+                return Err(DatabaseError::Unsupported(
                     "MySQL table must have a primary key for updates".to_string(),
                 ));
             }
@@ -83,7 +83,7 @@ pub async fn update_table_cell(
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::MySql)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::ClickHouse(config) => {
@@ -96,14 +96,14 @@ pub async fn update_table_cell(
                     .await?;
 
             let Some((pk_columns, _)) = pk_result else {
-                return Err(DatabaseError::UnsupportedDriver(
+                return Err(DatabaseError::Unsupported(
                     "ClickHouse table must have a primary key for updates".to_string(),
                 ));
             };
 
             let conditions = parse_clickhouse_locator(&locator, &pk_columns);
             if conditions.is_empty() {
-                return Err(DatabaseError::UnsupportedDriver(
+                return Err(DatabaseError::Unsupported(
                     "Invalid row locator".to_string(),
                 ));
             }
@@ -138,7 +138,7 @@ pub async fn insert_table_row(
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::Sqlite)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::Postgres(pool) => {
@@ -146,7 +146,7 @@ pub async fn insert_table_row(
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::Postgres)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::MySql(pool) => {
@@ -154,10 +154,10 @@ pub async fn insert_table_row(
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::MySql)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
-        DatabaseConnection::ClickHouse(_) => Err(DatabaseError::UnsupportedDriver(
+        DatabaseConnection::ClickHouse(_) => Err(DatabaseError::Unsupported(
             "ClickHouse row inserts are not supported yet".to_string(),
         )),
     }
@@ -174,7 +174,7 @@ pub async fn insert_table_row_with_values(
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::Sqlite)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::Postgres(pool) => {
@@ -182,7 +182,7 @@ pub async fn insert_table_row_with_values(
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::Postgres)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::MySql(pool) => {
@@ -190,7 +190,7 @@ pub async fn insert_table_row_with_values(
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::MySql)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::ClickHouse(config) => {
@@ -237,11 +237,12 @@ pub async fn next_table_primary_key_id(
             let row = sqlx::query(&sql)
                 .fetch_one(&pool)
                 .await
-                .map_err(DatabaseError::Sqlite)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(Some((
                 column_name.clone(),
                 parse_next_numeric_id(
-                    row.try_get::<String, _>(0).map_err(DatabaseError::Sqlite)?,
+                    row.try_get::<String, _>(0)
+                        .map_err(|e| DatabaseError::Driver(e.to_string()))?,
                     &column_name,
                 )?,
             )))
@@ -268,12 +269,12 @@ pub async fn next_table_primary_key_id(
             let row = sqlx::query(&sql)
                 .fetch_one(&pool)
                 .await
-                .map_err(DatabaseError::Postgres)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(Some((
                 column_name.clone(),
                 parse_next_numeric_id(
                     row.try_get::<String, _>(0)
-                        .map_err(DatabaseError::Postgres)?,
+                        .map_err(|e| DatabaseError::Driver(e.to_string()))?,
                     &column_name,
                 )?,
             )))
@@ -297,11 +298,12 @@ pub async fn next_table_primary_key_id(
             let row = sqlx::query(&sql)
                 .fetch_one(&pool)
                 .await
-                .map_err(DatabaseError::MySql)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(Some((
                 column_name.clone(),
                 parse_next_numeric_id(
-                    row.try_get::<String, _>(0).map_err(DatabaseError::MySql)?,
+                    row.try_get::<String, _>(0)
+                        .map_err(|e| DatabaseError::Driver(e.to_string()))?,
                     &column_name,
                 )?,
             )))
@@ -335,17 +337,17 @@ pub async fn next_table_primary_key_id(
             {
                 let next_id = match val {
                     serde_json::Value::String(s) => s.parse::<i64>().map_err(|e| {
-                        DatabaseError::ClickHouse(format!(
+                        DatabaseError::Driver(format!(
                             "next_table_primary_key_id: failed to parse string '{s}' as i64: {e}"
                         ))
                     })?,
                     serde_json::Value::Number(n) => n.as_i64().ok_or_else(|| {
-                        DatabaseError::ClickHouse(format!(
+                        DatabaseError::Driver(format!(
                             "next_table_primary_key_id: number is not a valid i64: {n}"
                         ))
                     })?,
                     other => {
-                        return Err(DatabaseError::ClickHouse(format!(
+                        return Err(DatabaseError::Driver(format!(
                             "next_table_primary_key_id: unexpected value type {:?}",
                             other
                         )));
@@ -376,7 +378,7 @@ pub async fn delete_table_row(
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::Sqlite)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::Postgres(pool) => {
@@ -388,7 +390,7 @@ pub async fn delete_table_row(
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::Postgres)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::MySql(pool) => {
@@ -396,7 +398,7 @@ pub async fn delete_table_row(
             let primary_key_columns =
                 mysql_primary_key_columns(&pool, &schema_name, &source.table_name).await?;
             if primary_key_columns.is_empty() {
-                return Err(DatabaseError::UnsupportedDriver(
+                return Err(DatabaseError::Unsupported(
                     "MySQL table must have a primary key for deletes".to_string(),
                 ));
             }
@@ -410,7 +412,7 @@ pub async fn delete_table_row(
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .map_err(DatabaseError::MySql)?;
+                .map_err(|e| DatabaseError::Driver(e.to_string()))?;
             Ok(())
         }
         DatabaseConnection::ClickHouse(config) => {
@@ -423,14 +425,14 @@ pub async fn delete_table_row(
                     .await?;
 
             let Some((pk_columns, _)) = pk_result else {
-                return Err(DatabaseError::UnsupportedDriver(
+                return Err(DatabaseError::Unsupported(
                     "ClickHouse table must have a primary key for deletes".to_string(),
                 ));
             };
 
             let conditions = parse_clickhouse_locator(&locator, &pk_columns);
             if conditions.is_empty() {
-                return Err(DatabaseError::UnsupportedDriver(
+                return Err(DatabaseError::Unsupported(
                     "Invalid row locator".to_string(),
                 ));
             }

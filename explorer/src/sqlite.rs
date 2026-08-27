@@ -17,7 +17,7 @@ pub async fn describe_table_sqlite(
         .bind(&table)
         .fetch_optional(pool)
         .await
-        .map_err(DatabaseError::Sqlite)?
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?
         .flatten()
     {
         rows.push(structure_row(
@@ -37,11 +37,11 @@ pub async fn describe_table_sqlite(
     let column_rows = sqlx::query(&columns_sql)
         .fetch_all(pool)
         .await
-        .map_err(DatabaseError::Sqlite)?;
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in column_rows {
         let column_name = row
             .try_get::<String, _>("name")
-            .map_err(DatabaseError::Sqlite)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let data_type = row
             .try_get::<String, _>("type")
             .unwrap_or_else(|_| "TEXT".to_string());
@@ -72,11 +72,11 @@ pub async fn describe_table_sqlite(
     let index_rows = sqlx::query(&index_sql)
         .fetch_all(pool)
         .await
-        .map_err(DatabaseError::Sqlite)?;
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in index_rows {
         let index_name = row
             .try_get::<String, _>("name")
-            .map_err(DatabaseError::Sqlite)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let unique = row.try_get::<i64, _>("unique").unwrap_or(0) == 1;
         let origin = row
             .try_get::<String, _>("origin")
@@ -91,7 +91,7 @@ pub async fn describe_table_sqlite(
         .bind(&index_name)
         .fetch_optional(pool)
         .await
-        .map_err(DatabaseError::Sqlite)?
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?
         .flatten()
         .unwrap_or_default();
 
@@ -116,7 +116,7 @@ pub async fn describe_table_sqlite(
     let foreign_key_rows = sqlx::query(&foreign_key_sql)
         .fetch_all(pool)
         .await
-        .map_err(DatabaseError::Sqlite)?;
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in foreign_key_rows {
         let id = row.try_get::<i64, _>("id").unwrap_or_default();
         let from_column = row
@@ -155,11 +155,11 @@ pub async fn describe_table_sqlite(
         .bind(&table)
         .fetch_all(pool)
         .await
-        .map_err(DatabaseError::Sqlite)?;
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
     for row in trigger_rows {
         let trigger_name = row
             .try_get::<String, _>("name")
-            .map_err(DatabaseError::Sqlite)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let sql = row
             .try_get::<Option<String>, _>("sql")
             .ok()
@@ -192,12 +192,12 @@ pub async fn load_table_columns_sqlite(
     let rows = sqlx::query(&sql)
         .fetch_all(pool)
         .await
-        .map_err(DatabaseError::Sqlite)?;
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
     rows.into_iter()
         .map(|row| {
             row.try_get::<String, _>("name")
-                .map_err(DatabaseError::Sqlite)
+                .map_err(|e| DatabaseError::Driver(e.to_string()))
         })
         .collect()
 }
@@ -216,7 +216,7 @@ pub async fn load_connection_tree_sqlite(
     )
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::Sqlite)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
     let mut tables = Vec::new();
     let mut views = Vec::new();
@@ -225,10 +225,10 @@ pub async fn load_connection_tree_sqlite(
     for row in rows {
         let name = row
             .try_get::<String, _>("name")
-            .map_err(DatabaseError::Sqlite)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
         let kind = row
             .try_get::<String, _>("type")
-            .map_err(DatabaseError::Sqlite)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
         let node = ExplorerNode {
             qualified_name: super::quote_identifier(&name),
@@ -300,13 +300,13 @@ pub async fn load_foreign_keys_sqlite(
     )
     .fetch_all(pool)
     .await
-    .map_err(DatabaseError::Sqlite)?;
+    .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
     let mut foreign_keys = Vec::new();
     for table_row in table_rows {
         let from_table = table_row
             .try_get::<String, _>("name")
-            .map_err(DatabaseError::Sqlite)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
         let pragma = format!(
             "PRAGMA {}.foreign_key_list({})",
@@ -316,7 +316,7 @@ pub async fn load_foreign_keys_sqlite(
         let fk_rows = sqlx::query(&pragma)
             .fetch_all(pool)
             .await
-            .map_err(DatabaseError::Sqlite)?;
+            .map_err(|e| DatabaseError::Driver(e.to_string()))?;
 
         for fk_row in fk_rows {
             let id = fk_row.try_get::<i64, _>("id").unwrap_or_default();
@@ -409,7 +409,7 @@ pub async fn load_object_ddl_sqlite(
         .bind(&object)
         .fetch_optional(pool)
         .await
-        .map_err(DatabaseError::Sqlite)?
+        .map_err(|e| DatabaseError::Driver(e.to_string()))?
         .flatten();
     Ok(ddl.filter(|s| !s.trim().is_empty()))
 }
