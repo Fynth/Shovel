@@ -2,17 +2,29 @@
 mod highlight;
 #[path = "sql_editor/selection.rs"]
 mod selection;
+#[path = "sql_editor/completion_menu.rs"]
+mod completion_menu;
 
 use crate::{
     app_state::{
         APP_AI_FEATURES_ENABLED,
         APP_EDITOR_BEHAVIOR,
         APP_SQL_FORMAT_SETTINGS,
+        APP_STATE,
         APP_UI_SETTINGS,
         context_menu::{ContextMenuItem, open_context_menu},
         toast_error,
     },
-    completion::{ai::stream_sql_ghost, trim::trim_completion_for_cursor},
+    completion::{
+        ai::stream_sql_ghost,
+        keyboard::{EditorKeyAction, editor_completion_action},
+        keywords::CompletionItem,
+        query::parse_completion_query,
+        rank::{apply_menu_item, collect_menu_items},
+        schema::merge_columns_into_tree,
+        trim::trim_completion_for_cursor,
+        variants::GhostVariants,
+    },
     screens::workspace::{
         actions::{
             IndentDirection,
@@ -32,11 +44,21 @@ use crate::{
     },
 };
 use dioxus::prelude::*;
-use models::{ExplorerNodeKind, QueryHistoryItem};
+use models::{DatabaseKind, ExplorerNodeKind, QueryHistoryItem};
 use services::CompletionToken;
-use std::time::Duration;
+use std::{collections::HashSet, time::Duration};
 
 use self::{
+    completion_menu::{
+        CaretAnchor,
+        MENU_WIDTH,
+        SqlCompletionMenu,
+        autocomplete_offset,
+        caret_anchor_script,
+        map_completion_key,
+        menu_height_for_items,
+        table_missing_columns,
+    },
     highlight::SqlHighlightContent,
     selection::{
         EditorSelection,
@@ -64,6 +86,8 @@ struct CompletionRuntime {
     pending_snapshot: Option<usize>,
     last_completed_snapshot: Option<usize>,
     active: Option<InlineCompletion>,
+    variants: GhostVariants,
+    discarded: bool,
 }
 
 impl CompletionRuntime {
@@ -72,6 +96,7 @@ impl CompletionRuntime {
         self.pending_snapshot = None;
         self.last_completed_snapshot = None;
         self.active = None;
+        self.variants = GhostVariants::default();
     }
 
     fn reset_to_snapshot(&mut self, snapshot: usize) {
@@ -83,6 +108,7 @@ impl CompletionRuntime {
         self.request_id = self.request_id.wrapping_add(1);
         self.pending_snapshot = Some(snapshot);
         self.active = None;
+        self.variants.clear_if_changed(snapshot);
         self.request_id
     }
 
@@ -103,7 +129,13 @@ impl CompletionRuntime {
         source_sql: String,
         text: String,
     ) {
+        if self.discarded {
+            return;
+        }
         if self.finish_request(request_id, snapshot) {
+            if self.variants.items().len() <= 1 {
+                self.variants.set_first(snapshot, text.clone());
+            }
             self.active = Some(InlineCompletion {
                 cursor,
                 source_sql,
@@ -111,18 +143,25 @@ impl CompletionRuntime {
             });
         }
     }
+
+    fn dismiss_ghost(&mut self) {
+        self.request_id = self.request_id.wrapping_add(1);
+        self.pending_snapshot = None;
+        self.active = None;
+        self.discarded = true;
+    }
+
+    fn clear_on_typing(&mut self) {
+        if self.active.is_some() || self.pending_snapshot.is_some() {
+            self.invalidate();
+        }
+        self.variants = GhostVariants::default();
+        self.discarded = false;
+    }
 }
 
 fn invalidate_completion(mut completion: Signal<CompletionRuntime>) {
     completion.with_mut(CompletionRuntime::invalidate);
-}
-
-fn invalidate_active_completion(mut completion: Signal<CompletionRuntime>) {
-    completion.with_mut(|state| {
-        if state.active.is_some() || state.pending_snapshot.is_some() {
-            state.invalidate();
-        }
-    });
 }
 
 fn reset_completion_to_snapshot(mut completion: Signal<CompletionRuntime>, snapshot: usize) {
@@ -140,10 +179,6 @@ fn hash_completion_snapshot(sql: &str, cursor: usize) -> usize {
 }
 
 fn log_completion(_msg: &str) {}
-
-fn is_completion_accept_key(event: &KeyboardEvent) -> bool {
-    event.key() == Key::Tab || event.code() == Code::Tab
-}
 
 /// Insert the active inline completion into the editor at the live caret.
 ///
@@ -221,6 +256,146 @@ fn apply_inline_completion(
             .join::<bool>()
             .await;
         });
+    });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn accept_completion_menu_item(
+    item: CompletionItem,
+    store: TabStore,
+    active_tab_id_value: u64,
+    mut draft_sql: Signal<String>,
+    mut editor_selection: Signal<EditorSelection>,
+    mut is_typing: Signal<bool>,
+    mut editor_revision: Signal<u64>,
+    completion_runtime: Signal<CompletionRuntime>,
+    mut menu_items: Signal<Vec<CompletionItem>>,
+    mut menu_index: Signal<usize>,
+    mut menu_force: Signal<bool>,
+    mut menu_closed: Signal<bool>,
+) {
+    let sql = draft_sql.peek().clone();
+    let (next, cursor) = apply_menu_item(&sql, &item);
+    draft_sql.set(next.clone());
+    editor_selection.set(EditorSelection::collapsed(cursor));
+    is_typing.set(false);
+    menu_items.set(Vec::new());
+    menu_index.set(0);
+    menu_force.set(false);
+    menu_closed.set(true);
+    reset_completion_to_snapshot(completion_runtime, hash_completion_snapshot(&next, cursor));
+    editor_revision += 1;
+    sync_active_tab_sql_draft(store, active_tab_id_value, next.clone());
+    spawn(async move {
+        let _ = document::eval(&set_editor_value_script(
+            SQL_EDITOR_TEXTAREA_ID,
+            &next,
+            cursor,
+            true,
+        ))
+        .join::<bool>()
+        .await;
+    });
+}
+
+fn cycle_ghost_next(
+    mut completion_runtime: Signal<CompletionRuntime>,
+    draft_sql: Signal<String>,
+    editor_selection: Signal<EditorSelection>,
+    schema_ctx: String,
+) {
+    let showed_existing = completion_runtime.with_mut(|state| {
+        if state.variants.show_next_existing() {
+            if let Some(text) = state.variants.current().map(str::to_string)
+                && let Some(active) = &mut state.active
+            {
+                active.text = text;
+            }
+            true
+        } else {
+            false
+        }
+    });
+    if showed_existing {
+        return;
+    }
+
+    spawn(async move {
+        let (sql_text, start, end) = if let Ok((sql, start, end)) = document::eval(
+            &editor_value_and_selection_query_script(SQL_EDITOR_TEXTAREA_ID),
+        )
+        .join::<(String, usize, usize)>()
+        .await
+        {
+            (sql, start, end)
+        } else {
+            let sql = draft_sql.peek().clone();
+            let selection = editor_selection.peek().clamped(&sql);
+            (sql, selection.start, selection.end)
+        };
+        if start != end {
+            return;
+        }
+        let selection = EditorSelection { start, end };
+        let Some((cursor, prefix, suffix)) = completion_request_parts(&sql_text, selection) else {
+            return;
+        };
+        let settings = APP_UI_SETTINGS();
+        if !settings.sql_ghost_ready() {
+            return;
+        }
+        let (avoid, request_id) = {
+            let state = completion_runtime.peek();
+            if state.discarded {
+                return;
+            }
+            (state.variants.items().to_vec(), state.request_id)
+        };
+        let mut schema_ctx = schema_ctx;
+        let surrounding = surrounding_sql_context(&sql_text, cursor);
+        if !surrounding.is_empty() {
+            use std::fmt::Write;
+            let _ = write!(
+                schema_ctx,
+                "-- Surrounding SQL context (before cursor):\n-- {}",
+                surrounding.replace('\n', "\n-- ")
+            );
+        }
+        let mut token_rx = stream_sql_ghost(&settings, prefix, suffix, schema_ctx, &avoid);
+        let mut accumulated = String::new();
+        while let Some(token) = token_rx.recv().await {
+            if completion_runtime.peek().request_id != request_id
+                || completion_runtime.peek().discarded
+            {
+                return;
+            }
+            match token {
+                CompletionToken::Text(t) => accumulated.push_str(&t),
+                CompletionToken::Error(_) => return,
+                CompletionToken::Done => {
+                    let trimmed = trim_completion_for_cursor(&sql_text, cursor, &accumulated);
+                    if trimmed.is_empty() {
+                        return;
+                    }
+                    completion_runtime.with_mut(|state| {
+                        if state.request_id != request_id || state.discarded {
+                            return;
+                        }
+                        state.variants.push(accumulated.clone());
+                        if let Some(active) = &mut state.active {
+                            active.text = accumulated.clone();
+                        } else {
+                            state.active = Some(InlineCompletion {
+                                cursor,
+                                source_sql: sql_text.clone(),
+                                text: accumulated.clone(),
+                            });
+                        }
+                    });
+                    return;
+                }
+            }
+        }
     });
 }
 
@@ -698,6 +873,13 @@ pub fn SqlEditor(
     let mut completion_runtime = use_signal(CompletionRuntime::default);
     let mut has_synced_editor_dom = use_signal(|| false);
     let mut synced_editor_tab_id = use_signal(|| active_tab_id_value);
+    let mut menu_items = use_signal(Vec::<CompletionItem>::new);
+    let mut menu_index = use_signal(|| 0_usize);
+    let mut menu_force = use_signal(|| false);
+    let mut menu_closed = use_signal(|| false);
+    let mut caret_anchor = use_signal(CaretAnchor::default);
+    let mut column_fetches = use_signal(HashSet::<(u64, String, String)>::new);
+    let mut explorer_sections = explorer_sections;
 
     // Pull the workspace query context (history, saved queries) so
     // the context menu and keyboard shortcuts can act on them
@@ -750,6 +932,10 @@ pub fn SqlEditor(
                 completion_runtime,
                 hash_completion_snapshot(&next_sql, next_sql.len()),
             );
+            menu_items.set(Vec::new());
+            menu_index.set(0);
+            menu_force.set(false);
+            menu_closed.set(false);
             let cursor = next_sql.len();
             spawn(async move {
                 let _ = document::eval(&set_editor_value_script(
@@ -839,6 +1025,120 @@ pub fn SqlEditor(
     });
 
     use_effect(move || {
+        let revision = editor_revision();
+        let force = menu_force();
+        let closed = menu_closed();
+        let session_id = active_session_id;
+
+        spawn(async move {
+            let (sql_text, start, end) = if let Ok((sql, start, end)) = document::eval(
+                &editor_value_and_selection_query_script(SQL_EDITOR_TEXTAREA_ID),
+            )
+            .join::<(String, usize, usize)>()
+            .await
+            {
+                (sql, start, end)
+            } else {
+                let sql = draft_sql.peek().clone();
+                let selection = editor_selection.peek().clamped(&sql);
+                (sql, selection.start, selection.end)
+            };
+            if editor_revision() != revision {
+                return;
+            }
+            if start != end {
+                menu_items.set(Vec::new());
+                return;
+            }
+
+            let query = parse_completion_query(&sql_text, start);
+            let kind = APP_STATE()
+                .session(session_id)
+                .map(|session| session.kind)
+                .unwrap_or(DatabaseKind::Sqlite);
+            let nodes = explorer_sections
+                .peek()
+                .iter()
+                .find(|section| section.session_id == session_id)
+                .map(|section| section.nodes.clone())
+                .unwrap_or_default();
+
+            if !query.dotted.is_empty() {
+                let table = query.dotted[query.dotted.len() - 1].clone();
+                let schema =
+                    (query.dotted.len() >= 2).then(|| query.dotted[query.dotted.len() - 2].clone());
+                if table_missing_columns(&nodes, schema.as_deref(), &table) {
+                    let key = (
+                        session_id,
+                        schema.clone().unwrap_or_default(),
+                        table.clone(),
+                    );
+                    let already = column_fetches.peek().contains(&key);
+                    if !already {
+                        column_fetches.with_mut(|fetches| {
+                            fetches.insert(key);
+                        });
+                        let dotted = query.dotted.clone();
+                        spawn(async move {
+                            let Ok(columns) = services::load_table_columns(
+                                session_id,
+                                schema.clone(),
+                                table.clone(),
+                            )
+                            .await
+                            else {
+                                return;
+                            };
+                            let sql = draft_sql.peek().clone();
+                            let cursor = editor_selection.peek().clamped(&sql).start;
+                            let now = parse_completion_query(&sql, cursor);
+                            if now.dotted != dotted {
+                                return;
+                            }
+                            explorer_sections.with_mut(|sections| {
+                                if let Some(section) = sections
+                                    .iter_mut()
+                                    .find(|section| section.session_id == session_id)
+                                {
+                                    merge_columns_into_tree(
+                                        &mut section.nodes,
+                                        schema.as_deref(),
+                                        &table,
+                                        &columns,
+                                    );
+                                }
+                            });
+                            editor_revision += 1;
+                        });
+                    }
+                }
+            }
+
+            if closed && !force {
+                menu_items.set(Vec::new());
+                return;
+            }
+
+            let items = collect_menu_items(kind, &nodes, &query, force);
+            let len = items.len();
+            menu_items.set(items);
+            menu_index.set(if len == 0 {
+                0
+            } else {
+                menu_index.peek().min(len - 1)
+            });
+            if len > 0
+                && let Ok(anchor) = document::eval(&caret_anchor_script(SQL_EDITOR_TEXTAREA_ID))
+                    .join::<CaretAnchor>()
+                    .await
+                && editor_revision() == revision
+            {
+                caret_anchor.set(anchor);
+            }
+        });
+    });
+
+    use_effect(move || {
         // Reading the signal is what subscribes the effect to it;
         // the value is not otherwise used in this block.
         let _ = editor_revision();
@@ -851,6 +1151,10 @@ pub fn SqlEditor(
 
         spawn(async move {
             tokio::time::sleep(Duration::from_millis(COMPLETION_DEBOUNCE_MS)).await;
+
+            if completion_runtime.peek().discarded {
+                return;
+            }
 
             // Read SQL and caret from DOM (most accurate), fall back to signals.
             let (sql_text, start, end) = if let Ok((sql, start, end)) = document::eval(
@@ -1037,6 +1341,19 @@ pub fn SqlEditor(
         .as_ref()
         .is_some_and(|completion| !completion.is_empty());
     let inline_cursor_position = completion_active.then_some(inline_cursor);
+    let menu_now = menu_items();
+    let menu_height = menu_height_for_items(menu_now.len());
+    let caret = caret_anchor();
+    let (menu_left, menu_top, _) = autocomplete_offset(
+        caret.x,
+        caret.y,
+        caret.line_height,
+        menu_height,
+        caret.editor_height,
+        caret.editor_width,
+        MENU_WIDTH,
+    );
+    let menu_active_index = menu_index();
 
     rsx! {
         div {
@@ -1119,7 +1436,8 @@ pub fn SqlEditor(
                     if !already_typing {
                         is_typing.set(true);
                     }
-                    invalidate_active_completion(completion_runtime);
+                    completion_runtime.with_mut(CompletionRuntime::clear_on_typing);
+                    menu_closed.set(false);
                     editor_revision += 1;
                 },
 
@@ -1199,49 +1517,124 @@ pub fn SqlEditor(
                         }
                     }
 
-                    // Tab with no modifier — indent / outdent selected
-                    // lines. We also fall through to the
-                    // completion-accept logic below.
-                    if event.key() == Key::Tab && !ctrl_or_meta {
-                        let direction = if mods.contains(Modifiers::SHIFT) {
-                            IndentDirection::Out
-                        } else {
-                            IndentDirection::In
-                        };
-                        let sel = event_selection_range(&event);
-                        indent_lines_in_active_tab(
-                            store,
-                            active_tab_id_value,
-                            sel.start..sel.end,
-                            direction,
-                        );
-                        // Don't return: let the default Tab behaviour
-                        // still happen so the cursor advances
-                        // naturally after indenting.
-                    }
+                    let menu_open = !menu_items.peek().is_empty();
+                    let ghost_visible = completion_runtime
+                        .peek()
+                        .active
+                        .as_ref()
+                        .is_some_and(|completion| !completion.text.is_empty());
+                    let action =
+                        editor_completion_action(map_completion_key(&event), menu_open, ghost_visible);
 
-                    let active_completion = {
-                        let completion_state = completion_runtime.peek();
-                        completion_state.active.clone()
-                    };
-
-                    if is_completion_accept_key(&event)
-                        && let Some(completion_state) = active_completion.clone()
-                        && !completion_state.text.is_empty()
-                    {
-                        event.prevent_default();
-                        let completion_text_raw = completion_state.text.clone();
-                        apply_inline_completion(
-                            completion_runtime,
-                            store,
-                            active_tab_id_value,
-                            draft_sql,
-                            editor_selection,
-                            is_typing,
-                            editor_revision,
-                            completion_text_raw,
-                            "tab",
-                        );
+                    match action {
+                        EditorKeyAction::Pass => {}
+                        EditorKeyAction::CloseMenu => {
+                            event.prevent_default();
+                            menu_items.set(Vec::new());
+                            menu_index.set(0);
+                            menu_force.set(false);
+                            menu_closed.set(true);
+                        }
+                        EditorKeyAction::DismissGhost => {
+                            event.prevent_default();
+                            completion_runtime.with_mut(CompletionRuntime::dismiss_ghost);
+                        }
+                        EditorKeyAction::CycleGhostNext => {
+                            event.prevent_default();
+                            cycle_ghost_next(
+                                completion_runtime,
+                                draft_sql,
+                                editor_selection,
+                                schema_context(),
+                            );
+                        }
+                        EditorKeyAction::CycleGhostPrev => {
+                            event.prevent_default();
+                            completion_runtime.with_mut(|state| {
+                                state.variants.prev();
+                                if let Some(text) = state.variants.current().map(str::to_string)
+                                    && let Some(active) = &mut state.active
+                                {
+                                    active.text = text;
+                                }
+                            });
+                        }
+                        EditorKeyAction::MenuMove(delta) => {
+                            event.prevent_default();
+                            let len = menu_items.peek().len();
+                            if len > 0 {
+                                menu_index.with_mut(|index| {
+                                    *index = (*index as i32 + delta).rem_euclid(len as i32) as usize;
+                                });
+                            }
+                        }
+                        EditorKeyAction::AcceptMenu => {
+                            event.prevent_default();
+                            let item = {
+                                let items = menu_items.peek();
+                                items.get(*menu_index.peek()).cloned()
+                            };
+                            if let Some(item) = item {
+                                accept_completion_menu_item(
+                                    item,
+                                    store,
+                                    active_tab_id_value,
+                                    draft_sql,
+                                    editor_selection,
+                                    is_typing,
+                                    editor_revision,
+                                    completion_runtime,
+                                    menu_items,
+                                    menu_index,
+                                    menu_force,
+                                    menu_closed,
+                                );
+                            }
+                        }
+                        EditorKeyAction::AcceptGhost => {
+                            event.prevent_default();
+                            let completion_text_raw = {
+                                let state = completion_runtime.peek();
+                                state
+                                    .variants
+                                    .current()
+                                    .map(str::to_string)
+                                    .or_else(|| state.active.as_ref().map(|active| active.text.clone()))
+                            };
+                            if let Some(completion_text_raw) = completion_text_raw {
+                                apply_inline_completion(
+                                    completion_runtime,
+                                    store,
+                                    active_tab_id_value,
+                                    draft_sql,
+                                    editor_selection,
+                                    is_typing,
+                                    editor_revision,
+                                    completion_text_raw,
+                                    "tab",
+                                );
+                            }
+                        }
+                        EditorKeyAction::Indent { shift } => {
+                            let direction = if shift {
+                                IndentDirection::Out
+                            } else {
+                                IndentDirection::In
+                            };
+                            let sel = event_selection_range(&event);
+                            indent_lines_in_active_tab(
+                                store,
+                                active_tab_id_value,
+                                sel.start..sel.end,
+                                direction,
+                            );
+                        }
+                        EditorKeyAction::ForceMenu => {
+                            event.prevent_default();
+                            menu_closed.set(false);
+                            menu_force.set(true);
+                            editor_revision += 1;
+                        }
                     }
                 },
 
@@ -1281,6 +1674,35 @@ pub fn SqlEditor(
                     scroll_left.set(event.data().scroll_left());
                 },
             }
+            }
+
+            if !menu_now.is_empty() {
+                SqlCompletionMenu {
+                    items: menu_now.clone(),
+                    active_index: menu_active_index,
+                    left: menu_left,
+                    top: menu_top,
+                    max_height: menu_height,
+                    on_accept: move |index| {
+                        let item = menu_items.peek().get(index).cloned();
+                        if let Some(item) = item {
+                            accept_completion_menu_item(
+                                item,
+                                store,
+                                active_tab_id_value,
+                                draft_sql,
+                                editor_selection,
+                                is_typing,
+                                editor_revision,
+                                completion_runtime,
+                                menu_items,
+                                menu_index,
+                                menu_force,
+                                menu_closed,
+                            );
+                        }
+                    },
+                }
             }
         }
     }

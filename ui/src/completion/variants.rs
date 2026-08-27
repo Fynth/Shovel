@@ -18,6 +18,10 @@ impl GhostVariants {
         self.items.get(self.index).map(String::as_str)
     }
 
+    pub fn items(&self) -> &[String] {
+        &self.items
+    }
+
     pub fn prev(&mut self) {
         if self.index > 0 {
             self.index -= 1;
