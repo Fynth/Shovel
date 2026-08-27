@@ -460,7 +460,7 @@ fn LanguageModelsSection(props: SettingsSectionProps) -> Element {
                             let key = custom_key();
                             emit_ui_update(section, on_change, |next| {
                                 if !key.trim().is_empty() {
-                                    next.lm_keys.insert(id.clone(), key.clone());
+                                    next.set_lm_api_key(&id, key.clone());
                                 }
                                 next.ai_catalog.custom_native.push(CustomNativeProvider {
                                     id,
@@ -1321,7 +1321,7 @@ fn native_http_provider_card(
                             let value = event.value();
                             let slug = key_slug.clone();
                             emit_ui_update(section, on_change, move |next| {
-                                next.lm_keys.insert(slug, value);
+                                next.set_lm_api_key(&slug, value);
                             });
                         },
                     }
@@ -1705,7 +1705,7 @@ fn custom_native_provider_card(
                             let value = event.value();
                             let id = key_id.clone();
                             emit_ui_update(section, on_change, move |next| {
-                                next.lm_keys.insert(id, value);
+                                next.set_lm_api_key(&id, value);
                             });
                         },
                     }

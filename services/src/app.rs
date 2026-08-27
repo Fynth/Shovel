@@ -237,11 +237,15 @@ fn set_legacy_vendor_api_key(settings: &mut AppUiSettings, slug: &str, key: Stri
 }
 
 /// Merge in-memory `lm_keys` with non-empty legacy vendor `api_key` fields.
-/// An empty vendor blob must not overlay a key already in `lm_keys` (that
-/// would wipe the keyring on a theme-only save).
+/// An explicit `lm_keys` entry (including empty) is authoritative and must not
+/// be overlaid by a hydrated vendor blob. Legacy fills only missing slugs so
+/// a theme-only save still persists keys that were never copied into `lm_keys`.
 fn collect_lm_keys_for_save(settings: &AppUiSettings) -> BTreeMap<String, String> {
     let mut keys = settings.lm_keys.clone();
     for &(slug, _) in LEGACY_LM_KEYRING {
+        if keys.contains_key(slug) {
+            continue;
+        }
         let legacy = legacy_vendor_api_key(settings, slug).to_string();
         if !legacy.trim().is_empty() {
             keys.insert(slug.to_string(), legacy);
@@ -318,4 +322,30 @@ pub async fn connect_and_save_request(
         connection,
         save_warning,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collect_lm_keys_does_not_let_legacy_override_explicit_entry() {
+        let mut settings = AppUiSettings::default();
+        settings.lm_keys.insert("openai".into(), "sk-new".into());
+        settings.openai.api_key = "sk-old".into();
+        let keys = collect_lm_keys_for_save(&settings);
+        assert_eq!(keys.get("openai").map(String::as_str), Some("sk-new"));
+
+        settings.lm_keys.insert("openai".into(), String::new());
+        let keys = collect_lm_keys_for_save(&settings);
+        assert_eq!(keys.get("openai").map(String::as_str), Some(""));
+    }
+
+    #[test]
+    fn collect_lm_keys_fills_from_legacy_when_lm_keys_missing() {
+        let mut settings = AppUiSettings::default();
+        settings.openai.api_key = "sk-vendor".into();
+        let keys = collect_lm_keys_for_save(&settings);
+        assert_eq!(keys.get("openai").map(String::as_str), Some("sk-vendor"));
+    }
 }

@@ -600,28 +600,40 @@ impl AppUiSettings {
         }
     }
 
-    /// API key for send/connect: prefer non-empty `lm_keys`, then a non-empty
-    /// legacy vendor blob. Never let an empty vendor field hide `lm_keys`.
+    /// API key for send/connect/display.
+    ///
+    /// An explicit `lm_keys` entry is authoritative, including empty (the user
+    /// cleared the key). Only fall back to a legacy vendor blob when the
+    /// provider is absent from `lm_keys`.
     pub fn lm_api_key(&self, provider: &str) -> String {
-        if let Some(key) = self.lm_keys.get(provider)
-            && !key.trim().is_empty()
-        {
+        if let Some(key) = self.lm_keys.get(provider) {
             return key.clone();
         }
-        let vendor = match provider {
-            "deepseek" => self.deepseek.api_key.as_str(),
-            "openai" => self.openai.api_key.as_str(),
-            "groq" => self.groq.api_key.as_str(),
-            "openrouter" => self.openrouter.api_key.as_str(),
-            "xai" => self.xai.api_key.as_str(),
-            "mistral" => self.mistral.api_key.as_str(),
-            "ollama" => self.ollama.api_key.as_str(),
-            _ => "",
-        };
-        if !vendor.trim().is_empty() {
-            vendor.to_string()
-        } else {
-            self.lm_keys.get(provider).cloned().unwrap_or_default()
+        match provider {
+            "deepseek" => self.deepseek.api_key.clone(),
+            "openai" => self.openai.api_key.clone(),
+            "groq" => self.groq.api_key.clone(),
+            "openrouter" => self.openrouter.api_key.clone(),
+            "xai" => self.xai.api_key.clone(),
+            "mistral" => self.mistral.api_key.clone(),
+            "ollama" => self.ollama.api_key.clone(),
+            _ => String::new(),
+        }
+    }
+
+    /// Write an LM key to `lm_keys` and the matching legacy vendor blob (if any).
+    /// Empty values are stored so a clear does not snap back to a hydrated blob.
+    pub fn set_lm_api_key(&mut self, provider: &str, api_key: String) {
+        self.lm_keys.insert(provider.to_string(), api_key.clone());
+        match provider {
+            "deepseek" => self.deepseek.api_key = api_key,
+            "openai" => self.openai.api_key = api_key,
+            "groq" => self.groq.api_key = api_key,
+            "openrouter" => self.openrouter.api_key = api_key,
+            "xai" => self.xai.api_key = api_key,
+            "mistral" => self.mistral.api_key = api_key,
+            "ollama" => self.ollama.api_key = api_key,
+            _ => {}
         }
     }
 
@@ -1478,9 +1490,34 @@ mod tests {
             .insert("openai".into(), "sk-from-lm".into());
         settings.openai.api_key.clear();
         assert_eq!(settings.lm_api_key("openai"), "sk-from-lm");
+    }
 
-        settings.lm_keys.insert("openai".into(), String::new());
+    #[test]
+    fn lm_api_key_explicit_empty_does_not_snap_back_to_vendor() {
+        let mut settings = AppUiSettings::default();
         settings.openai.api_key = "sk-vendor".into();
+        settings.lm_keys.insert("openai".into(), String::new());
+        assert_eq!(settings.lm_api_key("openai"), "");
+
+        settings.lm_keys.remove("openai");
         assert_eq!(settings.lm_api_key("openai"), "sk-vendor");
+    }
+
+    #[test]
+    fn set_lm_api_key_mirrors_legacy_vendor_including_empty() {
+        let mut settings = AppUiSettings::default();
+        settings.openai.api_key = "sk-old".into();
+        settings.set_lm_api_key("openai", "sk-new".into());
+        assert_eq!(
+            settings.lm_keys.get("openai").map(String::as_str),
+            Some("sk-new")
+        );
+        assert_eq!(settings.openai.api_key, "sk-new");
+        assert_eq!(settings.lm_api_key("openai"), "sk-new");
+
+        settings.set_lm_api_key("openai", String::new());
+        assert_eq!(settings.lm_keys.get("openai").map(String::as_str), Some(""));
+        assert_eq!(settings.openai.api_key, "");
+        assert_eq!(settings.lm_api_key("openai"), "");
     }
 }
