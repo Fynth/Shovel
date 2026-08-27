@@ -639,6 +639,10 @@ pub struct AppUiSettings {
     /// Persisted height of the bottom dock in pixels. Used to restore the
     /// user's last resize without coupling the layout to a CSS-only value.
     pub bottom_panel_height: f64,
+    /// Persisted width of the left tool dock in pixels.
+    pub sidebar_width: f64,
+    /// Persisted width of the right tool dock in pixels.
+    pub inspector_width: f64,
 
     /// Layout of the central editor area (SQL editor + result grid) inside
     /// the active query tab. Mirrors DBeaver's editor / result switcher
@@ -685,6 +689,8 @@ impl Default for AppUiSettings {
             explorer: ExplorerViewSettings::default(),
             show_bottom_panel: true,
             bottom_panel_height: 120.0,
+            sidebar_width: 320.0,
+            inspector_width: 360.0,
             split_mode: WorkspaceSplitMode::default(),
             theme_overrides: ThemeOverrides::default(),
             keybindings: KeybindingMap::new(),
@@ -1031,6 +1037,67 @@ mod tests {
     }
 
     #[test]
+    fn fresh_default_sidebar_and_inspector_use_baseline_widths() {
+        let defaults = AppUiSettings::default();
+        assert_eq!(defaults.sidebar_width, 320.0);
+        assert_eq!(defaults.inspector_width, 360.0);
+    }
+
+    #[test]
+    fn legacy_settings_missing_dock_widths_default_to_baseline() {
+        let settings: AppUiSettings = serde_json::from_str(
+            r#"{
+                "theme":"Dark",
+                "ai_features_enabled":true,
+                "restore_session_on_launch":true,
+                "show_saved_queries":true,
+                "show_connections":false,
+                "show_explorer":true,
+                "show_history":false,
+                "show_sql_editor":false,
+                "show_agent_panel":false,
+                "default_page_size":100,
+                "tool_panel_layout":{
+                    "sidebar":["Connections","Explorer","SavedQueries","History"],
+                    "inspector":["Agent"]
+                }
+            }"#,
+        )
+        .expect("legacy settings fixture should deserialize");
+
+        assert_eq!(settings.sidebar_width, 320.0);
+        assert_eq!(settings.inspector_width, 360.0);
+    }
+
+    #[test]
+    fn persisted_sidebar_and_inspector_widths_are_preserved() {
+        let settings: AppUiSettings = serde_json::from_str(
+            r#"{
+                "theme":"Dark",
+                "ai_features_enabled":true,
+                "restore_session_on_launch":true,
+                "show_saved_queries":true,
+                "show_connections":false,
+                "show_explorer":true,
+                "show_history":false,
+                "show_sql_editor":false,
+                "show_agent_panel":false,
+                "default_page_size":100,
+                "tool_panel_layout":{
+                    "sidebar":["Connections","Explorer","SavedQueries","History"],
+                    "inspector":["Agent"]
+                },
+                "sidebar_width":448.0,
+                "inspector_width":512.0
+            }"#,
+        )
+        .expect("settings fixture should deserialize");
+
+        assert!((settings.sidebar_width - 448.0).abs() < f64::EPSILON);
+        assert!((settings.inspector_width - 512.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
     fn density_enum_round_trips_via_json() {
         for variant in UiDensity::ALL {
             let serialized = serde_json::to_string(&variant).expect("density should serialize");
@@ -1325,6 +1392,8 @@ mod tests {
             // round-trip also exercises the persisted `show_bottom_panel`.
             show_bottom_panel: false,
             bottom_panel_height: 320.5,
+            sidebar_width: 448.0,
+            inspector_width: 512.0,
             // Split mode defaults to Off; flip to Horizontal so the
             // round-trip exercises the persisted `split_mode`.
             split_mode: WorkspaceSplitMode::Horizontal,
@@ -1470,6 +1539,14 @@ mod tests {
             assert_eq!(
                 reloaded.bottom_panel_height, settings.bottom_panel_height,
                 "{field_name} toggle dropped bottom_panel_height"
+            );
+            assert_eq!(
+                reloaded.sidebar_width, settings.sidebar_width,
+                "{field_name} toggle dropped sidebar_width"
+            );
+            assert_eq!(
+                reloaded.inspector_width, settings.inspector_width,
+                "{field_name} toggle dropped inspector_width"
             );
             assert_eq!(
                 reloaded.split_mode, settings.split_mode,

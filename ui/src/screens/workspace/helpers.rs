@@ -26,8 +26,42 @@ pub const BOTTOM_PANEL_MIN_HEIGHT: f64 = 72.0;
 pub const BOTTOM_PANEL_MAX_HEIGHT: f64 = 520.0;
 pub const WORKSPACE_ROOT_ID: &str = "workspace-root";
 
+/// Pointer-drag snapshot for a workspace splitter. `origin` is the
+/// mousedown client coordinate on the drag axis; `size` is the panel
+/// size at that moment.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AxisDrag {
+    pub origin: f64,
+    pub size: f64,
+}
+
+pub fn drag_sidebar_width(drag: AxisDrag, client_x: f64) -> f64 {
+    (drag.size + (client_x - drag.origin)).clamp(SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH)
+}
+
+pub fn drag_inspector_width(drag: AxisDrag, client_x: f64) -> f64 {
+    (drag.size - (client_x - drag.origin)).clamp(INSPECTOR_MIN_WIDTH, INSPECTOR_MAX_WIDTH)
+}
+
+pub fn drag_bottom_height(drag: AxisDrag, client_y: f64) -> f64 {
+    (drag.size + (drag.origin - client_y)).clamp(BOTTOM_PANEL_MIN_HEIGHT, BOTTOM_PANEL_MAX_HEIGHT)
+}
+
+pub fn workspace_layout_style(sidebar: f64, inspector: f64, bottom: f64) -> String {
+    format!(
+        "--workspace-sidebar-width: {:.0}px; --workspace-inspector-width: {:.0}px; --workspace-bottom-panel-height: {:.0}px;",
+        sidebar, inspector, bottom
+    )
+}
+
 pub fn format_explorer_error(err: impl std::fmt::Display) -> String {
     format!("Error: {err}")
+}
+
+/// Workspace command requests are edge-triggered: handle a bump once.
+/// `request == 0` is the initial signal and must not dispatch.
+pub fn should_dispatch_command_request(previous: u64, request: u64) -> bool {
+    request != 0 && request != previous
 }
 
 /// Человекочитаемое форматирование длительности выполнения запроса.
@@ -249,138 +283,6 @@ pub fn is_low_signal_explorer_status(status: &str) -> bool {
 pub struct DockDropTarget {
     pub dock: WorkspaceToolDock,
     pub index: usize,
-}
-
-pub fn workspace_resize_script(
-    width_var: &str,
-    start_x: f64,
-    start_width: f64,
-    min_width: f64,
-    max_width: f64,
-    invert_delta: bool,
-) -> String {
-    let delta_factor = if invert_delta { -1.0 } else { 1.0 };
-    format!(
-        r#"
-        (() => {{
-            const workspace = document.getElementById({WORKSPACE_ROOT_ID:?});
-            if (!workspace) {{
-                return {start_width};
-            }}
-
-            const startX = {start_x};
-            const startWidth = {start_width};
-            const minWidth = {min_width};
-            const maxWidth = {max_width};
-            const deltaFactor = {delta_factor};
-            let finished = false;
-            let lastWidth = startWidth;
-
-            const clampWidth = (clientX) => {{
-                const delta = (clientX - startX) * deltaFactor;
-                return Math.min(maxWidth, Math.max(minWidth, startWidth + delta));
-            }};
-
-            return new Promise((resolve) => {{
-                const finish = (clientX) => {{
-                    if (finished) {{
-                        return;
-                    }}
-                    finished = true;
-                    const width = clientX == null ? lastWidth : clampWidth(clientX);
-                    workspace.style.setProperty({width_var:?}, `${{Math.round(width)}}px`);
-                    workspace.classList.remove("workspace--resizing");
-                    window.removeEventListener("mousemove", onMove);
-                    window.removeEventListener("mouseup", onUp);
-                    window.removeEventListener("blur", onBlur);
-                    resolve(width);
-                }};
-
-                const onMove = (event) => {{
-                    const width = clampWidth(event.clientX);
-                    lastWidth = width;
-                    workspace.style.setProperty({width_var:?}, `${{Math.round(width)}}px`);
-                }};
-
-                const onUp = (event) => finish(event.clientX);
-                const onBlur = () => finish(startX);
-
-                workspace.classList.add("workspace--resizing");
-                window.addEventListener("mousemove", onMove, {{ passive: true }});
-                window.addEventListener("mouseup", onUp);
-                window.addEventListener("blur", onBlur);
-                onMove({{ clientX: startX }});
-            }});
-        }})()
-        "#
-    )
-}
-
-/// Y-axis variant of [`workspace_resize_script`] used by the bottom dock
-/// resize handle. The drag axis is vertical and the delta is always
-/// inverted (dragging up = taller) because the dock grows upward from
-/// the bottom of the workspace.
-pub fn workspace_vertical_resize_script(
-    height_var: &str,
-    start_y: f64,
-    start_height: f64,
-    min_height: f64,
-    max_height: f64,
-) -> String {
-    format!(
-        r#"
-        (() => {{
-            const workspace = document.getElementById({WORKSPACE_ROOT_ID:?});
-            if (!workspace) {{
-                return {start_height};
-            }}
-
-            const startY = {start_y};
-            const startHeight = {start_height};
-            const minHeight = {min_height};
-            const maxHeight = {max_height};
-            let finished = false;
-            let lastHeight = startHeight;
-
-            const clampHeight = (clientY) => {{
-                // Drag up (clientY decreases) -> taller dock.
-                const delta = startY - clientY;
-                return Math.min(maxHeight, Math.max(minHeight, startHeight + delta));
-            }};
-
-            return new Promise((resolve) => {{
-                const finish = (clientY) => {{
-                    if (finished) {{
-                        return;
-                    }}
-                    finished = true;
-                    const height = clientY == null ? lastHeight : clampHeight(clientY);
-                    workspace.style.setProperty({height_var:?}, `${{Math.round(height)}}px`);
-                    workspace.classList.remove("workspace--resizing-y");
-                    window.removeEventListener("mousemove", onMove);
-                    window.removeEventListener("mouseup", onUp);
-                    window.removeEventListener("blur", onBlur);
-                    resolve(height);
-                }};
-
-                const onMove = (event) => {{
-                    const height = clampHeight(event.clientY);
-                    lastHeight = height;
-                    workspace.style.setProperty({height_var:?}, `${{Math.round(height)}}px`);
-                }};
-
-                const onUp = (event) => finish(event.clientY);
-                const onBlur = () => finish(startY);
-
-                workspace.classList.add("workspace--resizing-y");
-                window.addEventListener("mousemove", onMove, {{ passive: true }});
-                window.addEventListener("mouseup", onUp);
-                window.addEventListener("blur", onBlur);
-                onMove({{ clientY: startY }});
-            }});
-        }})()
-        "#
-    )
 }
 
 pub async fn load_explorer_section(
@@ -647,18 +549,28 @@ pub fn tool_panel_class(panel: WorkspaceToolPanel) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
+        AxisDrag,
         ErRelationship,
         ErTable,
         ExplorerConnectionSection,
+        INSPECTOR_MAX_WIDTH,
+        INSPECTOR_MIN_WIDTH,
+        SIDEBAR_MAX_WIDTH,
+        SIDEBAR_MIN_WIDTH,
         apply_table_describe,
         build_er_diagram,
         can_edit_rows,
         can_import_csv,
         derive_chat_thread_title,
+        drag_bottom_height,
+        drag_inspector_width,
+        drag_sidebar_width,
         format_explorer_error,
         is_low_signal_explorer_status,
         reset_panel_for_thread,
+        should_dispatch_command_request,
         should_render_explorer_status,
+        workspace_layout_style,
     };
     use models::{
         AcpLaunchRequest,
@@ -674,6 +586,67 @@ mod tests {
         assert!(!can_edit_rows(Capabilities::for_kind(
             DatabaseKind::ClickHouse
         )));
+    }
+
+    #[test]
+    fn sidebar_drag_keeps_resized_width_instead_of_the_default() {
+        let drag = AxisDrag {
+            origin: 320.0,
+            size: 320.0,
+        };
+        let resized = drag_sidebar_width(drag, 448.0);
+        assert_eq!(resized, 448.0);
+        assert_ne!(resized, 320.0);
+        assert_eq!(
+            workspace_layout_style(resized, 360.0, 120.0),
+            "--workspace-sidebar-width: 448px; --workspace-inspector-width: 360px; --workspace-bottom-panel-height: 120px;"
+        );
+    }
+
+    #[test]
+    fn inspector_drag_grows_when_the_pointer_moves_left() {
+        let drag = AxisDrag {
+            origin: 900.0,
+            size: 360.0,
+        };
+        assert_eq!(drag_inspector_width(drag, 740.0), 520.0);
+    }
+
+    #[test]
+    fn bottom_drag_grows_when_the_pointer_moves_up() {
+        let drag = AxisDrag {
+            origin: 800.0,
+            size: 120.0,
+        };
+        assert_eq!(drag_bottom_height(drag, 680.0), 240.0);
+    }
+
+    #[test]
+    fn dock_drags_clamp_to_min_and_max() {
+        let sidebar = AxisDrag {
+            origin: 0.0,
+            size: 320.0,
+        };
+        assert_eq!(drag_sidebar_width(sidebar, -1000.0), SIDEBAR_MIN_WIDTH);
+        assert_eq!(drag_sidebar_width(sidebar, 4000.0), SIDEBAR_MAX_WIDTH);
+
+        let inspector = AxisDrag {
+            origin: 0.0,
+            size: 360.0,
+        };
+        assert_eq!(drag_inspector_width(inspector, 4000.0), INSPECTOR_MIN_WIDTH);
+        assert_eq!(
+            drag_inspector_width(inspector, -4000.0),
+            INSPECTOR_MAX_WIDTH
+        );
+    }
+
+    #[test]
+    fn command_requests_are_edge_triggered() {
+        assert!(!should_dispatch_command_request(0, 0));
+        assert!(should_dispatch_command_request(0, 1));
+        assert!(!should_dispatch_command_request(1, 1));
+        assert!(should_dispatch_command_request(1, 2));
     }
 
     #[test]

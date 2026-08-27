@@ -117,6 +117,8 @@ pub struct ShovelConfig {
     pub show_sql_editor: Option<bool>,
     pub show_bottom_panel: Option<bool>,
     pub bottom_panel_height: Option<f64>,
+    pub sidebar_width: Option<f64>,
+    pub inspector_width: Option<f64>,
 
     // ── AI / language ──────────────────────────────────────────────
     pub ai_response_language: Option<String>,
@@ -221,6 +223,12 @@ impl ShovelConfig {
         }
         if let Some(height) = self.bottom_panel_height {
             base.bottom_panel_height = height;
+        }
+        if let Some(width) = self.sidebar_width {
+            base.sidebar_width = width;
+        }
+        if let Some(width) = self.inspector_width {
+            base.inspector_width = width;
         }
         if let Some(language) = &self.ai_response_language
             && !language.trim().is_empty()
@@ -429,6 +437,8 @@ auto_connect = true
             show_sql_editor: Some(true),
             show_bottom_panel: Some(false),
             bottom_panel_height: Some(240.0),
+            sidebar_width: Some(448.0),
+            inspector_width: Some(512.0),
             ..ShovelConfig::default()
         };
         let mut settings = AppUiSettings::default();
@@ -440,6 +450,8 @@ auto_connect = true
         assert!(settings.show_sql_editor);
         assert!(!settings.show_bottom_panel);
         assert_eq!(settings.bottom_panel_height, 240.0);
+        assert_eq!(settings.sidebar_width, 448.0);
+        assert_eq!(settings.inspector_width, 512.0);
     }
 
     #[test]
