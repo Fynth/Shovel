@@ -10,6 +10,7 @@ const CODESTRAL_KEYRING_SERVICE: &str = "shovel.codestral";
 const CODESTRAL_KEYRING_ACCOUNT: &str = "default";
 const DEEPSEEK_KEYRING_SERVICE: &str = "shovel.deepseek";
 const DEEPSEEK_KEYRING_ACCOUNT: &str = "default";
+const OLLAMA_KEYRING_ACCOUNT: &str = "default";
 
 pub async fn load_app_ui_settings() -> Result<AppUiSettings, String> {
     read_json_file(app_ui_settings_path()).await
@@ -61,6 +62,29 @@ pub async fn save_deepseek_api_key(api_key: String) -> Result<(), String> {
     })
     .await
     .map_err(|err| format!("failed to join DeepSeek secret task: {err}"))?
+}
+
+pub async fn load_ollama_api_key() -> Result<String, String> {
+    tokio::task::spawn_blocking(|| {
+        load_api_key_sync(
+            models::OllamaSettings::keyring_service(),
+            OLLAMA_KEYRING_ACCOUNT,
+        )
+    })
+    .await
+    .map_err(|err| format!("failed to join Ollama secret task: {err}"))?
+}
+
+pub async fn save_ollama_api_key(api_key: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        save_api_key_sync(
+            models::OllamaSettings::keyring_service(),
+            OLLAMA_KEYRING_ACCOUNT,
+            &api_key,
+        )
+    })
+    .await
+    .map_err(|err| format!("failed to join Ollama secret task: {err}"))?
 }
 
 fn load_api_key_sync(service: &str, account: &str) -> Result<String, String> {

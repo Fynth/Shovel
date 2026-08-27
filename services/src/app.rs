@@ -78,6 +78,12 @@ pub async fn load_app_startup_settings() -> Result<AppStartupSettings, String> {
         storage::save_deepseek_api_key,
     )
     .await?;
+    hydrate_secret(
+        &mut ui_settings.ollama.api_key,
+        storage::load_ollama_api_key().await?,
+        storage::save_ollama_api_key,
+    )
+    .await?;
 
     Ok(AppStartupSettings {
         ui_settings,
@@ -124,6 +130,7 @@ fn load_shovel_config() -> Result<Option<ShovelConfig>, String> {
 pub async fn save_app_ui_settings_with_secrets(settings: AppUiSettings) -> Result<(), String> {
     let codestral_api_key = settings.codestral.api_key.clone();
     let deepseek_api_key = settings.deepseek.api_key.clone();
+    let ollama_api_key = settings.ollama.api_key.clone();
 
     storage::save_app_ui_settings(settings)
         .await
@@ -137,6 +144,9 @@ pub async fn save_app_ui_settings_with_secrets(settings: AppUiSettings) -> Resul
     }
     if let Err(err) = storage::save_deepseek_api_key(deepseek_api_key).await {
         secret_errors.push(format!("DeepSeek: {err}"));
+    }
+    if let Err(err) = storage::save_ollama_api_key(ollama_api_key).await {
+        secret_errors.push(format!("Ollama: {err}"));
     }
 
     if secret_errors.is_empty() {

@@ -193,6 +193,8 @@ pub fn SettingsWindowRoot(props: SettingsWindowRootProps) -> Element {
     // palette. The user can still switch theme from inside the modal — that
     // edit goes through the bridge and the next render picks it up.
     let theme_class = ui().theme.css_class().to_string();
+    let density_class = ui().density.css_class();
+    let theme_css = ui().theme_overrides.to_css();
 
     let on_change =
         move |(next_ui, next_sql): (models::AppUiSettings, models::SqlFormatSettings)| {
@@ -210,7 +212,10 @@ pub fn SettingsWindowRoot(props: SettingsWindowRootProps) -> Element {
 
     rsx! {
         document::Style { {APP_CSS.to_string()} }
-        div { class: "settings-window-shell {theme_class}",
+        if !theme_css.is_empty() {
+            style { {theme_css} }
+        }
+        div { class: "settings-window-shell {theme_class} {density_class}",
             SettingsModal {
                 settings: ui(),
                 sql_settings: sql(),

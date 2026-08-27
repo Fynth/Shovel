@@ -338,6 +338,12 @@ impl Default for OllamaSettings {
     }
 }
 
+impl OllamaSettings {
+    pub fn keyring_service() -> &'static str {
+        "shovel.ollama"
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct EditorSettings {
@@ -519,6 +525,7 @@ mod tests {
         AppUiSettings,
         ExplorerViewSettings,
         NullDisplay,
+        OllamaSettings,
         UiDensity,
         WorkspaceSplitMode,
         format_null_display,
@@ -793,6 +800,11 @@ mod tests {
 
         assert!(!serialized.contains("deepseek-secret"));
         assert!(!serialized.contains("\"api_key\""));
+    }
+
+    #[test]
+    fn ollama_keyring_service_name_is_stable() {
+        assert_eq!(OllamaSettings::keyring_service(), "shovel.ollama");
     }
 
     #[test]
