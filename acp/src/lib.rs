@@ -1,5 +1,7 @@
 // Core ACP functionality (no DB dependencies) — re-exported from acp-core.
 pub use acp_core::{
+    CompleteRequest,
+    CompletionToken,
     NativeChatMessage,
     NativeChatRequest,
     agents::{
@@ -14,6 +16,7 @@ pub use acp_core::{
         SqlExpert,
         UserIntent,
     },
+    complete_sql,
     deepseek::{
         self,
         EmbeddedDeepSeekAgentConfig,

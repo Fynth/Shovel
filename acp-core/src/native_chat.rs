@@ -63,7 +63,7 @@ pub enum NativeChatEvent {
     Error(String),
 }
 
-fn auth_headers(api_key: &str) -> Result<HeaderMap, String> {
+pub(crate) fn auth_headers(api_key: &str) -> Result<HeaderMap, String> {
     let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
     let trimmed = api_key.trim();
