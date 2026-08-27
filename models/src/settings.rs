@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::{KeybindingMap, ThemeOverrides};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum WorkspaceToolPanel {
     Connections,
@@ -336,6 +338,84 @@ impl Default for OllamaSettings {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EditorSettings {
+    pub font_size: u32,
+    pub tab_size: u32,
+    pub auto_format_on_run: bool,
+    pub word_wrap: bool,
+    pub show_line_numbers: bool,
+}
+
+impl Default for EditorSettings {
+    fn default() -> Self {
+        Self {
+            font_size: 13,
+            tab_size: 2,
+            auto_format_on_run: false,
+            word_wrap: false,
+            show_line_numbers: true,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NullDisplay {
+    #[default]
+    Literal,
+    Empty,
+    EmDash,
+}
+
+impl NullDisplay {
+    pub const ALL: [Self; 3] = [Self::Literal, Self::Empty, Self::EmDash];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Literal => "NULL",
+            Self::Empty => "Empty",
+            Self::EmDash => "—",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GridSettings {
+    pub row_height: u32,
+    pub zebra: bool,
+    pub null_display: NullDisplay,
+    pub wrap_cells: bool,
+}
+
+impl Default for GridSettings {
+    fn default() -> Self {
+        Self {
+            row_height: 28,
+            zebra: false,
+            null_display: NullDisplay::Literal,
+            wrap_cells: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AppBehaviorSettings {
+    pub confirm_before_drop: bool,
+    pub confirm_before_truncate: bool,
+}
+
+impl Default for AppBehaviorSettings {
+    fn default() -> Self {
+        Self {
+            confirm_before_drop: true,
+            confirm_before_truncate: true,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppUiSettings {
@@ -378,6 +458,12 @@ pub struct AppUiSettings {
     /// `Vertical` = stacked with explicit split affordance). The default
     /// is `Off` so existing installs are visually unchanged.
     pub split_mode: WorkspaceSplitMode,
+
+    pub theme_overrides: ThemeOverrides,
+    pub keybindings: KeybindingMap,
+    pub editor: EditorSettings,
+    pub grid: GridSettings,
+    pub behavior: AppBehaviorSettings,
 }
 
 impl Default for AppUiSettings {
@@ -405,6 +491,11 @@ impl Default for AppUiSettings {
             show_bottom_panel: true,
             bottom_panel_height: 120.0,
             split_mode: WorkspaceSplitMode::default(),
+            theme_overrides: ThemeOverrides::default(),
+            keybindings: KeybindingMap::new(),
+            editor: EditorSettings::default(),
+            grid: GridSettings::default(),
+            behavior: AppBehaviorSettings::default(),
         }
     }
 }
@@ -415,9 +506,11 @@ mod tests {
         AppThemePreference,
         AppUiSettings,
         ExplorerViewSettings,
+        NullDisplay,
         UiDensity,
         WorkspaceSplitMode,
     };
+    use crate::ThemeOverrides;
 
     #[test]
     fn fresh_default_keeps_sql_editor_collapsed() {
@@ -1059,5 +1152,60 @@ mod tests {
             WorkspaceSplitMode::Vertical
         );
         assert_eq!(WorkspaceSplitMode::Vertical.next(), WorkspaceSplitMode::Off);
+    }
+
+    #[test]
+    fn fresh_defaults_match_settings_spec() {
+        let s = AppUiSettings::default();
+        assert_eq!(s.editor.font_size, 13);
+        assert_eq!(s.editor.tab_size, 2);
+        assert!(!s.editor.auto_format_on_run);
+        assert!(!s.editor.word_wrap);
+        assert!(s.editor.show_line_numbers);
+        assert_eq!(s.grid.row_height, 28);
+        assert!(!s.grid.zebra);
+        assert_eq!(s.grid.null_display, NullDisplay::Literal);
+        assert!(!s.grid.wrap_cells);
+        assert!(s.behavior.confirm_before_drop);
+        assert!(s.behavior.confirm_before_truncate);
+        assert!(s.keybindings.is_empty());
+        assert_eq!(s.theme_overrides, ThemeOverrides::default());
+    }
+
+    #[test]
+    fn legacy_json_without_new_fields_gets_spec_defaults() {
+        let settings: AppUiSettings = serde_json::from_str(r#"{"theme":"Dark"}"#)
+            .expect("legacy settings should deserialize");
+        assert_eq!(settings.editor.font_size, 13);
+        assert!(settings.editor.show_line_numbers);
+        assert_eq!(settings.grid.row_height, 28);
+        assert!(settings.behavior.confirm_before_drop);
+        assert!(settings.keybindings.is_empty());
+    }
+
+    #[test]
+    fn new_settings_fields_round_trip() {
+        let mut settings = AppUiSettings::default();
+        settings.editor.font_size = 16;
+        settings.editor.word_wrap = true;
+        settings.grid.zebra = true;
+        settings.grid.null_display = NullDisplay::EmDash;
+        settings.behavior.confirm_before_drop = false;
+        settings
+            .keybindings
+            .insert("format_sql".into(), "Ctrl+Alt+F".into());
+        settings.theme_overrides.primary = Some("#ff8800".into());
+        let json = serde_json::to_string(&settings).unwrap();
+        let back: AppUiSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.editor.font_size, 16);
+        assert!(back.editor.word_wrap);
+        assert!(back.grid.zebra);
+        assert_eq!(back.grid.null_display, NullDisplay::EmDash);
+        assert!(!back.behavior.confirm_before_drop);
+        assert_eq!(
+            back.keybindings.get("format_sql").map(String::as_str),
+            Some("Ctrl+Alt+F")
+        );
+        assert_eq!(back.theme_overrides.primary.as_deref(), Some("#ff8800"));
     }
 }
