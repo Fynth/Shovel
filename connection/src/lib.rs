@@ -200,8 +200,19 @@ pub async fn test_connection(request: ConnectionRequest) -> Result<(), DatabaseE
 ///   ClickHouse endpoint requested over SSH, unparseable ClickHouse URL).
 /// * `DatabaseError::Unsupported` — the requested driver is not compiled in.
 pub async fn connect_to_db(request: ConnectionRequest) -> Result<SessionHandle, DatabaseError> {
-    let session_key = request.identity_key();
+    let tunnel_key = request.identity_key();
+    connect_to_db_with_tunnel_key(request, &tunnel_key).await
+}
 
+/// Like [`connect_to_db`], but registers any SSH tunnel under `tunnel_key`
+/// instead of [`ConnectionRequest::identity_key`].
+///
+/// Use this for ephemeral connections (ACP introspection) so they cannot
+/// replace a UI session tunnel registered under the request identity key.
+pub async fn connect_to_db_with_tunnel_key(
+    request: ConnectionRequest,
+    tunnel_key: &str,
+) -> Result<SessionHandle, DatabaseError> {
     match request {
         #[cfg(feature = "sqlite")]
         ConnectionRequest::Sqlite(data) => {
@@ -242,7 +253,7 @@ pub async fn connect_to_db(request: ConnectionRequest) -> Result<SessionHandle, 
             }
             .await;
 
-            finalize_tunnel(&session_key, resolved, &result);
+            finalize_tunnel(tunnel_key, resolved, &result);
             result
         }
         #[cfg(feature = "mysql")]
@@ -281,7 +292,7 @@ pub async fn connect_to_db(request: ConnectionRequest) -> Result<SessionHandle, 
             }
             .await;
 
-            finalize_tunnel(&session_key, resolved, &result);
+            finalize_tunnel(tunnel_key, resolved, &result);
             result
         }
         #[cfg(feature = "clickhouse")]
@@ -320,7 +331,7 @@ pub async fn connect_to_db(request: ConnectionRequest) -> Result<SessionHandle, 
             }
             .await;
 
-            finalize_tunnel(&session_key, resolved, &result);
+            finalize_tunnel(tunnel_key, resolved, &result);
             result
         }
         #[allow(unreachable_patterns)]

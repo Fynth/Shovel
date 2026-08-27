@@ -7,8 +7,11 @@
 //! - Table statistics
 //!
 //! All introspection queries use a dedicated connection obtained via
-//! [`connection::connect_to_db`]. The handle is **not** registered in the
-//! session registry, so dropping this pool drops the dedicated connection.
+//! [`connection::connect_to_db_with_tunnel_key`]. The handle is **not**
+//! registered in the session registry, so dropping this pool drops the
+//! dedicated connection. Any SSH tunnel is registered under
+//! [`introspection_ssh_tunnel_key`] (not the UI session identity key) and
+//! released when the pool is dropped.
 
 use std::time::Duration;
 
@@ -56,14 +59,36 @@ impl Default for IntrospectionConfig {
     }
 }
 
+/// Suffix appended to [`ConnectionRequest::identity_key`] so an ephemeral
+/// ACP introspection SSH tunnel cannot clobber the UI session tunnel.
+const INTROSPECTION_TUNNEL_KEY_SUFFIX: &str = "::acp-introspect";
+
+/// SSH tunnel registry key for a dedicated ACP introspection connection.
+///
+/// Distinct from [`ConnectionRequest::identity_key`] so registering the
+/// introspection tunnel cannot shut down the UI session tunnel that shares
+/// the same request.
+pub fn introspection_ssh_tunnel_key(identity_key: &str) -> String {
+    format!("{identity_key}{INTROSPECTION_TUNNEL_KEY_SUFFIX}")
+}
+
 /// A dedicated connection for introspection queries.
 ///
-/// Created through [`connection::connect_to_db`] and **not** registered as a
-/// UI session. Dropping the pool drops the handle.
+/// Created through [`connection::connect_to_db_with_tunnel_key`] and **not**
+/// registered as a UI session. Dropping the pool drops the handle, then
+/// releases any SSH tunnel registered under [`introspection_ssh_tunnel_key`].
 pub struct IntrospectionPool {
-    handle: SessionHandle,
+    handle: Option<SessionHandle>,
+    ssh_tunnel_key: String,
     #[allow(dead_code)]
     config: IntrospectionConfig,
+}
+
+impl Drop for IntrospectionPool {
+    fn drop(&mut self) {
+        drop(self.handle.take());
+        connection::release_ssh_tunnel(&self.ssh_tunnel_key);
+    }
 }
 
 /// Rate limiter for introspection queries
@@ -122,7 +147,8 @@ impl IntrospectionRateLimiter {
 impl IntrospectionPool {
     /// Create a dedicated introspection pool from a connection request.
     ///
-    /// Calls [`connection::connect_to_db`] and does **not**
+    /// Calls [`connection::connect_to_db_with_tunnel_key`] with
+    /// [`introspection_ssh_tunnel_key`] and does **not**
     /// [`connection::register_session`].
     pub async fn from_request(request: ConnectionRequest) -> Result<Self, String> {
         Self::from_request_with_config(request, IntrospectionConfig::default()).await
@@ -145,20 +171,31 @@ impl IntrospectionPool {
         request: ConnectionRequest,
         config: IntrospectionConfig,
     ) -> Result<Self, String> {
-        let handle = connection::connect_to_db(request)
+        let ssh_tunnel_key = introspection_ssh_tunnel_key(&request.identity_key());
+        let handle = connection::connect_to_db_with_tunnel_key(request, &ssh_tunnel_key)
             .await
             .map_err(|e| format!("Failed to create introspection pool: {e}"))?;
-        Ok(Self { handle, config })
+        Ok(Self {
+            handle: Some(handle),
+            ssh_tunnel_key,
+            config,
+        })
+    }
+
+    fn handle(&self) -> &SessionHandle {
+        self.handle
+            .as_ref()
+            .expect("IntrospectionPool used after drop")
     }
 
     /// Get the database kind
     pub fn database_kind(&self) -> DatabaseKind {
-        self.handle.kind()
+        self.handle().kind()
     }
 
     /// Run full introspection with rate limiting
     pub async fn introspect(&self) -> IntrospectionResult {
-        match self.handle.introspect() {
+        match self.handle().introspect() {
             Some(exec) => exec.introspect().await,
             None => IntrospectionResult {
                 collected_at: Some(
@@ -211,5 +248,41 @@ mod tests {
         let config = IntrospectionConfig::default();
         let limiter = IntrospectionRateLimiter::new(&config);
         assert!(limiter.can_run_heavy());
+    }
+
+    #[test]
+    fn introspection_ssh_tunnel_key_differs_from_session_identity() {
+        let request = ConnectionRequest::Postgres(models::PostgresFormData {
+            host: "db.example.com".to_string(),
+            port: 5432,
+            username: "alice".to_string(),
+            password: "secret".to_string(),
+            database: "app".to_string(),
+            ssl_mode: "prefer".to_string(),
+            ssh_tunnel: Some(models::SshTunnelConfig {
+                host: "bastion.example.com".to_string(),
+                port: 22,
+                username: "ops".to_string(),
+                private_key_path: String::new(),
+            }),
+        });
+        let identity = request.identity_key();
+        let ephemeral = introspection_ssh_tunnel_key(&identity);
+        assert_ne!(ephemeral, identity);
+        assert_eq!(ephemeral, format!("{identity}::acp-introspect"));
+    }
+
+    #[tokio::test]
+    async fn introspection_pool_stores_ephemeral_ssh_key() {
+        let request = ConnectionRequest::Sqlite(models::SqliteFormData {
+            path: ":memory:".to_string(),
+        });
+        let identity = request.identity_key();
+        let pool = IntrospectionPool::from_request(request)
+            .await
+            .expect("sqlite :memory: connect");
+        assert_ne!(pool.ssh_tunnel_key, identity);
+        assert_eq!(pool.ssh_tunnel_key, introspection_ssh_tunnel_key(&identity));
+        drop(pool);
     }
 }
