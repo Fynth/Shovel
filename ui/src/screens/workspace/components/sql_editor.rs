@@ -55,13 +55,15 @@ use std::{
 use self::{
     completion_menu::{
         CaretAnchor,
-        MENU_WIDTH,
+        MENU_VISIBLE_ROWS,
+        MenuGeometry,
         SqlCompletionMenu,
         apply_menu_item_if_current,
         autocomplete_offset,
         caret_anchor_script,
         map_completion_key,
         menu_height_for_items,
+        menu_width_for_items,
         should_refresh_menu_caret,
         table_missing_columns,
     },
@@ -354,6 +356,7 @@ fn accept_completion_menu_item(
     mut menu_force: Signal<bool>,
     mut menu_closed: Signal<bool>,
     mut menu_source_sql: Signal<String>,
+    mut menu_token: Signal<String>,
 ) {
     let sql = draft_sql.peek().clone();
     let source_sql = menu_source_sql.peek().clone();
@@ -368,6 +371,7 @@ fn accept_completion_menu_item(
     menu_force.set(false);
     menu_closed.set(true);
     menu_source_sql.set(String::new());
+    menu_token.set(String::new());
     reset_completion_to_snapshot(completion_runtime, hash_completion_snapshot(&next, cursor));
     editor_revision += 1;
     sync_active_tab_sql_draft(store, active_tab_id_value, next.clone());
@@ -1034,6 +1038,7 @@ pub fn SqlEditor(
     let mut menu_force = use_signal(|| false);
     let mut menu_closed = use_signal(|| false);
     let mut menu_source_sql = use_signal(String::new);
+    let mut menu_token = use_signal(String::new);
     let caret_anchor = use_signal(CaretAnchor::default);
     let mut column_fetches = use_signal(HashSet::<(u64, String, String)>::new);
     let mut explorer_sections = explorer_sections;
@@ -1207,6 +1212,7 @@ pub fn SqlEditor(
             if start != end {
                 menu_items.set(Vec::new());
                 menu_source_sql.set(String::new());
+                menu_token.set(String::new());
                 return;
             }
 
@@ -1276,6 +1282,7 @@ pub fn SqlEditor(
             if closed && !force {
                 menu_items.set(Vec::new());
                 menu_source_sql.set(String::new());
+                menu_token.set(String::new());
                 return;
             }
 
@@ -1286,6 +1293,7 @@ pub fn SqlEditor(
             let len = items.len();
             menu_items.set(items);
             menu_source_sql.set(sql_text);
+            menu_token.set(query.token.clone());
             menu_index.set(if len == 0 {
                 0
             } else {
@@ -1476,11 +1484,6 @@ pub fn SqlEditor(
                 draft_sql()
             }
         });
-    let editor_class = if typing_now {
-        "sql-editor sql-editor--typing"
-    } else {
-        "sql-editor"
-    };
     let editor = APP_EDITOR_BEHAVIOR();
     let wrap = if editor.word_wrap { "pre-wrap" } else { "pre" };
     let editor_style = format!(
@@ -1502,6 +1505,7 @@ pub fn SqlEditor(
     let inline_cursor_position = completion_active.then_some(inline_cursor);
     let menu_now = menu_items();
     let menu_height = menu_height_for_items(menu_now.len());
+    let menu_width = menu_width_for_items(&menu_now);
     let caret = caret_anchor();
     let (menu_left, menu_top, _) = autocomplete_offset(
         caret.x,
@@ -1510,13 +1514,19 @@ pub fn SqlEditor(
         menu_height,
         caret.editor_height,
         caret.editor_width,
-        MENU_WIDTH,
+        menu_width,
     );
     let menu_active_index = menu_index();
+    let menu_geometry = MenuGeometry {
+        left: menu_left,
+        top: menu_top,
+        width: menu_width,
+        max_height: menu_height,
+    };
 
     rsx! {
         div {
-            class: editor_class.to_string(),
+            class: "sql-editor",
             style: editor_style.clone(),
 
             if editor.show_line_numbers {
@@ -1538,12 +1548,14 @@ pub fn SqlEditor(
                     class: "sql-editor__highlight",
                     style: highlight_style,
                     aria_hidden: "true",
-                    if !typing_now || completion_active {
-                        SqlHighlightContent {
-                            sql: current_sql.clone(),
-                            inline_cursor_position,
-                            inline_suffix,
-                        }
+                    // The highlight layer always renders so editor text stays
+                    // visible while typing; `plain` skips tree-sitter work
+                    // until the typing debounce settles.
+                    SqlHighlightContent {
+                        sql: current_sql.clone(),
+                        plain: typing_now,
+                        inline_cursor_position,
+                        inline_suffix,
                     }
                 }
 
@@ -1694,6 +1706,7 @@ pub fn SqlEditor(
                             menu_force.set(false);
                             menu_closed.set(true);
                             menu_source_sql.set(String::new());
+                            menu_token.set(String::new());
                         }
                         EditorKeyAction::DismissGhost => {
                             event.prevent_default();
@@ -1728,6 +1741,23 @@ pub fn SqlEditor(
                                 });
                             }
                         }
+                        EditorKeyAction::MenuPage(delta) => {
+                            event.prevent_default();
+                            let len = menu_items.peek().len();
+                            if len > 1 {
+                                let page = (len as i32 - 1).min(MENU_VISIBLE_ROWS as i32).max(1);
+                                menu_index.with_mut(|index| {
+                                    *index =
+                                        (*index as i32 + delta * page).clamp(0, len as i32 - 1)
+                                            as usize;
+                                });
+                            }
+                        }
+                        EditorKeyAction::MenuEdge { start } => {
+                            event.prevent_default();
+                            let len = menu_items.peek().len();
+                            menu_index.set(if start { 0 } else { len.saturating_sub(1) });
+                        }
                         EditorKeyAction::AcceptMenu => {
                             event.prevent_default();
                             let item = {
@@ -1749,6 +1779,7 @@ pub fn SqlEditor(
                                     menu_force,
                                     menu_closed,
                                     menu_source_sql,
+                                    menu_token,
                                 );
                             }
                         }
@@ -1844,9 +1875,8 @@ pub fn SqlEditor(
                 SqlCompletionMenu {
                     items: menu_now.clone(),
                     active_index: menu_active_index,
-                    left: menu_left,
-                    top: menu_top,
-                    max_height: menu_height,
+                    token: menu_token(),
+                    geometry: menu_geometry,
                     on_accept: move |index| {
                         let item = menu_items.peek().get(index).cloned();
                         if let Some(item) = item {
@@ -1864,6 +1894,7 @@ pub fn SqlEditor(
                                 menu_force,
                                 menu_closed,
                                 menu_source_sql,
+                                menu_token,
                             );
                         }
                     },

@@ -8,6 +8,10 @@ pub enum CompletionKey {
     Enter,
     ArrowUp,
     ArrowDown,
+    PageUp,
+    PageDown,
+    Home,
+    End,
     Character(char),
     CtrlSpace,
     AltRBracket,
@@ -23,6 +27,8 @@ pub enum EditorKeyAction {
     CycleGhostNext,
     CycleGhostPrev,
     MenuMove(i32),
+    MenuPage(i32),
+    MenuEdge { start: bool },
     AcceptMenu,
     AcceptGhost,
     Indent { shift: bool },
@@ -64,6 +70,30 @@ pub fn editor_completion_action(
         CompletionKey::ArrowDown =>
             if menu_open {
                 EditorKeyAction::MenuMove(1)
+            } else {
+                EditorKeyAction::Pass
+            },
+        CompletionKey::PageUp =>
+            if menu_open {
+                EditorKeyAction::MenuPage(-1)
+            } else {
+                EditorKeyAction::Pass
+            },
+        CompletionKey::PageDown =>
+            if menu_open {
+                EditorKeyAction::MenuPage(1)
+            } else {
+                EditorKeyAction::Pass
+            },
+        CompletionKey::Home =>
+            if menu_open {
+                EditorKeyAction::MenuEdge { start: true }
+            } else {
+                EditorKeyAction::Pass
+            },
+        CompletionKey::End =>
+            if menu_open {
+                EditorKeyAction::MenuEdge { start: false }
             } else {
                 EditorKeyAction::Pass
             },
@@ -126,5 +156,17 @@ mod tests {
         );
         assert_eq!(editor_completion_action(Character('a'), true, true), Pass);
         assert_eq!(editor_completion_action(Other, false, false), Pass);
+        assert_eq!(editor_completion_action(PageUp, true, false), MenuPage(-1));
+        assert_eq!(editor_completion_action(PageDown, true, false), MenuPage(1));
+        assert_eq!(editor_completion_action(PageUp, false, false), Pass);
+        assert_eq!(
+            editor_completion_action(Home, true, false),
+            MenuEdge { start: true }
+        );
+        assert_eq!(
+            editor_completion_action(End, true, false),
+            MenuEdge { start: false }
+        );
+        assert_eq!(editor_completion_action(Home, false, false), Pass);
     }
 }

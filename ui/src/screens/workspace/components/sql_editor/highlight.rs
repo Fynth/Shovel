@@ -52,24 +52,36 @@ pub fn inline_highlight_parts<'a>(
 #[component]
 pub(super) fn SqlHighlightContent(
     sql: String,
+    // While the user is typing we skip tree-sitter and render plain text so
+    // the editor content is never invisible; full highlighting kicks in once
+    // typing settles.
+    plain: bool,
     inline_cursor_position: Option<usize>,
     inline_suffix: Option<String>,
 ) -> Element {
     let inline_cursor_position = inline_cursor_position.unwrap_or(sql.len()).min(sql.len());
     let highlighted_before = use_memo(use_reactive(
-        (&sql, &inline_cursor_position, &inline_suffix),
-        |(sql, inline_cursor_position, inline_suffix)| {
+        (&sql, &inline_cursor_position, &inline_suffix, &plain),
+        |(sql, inline_cursor_position, inline_suffix, plain)| {
             let (before, _, _) =
                 inline_highlight_parts(&sql, inline_cursor_position, inline_suffix.as_deref());
-            highlight_sql(before)
+            if plain {
+                vec![plain_segment(before)]
+            } else {
+                highlight_sql(before)
+            }
         },
     ));
     let highlighted_after = use_memo(use_reactive(
-        (&sql, &inline_cursor_position, &inline_suffix),
-        |(sql, inline_cursor_position, inline_suffix)| {
+        (&sql, &inline_cursor_position, &inline_suffix, &plain),
+        |(sql, inline_cursor_position, inline_suffix, plain)| {
             let (_, _, after) =
                 inline_highlight_parts(&sql, inline_cursor_position, inline_suffix.as_deref());
-            highlight_sql(after)
+            if plain {
+                vec![plain_segment(after)]
+            } else {
+                highlight_sql(after)
+            }
         },
     ));
     rsx! {

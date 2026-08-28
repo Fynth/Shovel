@@ -4723,15 +4723,6 @@ select.input:focus-visible {
   will-change: transform;
 }
 
-.sql-editor--typing .sql-editor__highlight {
-  opacity: 0;
-}
-
-.sql-editor--typing .sql-editor__input {
-  color: var(--editor-token-plain);
-  -webkit-text-fill-color: var(--editor-token-plain);
-}
-
 @media (max-height: 860px) {
   .editor {
     min-height: 96px;
@@ -4803,69 +4794,97 @@ select.input:focus-visible {
 
 .sql-editor__autocomplete {
   position: absolute;
-  z-index: 3;
-  min-width: 220px;
-  max-width: min(360px, 100% - 8px);
+  z-index: 30;
   display: flex;
   flex-direction: column;
   overflow: auto;
+  overscroll-behavior: contain;
+  padding: 4px;
   border: 1px solid var(--color-border);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--color-surface-elevated, var(--color-panel-2));
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.2);
+  scrollbar-width: thin;
 }
 
 .sql-editor__autocomplete-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  padding: 6px 8px;
+  flex: none;
+  min-width: 0;
+  height: 26px;
+  box-sizing: border-box;
+  padding: 0 8px;
   border: 0;
-  border-bottom: 1px solid var(--color-border);
+  border-radius: 5px;
   background: transparent;
   color: var(--color-text);
   text-align: left;
   cursor: pointer;
 }
 
-.sql-editor__autocomplete-item:last-child {
-  border-bottom: 0;
-}
-
 .sql-editor__autocomplete-item:hover,
 .sql-editor__autocomplete-item--active {
-  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
-}
-
-.sql-editor__autocomplete-copy {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  background: color-mix(in srgb, var(--color-primary) 16%, transparent);
 }
 
 .sql-editor__autocomplete-label {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: "SF Mono", "JetBrains Mono", "Cascadia Code", monospace;
+  font-size: 12.5px;
+}
+
+.sql-editor__autocomplete-match {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, var(--color-primary) 80%, transparent);
   font-weight: 600;
 }
 
 .sql-editor__autocomplete-detail {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--color-text-muted);
   font-size: 11px;
 }
 
 .sql-editor__autocomplete-kind {
-  flex-shrink: 0;
-  padding: 2px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
+  flex: none;
+  margin-left: auto;
   color: var(--color-text-muted);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+
+.sql-editor__autocomplete-kind--keyword {
+  color: var(--editor-token-keyword);
+}
+
+.sql-editor__autocomplete-kind--schema {
+  color: var(--editor-token-string);
+}
+
+.sql-editor__autocomplete-kind--table,
+.sql-editor__autocomplete-kind--view {
+  color: var(--editor-token-number);
+}
+
+.sql-editor__autocomplete-kind--column {
+  color: var(--editor-token-attribute);
+}
+
+.sql-editor__autocomplete-kind--fn,
+.sql-editor__autocomplete-kind--proc {
+  color: var(--editor-token-function);
 }
 
 .sql-editor__token {
