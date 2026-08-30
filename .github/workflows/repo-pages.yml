@@ -25,7 +25,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ github.event.inputs.git_ref || format('refs/tags/v{0}', github.event.inputs.version) }}
@@ -82,7 +82,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ github.event.inputs.git_ref || format('refs/tags/v{0}', github.event.inputs.version) }}
@@ -171,7 +171,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ github.event.inputs.git_ref || format('refs/tags/v{0}', github.event.inputs.version) }}
@@ -234,7 +234,7 @@ jobs:
 
     steps:
       - name: Checkout landing page
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.git_ref || format('refs/tags/v{0}', github.event.inputs.version) }}
           sparse-checkout: pages
