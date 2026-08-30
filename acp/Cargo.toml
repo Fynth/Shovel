@@ -29,7 +29,7 @@ shlex = "1.3.0"
 storage.workspace = true
 tokio.workspace = true
 tokio-util = { version = "0.7", features = ["compat"] }
-tokenizers = { version = "0.21", optional = true }
+tokenizers = { version = "0.23", optional = true }
 ort = { version = "2.0.0-rc.9", features = ["half", "ndarray"], optional = true }
 tracing = "0.1"
 
