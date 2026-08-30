@@ -20,5 +20,5 @@ serde_json.workspace = true
 services.workspace = true
 tokio.workspace = true
 tokio-util = { version = "0.7" }
-tree-sitter-highlight = "0.25.10"
+tree-sitter-highlight = "0.26.12"
 tree-sitter-sequel = "0.3.11"
