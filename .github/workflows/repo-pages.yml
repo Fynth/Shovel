@@ -240,19 +240,19 @@ jobs:
           sparse-checkout: pages
 
       - name: Download APT site artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: apt-site
           path: _site-input/apt-site
 
       - name: Download Arch site artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: pacman-site
           path: _site-input/pacman-site
 
       - name: Download Flatpak site artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: flatpak-site
           path: _site-input/flatpak-site
